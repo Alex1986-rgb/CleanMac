@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.pyc
+
+# Артефакты сборки иконки
+*.iconset/
+icon_1024.png
+
+# Сборки
+build/
+dist/
+*.dmg
+*.spec
+
+# macOS
+.DS_Store
