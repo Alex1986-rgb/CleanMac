@@ -10,7 +10,7 @@ import urllib.request
 import tkinter as tk
 from tkinter import messagebox
 
-VERSION = "2.2.0"
+VERSION = "2.3.0"
 REPO    = "Alex1986-rgb/CleanMac"          # для проверки обновлений
 BUY_URL = "https://alex1986-rgb.gumroad.com/l/cleanmac"   # ссылка на Pro (заглушка)
 HOME  = os.path.expanduser("~")
@@ -155,6 +155,26 @@ CATEGORIES = [
          os.path.join(HOME,"Library/Caches/Yarn"), os.path.join(HOME,"Library/Caches/Homebrew")], None, "whole"),
 ]
 
+# ---------- приватность ----------
+PRIVACY_ITEMS = [
+    ("recent", "Списки недавних файлов", [os.path.join(HOME,"Library/Application Support/com.apple.sharedfilelist")], None),
+    ("savedstate", "Сохранённые состояния окон", [os.path.join(HOME,"Library/Saved Application State")], None),
+    ("safari", "История Safari", [os.path.join(HOME,"Library/Safari/History.db"),
+        os.path.join(HOME,"Library/Safari/History.db-wal"), os.path.join(HOME,"Library/Safari/History.db-shm")], "Safari"),
+    ("chrome", "История и cookies Chrome", [
+        os.path.join(HOME,"Library/Application Support/Google/Chrome/Default/History"),
+        os.path.join(HOME,"Library/Application Support/Google/Chrome/Default/Cookies"),
+        os.path.join(HOME,"Library/Application Support/Google/Chrome/Default/Visited Links")], "Chrome"),
+    ("edge", "История и cookies Edge", [
+        os.path.join(HOME,"Library/Application Support/Microsoft Edge/Default/History"),
+        os.path.join(HOME,"Library/Application Support/Microsoft Edge/Default/Cookies")], "Edge"),
+]
+
+# ---------- сигнатуры известного рекламного/нежелательного ПО (эвристика) ----------
+ADWARE = ["genieo","installmac","vsearch","conduit","mackeeper","pirrit","bundlore","adload",
+          "spigot","crossrider","trovi","mughthesec","shlayer","searchquick","search-quick",
+          "advancedmaccleaner","macsweeper","weknow","aerodynamic","chumsearch","maxxmediasearch"]
+
 
 class CleanMac(tk.Tk):
     def __init__(self):
@@ -191,8 +211,9 @@ class CleanMac(tk.Tk):
         tk.Label(self.side, text=f"  v{VERSION} · оптимизатор", bg=SIDEBAR, fg=MUTED,
                  font=("SF Pro Text", 10)).pack(anchor="w", padx=12, pady=(0,18))
         self.nav_btns = {}
-        for key,label in [("dash","📊  Дашборд"),("smart","✨  Умная очистка"),("autopilot","🚀  Автопилот"),
-                          ("cleaner","🧽  Очистка"),("tools","🛠  Инструменты"),("pro","⭐️  Pro / О программе")]:
+        for key,label in [("dash","📊  Дашборд"),("smart","✨  Умная очистка"),("privacy","🔒  Приватность"),
+                          ("threats","🛡  Защита"),("autopilot","🚀  Автопилот"),("cleaner","🧽  Очистка"),
+                          ("tools","🛠  Инструменты"),("pro","⭐️  Pro / О программе")]:
             b = tk.Label(self.side, text="   "+label, bg=SIDEBAR, fg=TEXT, font=("SF Pro Text", 13),
                          anchor="w", padx=10, pady=12, cursor="pointinghand")
             b.pack(fill="x"); b.bind("<Button-1>", lambda e,k=key: self.nav(k)); self.nav_btns[key]=b
@@ -206,7 +227,8 @@ class CleanMac(tk.Tk):
         self.page = key
         for k,b in self.nav_btns.items(): b.configure(bg=GLASS if k==key else SIDEBAR)
         for w in self.main.winfo_children(): w.destroy()
-        {"dash":self.show_dash,"smart":self.show_smart,"autopilot":self.show_autopilot,"cleaner":self.show_cleaner,
+        {"dash":self.show_dash,"smart":self.show_smart,"privacy":self.show_privacy,"threats":self.show_threats,
+         "autopilot":self.show_autopilot,"cleaner":self.show_cleaner,
          "tools":self.show_tools,"pro":self.show_pro}[key]()
 
     def status(self,t): self.statusbar.configure(text=t)
@@ -816,6 +838,116 @@ class CleanMac(tk.Tk):
         run(["osascript","-e",'tell application "Finder" to empty the trash'])
         messagebox.showinfo("CleanMac","Запрошена очистка Корзины.")
 
+    # ================= ПРИВАТНОСТЬ =================
+    def show_privacy(self):
+        tk.Label(self.main, text="Приватность", bg=BG0, fg=TEXT, font=("SF Pro Display",22,"bold")
+                 ).pack(anchor="w", padx=24, pady=(16,2))
+        tk.Label(self.main, text="Очистка следов работы → в Корзину (обратимо). Браузеры должны быть закрыты.",
+                 bg=BG0, fg=MUTED, font=("SF Pro Text",11)).pack(anchor="w", padx=24, pady=(0,10))
+        wrap=tk.Frame(self.main, bg=GLASS); wrap.pack(fill="x", padx=24, pady=(0,8))
+        self.pv_vars={}; self.pv_lbl={}; self.pv_found={}
+        for pid,title,paths,skip in PRIVACY_ITEMS:
+            r=tk.Frame(wrap, bg=GLASS); r.pack(fill="x", padx=14, pady=6)
+            v=tk.BooleanVar(value=False); self.pv_vars[pid]=v
+            tk.Checkbutton(r, text="  "+title, variable=v, bg=GLASS, fg=TEXT, selectcolor=BG0,
+                           activebackground=GLASS, activeforeground=TEXT, font=("SF Pro Text",12), anchor="w").pack(side="left")
+            if skip: tk.Label(r, text=f"(если {skip} закрыт)", bg=GLASS, fg=MUTED, font=("SF Pro Text",9)).pack(side="left", padx=6)
+            sl=tk.Label(r, text="…", bg=GLASS, fg=PURPLE, font=("SF Pro Text",11,"bold")); sl.pack(side="right"); self.pv_lbl[pid]=sl
+        bar=tk.Frame(self.main, bg=BG0); bar.pack(fill="x", padx=24, pady=(2,14))
+        tk.Label(bar, text="Отметьте, что очистить", bg=BG0, fg=MUTED, font=("SF Pro Text",12)).pack(side="left")
+        self._btn(bar, "🗑 Очистить выбранное", PURPLE, self._pv_clean).pack(side="right")
+        threading.Thread(target=self._pv_scan, daemon=True).start()
+
+    def _pv_scan(self):
+        res={}
+        for pid,title,paths,skip in PRIVACY_ITEMS:
+            if skip and app_running(skip): res[pid]=("skip",[]); continue
+            items=[(p,path_size(p)) for p in paths if os.path.exists(p)]
+            res[pid]=(sum(s for _,s in items), items)
+        self.q.put(("privacy", res, None))
+
+    def _render_privacy(self, res):
+        self.pv_found={pid:items for pid,(sz,items) in res.items() if sz!="skip"}
+        for pid,(sz,items) in res.items():
+            lbl=self.pv_lbl.get(pid)
+            if lbl: lbl.configure(text=("пропуск" if sz=="skip" else human(sz)))
+
+    def _pv_clean(self):
+        sel=[pid for pid,v in self.pv_vars.items() if v.get()]
+        if not sel: messagebox.showinfo("CleanMac","Ничего не выбрано."); return
+        items=[it for pid in sel for it in self.pv_found.get(pid,[])]
+        if not items: messagebox.showinfo("CleanMac","Нечего очищать (возможно, приложение запущено)."); return
+        tot=sum(s for _,s in items)
+        if not messagebox.askyesno("Приватность", f"Переместить в Корзину {len(items)} объектов (~{human(tot)})?"): return
+        freed=sum(s for p,s in items if to_trash(p))
+        messagebox.showinfo("CleanMac", f"В Корзину: {human(freed)}."); self.nav("privacy")
+
+    # ================= ЗАЩИТА =================
+    def show_threats(self):
+        tk.Label(self.main, text="Защита", bg=BG0, fg=TEXT, font=("SF Pro Display",22,"bold")
+                 ).pack(anchor="w", padx=24, pady=(16,2))
+        tk.Label(self.main, text="Эвристический поиск известного рекламного/нежелательного ПО в точках автозапуска. Не заменяет антивирус.",
+                 bg=BG0, fg=MUTED, font=("SF Pro Text",11), wraplength=640, justify="left").pack(anchor="w", padx=24, pady=(0,8))
+        self.th_box=tk.Frame(self.main, bg=BG0); self.th_box.pack(fill="both", expand=True, padx=24, pady=(4,14))
+        tk.Label(self.th_box, text="🔎 Сканирую точки автозапуска…", bg=BG0, fg=MUTED, font=("SF Pro Text",12)).pack(anchor="w")
+        self.th_found=[]
+        threading.Thread(target=self._threats_scan, daemon=True).start()
+
+    def _threats_scan(self):
+        findings=[]
+        for loc in (os.path.join(HOME,"Library/LaunchAgents"),"/Library/LaunchAgents","/Library/LaunchDaemons"):
+            if not os.path.isdir(loc): continue
+            try: names=os.listdir(loc)
+            except Exception: continue
+            for f in names:
+                p=os.path.join(loc,f); low=f.lower(); content=""
+                try:
+                    with open(p,"r",errors="ignore") as fh: content=fh.read().lower()
+                except Exception: pass
+                for tok in ADWARE:
+                    if tok in low or tok in content:
+                        findings.append((p, f"автозапуск · «{tok}»")); break
+        for base in ("/Applications", os.path.join(HOME,"Applications")):
+            if not os.path.isdir(base): continue
+            for f in os.listdir(base):
+                low=f.lower()
+                for tok in ADWARE:
+                    if tok in low: findings.append((os.path.join(base,f), f"приложение · «{tok}»")); break
+        self.q.put(("threats", findings, None))
+
+    def _render_threats(self, findings):
+        for w in self.th_box.winfo_children(): w.destroy()
+        self.th_found=[]
+        if not findings:
+            tk.Label(self.th_box, text="✅ Угроз не обнаружено", bg=BG0, fg=GREEN,
+                     font=("SF Pro Display",17,"bold")).pack(anchor="w", pady=10)
+            tk.Label(self.th_box, text="Проверены LaunchAgents, LaunchDaemons и папки приложений.",
+                     bg=BG0, fg=MUTED, font=("SF Pro Text",11)).pack(anchor="w")
+            return
+        tk.Label(self.th_box, text=f"⚠️ Подозрительных объектов: {len(findings)}", bg=BG0, fg=YELLOW,
+                 font=("SF Pro Display",15,"bold")).pack(anchor="w", pady=(0,6))
+        wrap=tk.Frame(self.th_box, bg=GLASS); wrap.pack(fill="both", expand=True)
+        for p,reason in findings:
+            r=tk.Frame(wrap, bg=GLASS); r.pack(fill="x", padx=10, pady=2)
+            v=tk.BooleanVar(value=True)
+            tk.Checkbutton(r, variable=v, bg=GLASS, selectcolor=BG0, activebackground=GLASS, bd=0, highlightthickness=0).pack(side="left")
+            tk.Label(r, text=reason, bg=GLASS, fg=YELLOW, font=("SF Pro Text",10), anchor="e").pack(side="right", padx=6)
+            tk.Label(r, text=p.replace(HOME,"~"), bg=GLASS, fg=TEXT, font=("SF Pro Text",11), anchor="w").pack(side="left", fill="x", expand=True)
+            self.th_found.append((v,p))
+        bar=tk.Frame(self.th_box, bg=BG0); bar.pack(fill="x", pady=(6,0))
+        self._btn(bar, "🗑 Удалить выбранное (в Корзину)", RED, self._threats_remove).pack(side="right")
+
+    def _threats_remove(self):
+        sel=[p for v,p in self.th_found if v.get()]
+        if not sel: messagebox.showinfo("CleanMac","Ничего не выбрано."); return
+        if not messagebox.askyesno("Защита", f"Переместить в Корзину {len(sel)} объектов?\n(Элементы из /Library могут требовать прав администратора.)"): return
+        ok=0
+        for p in sel:
+            if p.endswith(".plist"):
+                run(["launchctl","bootout",f"gui/{os.getuid()}/{os.path.basename(p)[:-6]}"])
+            if to_trash(p): ok+=1
+        messagebox.showinfo("CleanMac", f"Перемещено в Корзину: {ok} из {len(sel)}."); self.nav("threats")
+
     # ================= PRO / О ПРОГРАММЕ =================
     def show_pro(self):
         tk.Label(self.main, text="CleanMac", bg=BG0, fg=TEXT, font=("SF Pro Display",26,"bold")
@@ -899,6 +1031,8 @@ class CleanMac(tk.Tk):
                 elif kind=="maintdone":
                     try: self._mrez.configure(text="✅ Готово: "+a.replace("★","").strip())
                     except Exception: pass
+                elif kind=="privacy" and self.page=="privacy": self._render_privacy(a)
+                elif kind=="threats" and self.page=="threats": self._render_threats(a)
                 elif kind=="smart" and self.page=="smart": self._render_smart(*a)
                 elif kind=="smartdone":
                     messagebox.showinfo("CleanMac", f"Освобождено: {human(a)} → Корзина.")
