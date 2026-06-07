@@ -10,7 +10,7 @@ import urllib.request
 import tkinter as tk
 from tkinter import messagebox
 
-VERSION = "2.1.0"
+VERSION = "2.2.0"
 REPO    = "Alex1986-rgb/CleanMac"          # для проверки обновлений
 BUY_URL = "https://alex1986-rgb.gumroad.com/l/cleanmac"   # ссылка на Pro (заглушка)
 HOME  = os.path.expanduser("~")
@@ -145,6 +145,14 @@ CATEGORIES = [
     ("logs", "Системные логи пользователя", [os.path.join(HOME,"Library/Logs")], None, "subitems"),
     ("crash", "Отчёты о сбоях (Diagnostics)", [os.path.join(HOME,"Library/Logs/DiagnosticReports")], None, "subitems"),
     ("ql", "Кэш миниатюр Quick Look", [os.path.join(HOME,"Library/Caches/com.apple.QuickLook.thumbnailcache")], None, "subitems"),
+    ("xcode", "Xcode: DerivedData / DeviceSupport / Archives",
+        [os.path.join(HOME,"Library/Developer/Xcode/DerivedData"),
+         os.path.join(HOME,"Library/Developer/Xcode/iOS DeviceSupport"),
+         os.path.join(HOME,"Library/Developer/Xcode/Archives"),
+         os.path.join(HOME,"Library/Developer/CoreSimulator/Caches")], None, "whole"),
+    ("devcache", "Кэши пакетных менеджеров (npm/pip/yarn/brew)",
+        [os.path.join(HOME,".npm/_cacache"), os.path.join(HOME,"Library/Caches/pip"),
+         os.path.join(HOME,"Library/Caches/Yarn"), os.path.join(HOME,"Library/Caches/Homebrew")], None, "whole"),
 ]
 
 
@@ -183,7 +191,7 @@ class CleanMac(tk.Tk):
         tk.Label(self.side, text=f"  v{VERSION} · оптимизатор", bg=SIDEBAR, fg=MUTED,
                  font=("SF Pro Text", 10)).pack(anchor="w", padx=12, pady=(0,18))
         self.nav_btns = {}
-        for key,label in [("dash","📊  Дашборд"),("autopilot","🚀  Автопилот"),
+        for key,label in [("dash","📊  Дашборд"),("smart","✨  Умная очистка"),("autopilot","🚀  Автопилот"),
                           ("cleaner","🧽  Очистка"),("tools","🛠  Инструменты"),("pro","⭐️  Pro / О программе")]:
             b = tk.Label(self.side, text="   "+label, bg=SIDEBAR, fg=TEXT, font=("SF Pro Text", 13),
                          anchor="w", padx=10, pady=12, cursor="pointinghand")
@@ -198,7 +206,7 @@ class CleanMac(tk.Tk):
         self.page = key
         for k,b in self.nav_btns.items(): b.configure(bg=GLASS if k==key else SIDEBAR)
         for w in self.main.winfo_children(): w.destroy()
-        {"dash":self.show_dash,"autopilot":self.show_autopilot,"cleaner":self.show_cleaner,
+        {"dash":self.show_dash,"smart":self.show_smart,"autopilot":self.show_autopilot,"cleaner":self.show_cleaner,
          "tools":self.show_tools,"pro":self.show_pro}[key]()
 
     def status(self,t): self.statusbar.configure(text=t)
@@ -335,6 +343,62 @@ class CleanMac(tk.Tk):
             c.create_polygon(cx0+4,cy0-11,cx0-6,cy0+2,cx0+1,cy0+2,cx0-4,cy0+11,cx0+7,cy0-2,cx0,cy0-2,
                              fill="white", outline="white")
 
+    # ================= УМНАЯ ОЧИСТКА =================
+    def show_smart(self):
+        tk.Label(self.main, text="Умная очистка", bg=BG0, fg=TEXT, font=("SF Pro Display",22,"bold")
+                 ).pack(anchor="w", padx=24, pady=(16,2))
+        tk.Label(self.main, text="Один проход по всем безопасным категориям. Всё уходит в Корзину.",
+                 bg=BG0, fg=MUTED, font=("SF Pro Text",11)).pack(anchor="w", padx=24, pady=(0,10))
+        top=tk.Frame(self.main, bg=GLASS); top.pack(fill="x", padx=24, pady=6)
+        self.smart_big=tk.Label(top, text="Сканирую…", bg=GLASS, fg=GREEN, font=("SF Pro Display",30,"bold"))
+        self.smart_big.pack(side="left", padx=20, pady=16)
+        self.smart_sub=tk.Label(top, text="оцениваю объём…", bg=GLASS, fg=MUTED, font=("SF Pro Text",12))
+        self.smart_sub.pack(side="left", pady=16)
+        self.smart_btn=self._btn(top, "🧹 Очистить всё", GREEN, self._smart_clean)
+        self.smart_btn.pack(side="right", padx=18, pady=14)
+        self.smart_list=tk.Frame(self.main, bg=GLASS); self.smart_list.pack(fill="both", expand=True, padx=24, pady=(8,16))
+        self.smart_found={}
+        threading.Thread(target=self._smart_w, daemon=True).start()
+
+    def _smart_w(self):
+        found={}; total=0
+        for cid,title,paths,skip,mode in CATEGORIES:
+            if skip and app_running(skip): continue
+            items,ct=[],0
+            for p in paths:
+                if not os.path.exists(p): continue
+                if mode=="subitems" and os.path.isdir(p):
+                    for nm in os.listdir(p):
+                        fp=os.path.join(p,nm); s=path_size(fp); ct+=s; items.append((fp,s))
+                else: s=path_size(p); ct+=s; items.append((p,s))
+            if ct>0: found[cid]=(title,items,ct); total+=ct
+        self.q.put(("smart",(found,total),None))
+
+    def _render_smart(self, found, total):
+        self.smart_found={c:v[1] for c,v in found.items()}
+        self.smart_big.configure(text=human(total)); self.smart_sub.configure(text="можно освободить безопасно")
+        for w in self.smart_list.winfo_children(): w.destroy()
+        for cid,(title,items,ct) in sorted(found.items(), key=lambda x:-x[1][2]):
+            r=tk.Frame(self.smart_list, bg=GLASS); r.pack(fill="x", padx=14, pady=5)
+            tk.Label(r, text="🧩  "+title, bg=GLASS, fg=TEXT, font=("SF Pro Text",12), anchor="w").pack(side="left")
+            tk.Label(r, text=human(ct), bg=GLASS, fg=GREEN, font=("SF Pro Text",12,"bold")).pack(side="right")
+        if not found:
+            tk.Label(self.smart_list, text="Чисто! Нечего освобождать.", bg=GLASS, fg=MUTED,
+                     font=("SF Pro Text",13)).pack(anchor="w", padx=14, pady=14)
+
+    def _smart_clean(self):
+        if not self.smart_found: return
+        tot=sum(s for items in self.smart_found.values() for _,s in items)
+        if not messagebox.askyesno("Умная очистка", f"Переместить в Корзину ~{human(tot)}?"): return
+        self.smart_big.configure(text="Очищаю…"); threading.Thread(target=self._smart_clean_w, daemon=True).start()
+
+    def _smart_clean_w(self):
+        freed=0
+        for items in list(self.smart_found.values()):
+            for fp,s in items:
+                if to_trash(fp): freed+=s
+        self.q.put(("smartdone", freed, None))
+
     # ================= АВТОПИЛОТ =================
     def show_autopilot(self):
         tk.Label(self.main, text="Автопилот", bg=BG0, fg=TEXT, font=("SF Pro Display",22,"bold")
@@ -455,6 +519,7 @@ class CleanMac(tk.Tk):
         self.tool_chips={}
         for key,lbl in [("startup","⚙️ Автозагрузка"),("large","📦 Крупные файлы"),
                         ("dupes","👯 Дубликаты"),("uninstall","🧩 Деинсталлятор"),
+                        ("disk","🗺 Карта диска"),("maintain","🩺 Обслуживание"),
                         ("browsers","🌐 Браузеры"),("trash","♻️ Корзина")]:
             b=tk.Label(bar, text=lbl, bg=GLASS, fg=TEXT, font=("SF Pro Text",12), padx=11, pady=8, cursor="pointinghand")
             b.pack(side="left", padx=4); b.bind("<Button-1>", lambda e,k=key:self._tool(k)); self.tool_chips[key]=b
@@ -466,7 +531,8 @@ class CleanMac(tk.Tk):
         for w in self.tpanel.winfo_children(): w.destroy()
         self._lv=[]
         {"startup":self._t_startup,"large":self._t_large,"dupes":self._t_dupes,
-         "uninstall":self._t_uninstall,"browsers":self._t_browsers,"trash":self._t_trash}[key]()
+         "uninstall":self._t_uninstall,"disk":self._t_disk,"maintain":self._t_maintain,
+         "browsers":self._t_browsers,"trash":self._t_trash}[key]()
 
     def _ptitle(self, text, sub=""):
         tk.Label(self.tpanel, text=text, bg=BG0, fg=TEXT, font=("SF Pro Display",15,"bold")).pack(anchor="w")
@@ -662,6 +728,70 @@ class CleanMac(tk.Tk):
         freed=sum(s for t,s in sizes if to_trash(t))
         messagebox.showinfo("CleanMac", f"{name}: в Корзину {human(freed)}."); self._tool("uninstall")
 
+    # --- Карта диска ---
+    def _t_disk(self):
+        self._ptitle("Карта диска", "Крупнейшие папки в домашней директории.")
+        tk.Label(self.tpanel, text="🔎 Считаю размеры…", bg=BG0, fg=MUTED, font=("SF Pro Text",11)).pack(anchor="w")
+        threading.Thread(target=self._disk_w, daemon=True).start()
+
+    def _disk_w(self):
+        rows=[]
+        for ln in run(["/usr/bin/du","-d","1","-k",HOME], 180).splitlines():
+            try:
+                kb,p=ln.split("\t",1)
+                if p.rstrip("/")==HOME.rstrip("/"): continue
+                rows.append((int(kb)*1024, p))
+            except Exception: pass
+        rows.sort(reverse=True); self.q.put(("disk", rows[:16], None))
+
+    def _render_disk(self, rows):
+        for w in self.tpanel.winfo_children(): w.destroy()
+        self._ptitle("Карта диска", "Крупнейшие папки в ~. Клик по строке — открыть в Finder.")
+        cv=tk.Canvas(self.tpanel, bg=GLASS, highlightthickness=0); cv.pack(fill="both", expand=True, pady=(4,8))
+        mx=rows[0][0] if rows else 1
+        pal=[BLUE,GREEN,PURPLE,YELLOW,CYAN,RED]
+        def draw(e=None):
+            cv.delete("all"); W=cv.winfo_width() or 600; y=14
+            for i,(sz,p) in enumerate(rows):
+                col=pal[i%len(pal)]; bw=max(6,(W-180)*sz/mx); tag=f"r{i}"
+                self._round(cv, 150,y,150+bw,y+22,6, fill=col, outline=col, tags=tag)
+                cv.create_text(12,y+11, anchor="w", fill=TEXT, font=("SF Pro Text",11),
+                               text=p.replace(HOME,"~")[:26], tags=tag)
+                cv.create_text(W-12,y+11, anchor="e", fill=MUTED, font=("SF Pro Text",11), text=human(sz), tags=tag)
+                cv.tag_bind(tag,"<Button-1>", lambda e,pp=p: run(["/usr/bin/open",pp]))
+                y+=30
+            cv.configure(scrollregion=(0,0,W,y))
+        cv.bind("<Configure>", draw); draw()
+
+    # --- Обслуживание ---
+    def _t_maintain(self):
+        self._ptitle("Обслуживание", "Сервисные операции macOS. Для пунктов ★ потребуется пароль администратора.")
+        acts=[("⚡️ Освободить память (purge) ★", "purge", True),
+              ("🌐 Сбросить кэш DNS ★", "dscacheutil -flushcache; killall -HUP mDNSResponder", True),
+              ("🔍 Переиндексировать Spotlight ★", "mdutil -E /", True),
+              ("🔤 Очистить кэш шрифтов ★", "atsutil databases -remove", True),
+              ("👁 Сбросить кэш Quick Look", "qlmanage -r cache", False),
+              ("🧱 Перестроить Launch Services", "/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister -kill -r -domain local -domain system -domain user", False)]
+        for label,cmd,admin in acts:
+            b=tk.Label(self.tpanel, text=label, bg=GLASS, fg=TEXT, font=("SF Pro Text",12),
+                       padx=12, pady=9, cursor="pointinghand", anchor="w")
+            b.pack(fill="x", pady=3); b.bind("<Button-1>", lambda e,c=cmd,a=admin,l=label: self._maintain_run(l,c,a))
+        self._mrez=tk.Label(self.tpanel, text="", bg=BG0, fg=MUTED, font=("SF Pro Text",12)); self._mrez.pack(anchor="w", pady=8)
+
+    def _maintain_run(self, label, cmd, admin):
+        self._mrez.configure(text="⏳ Выполняю: "+label.replace("★","").strip())
+        threading.Thread(target=self._maintain_w, args=(label,cmd,admin), daemon=True).start()
+
+    def _maintain_w(self, label, cmd, admin):
+        try:
+            if admin:
+                esc=cmd.replace('"','\\"')
+                run(["osascript","-e",f'do shell script "{esc}" with administrator privileges'], 180)
+            else:
+                run(["/bin/bash","-c",cmd], 180)
+        except Exception: pass
+        self.q.put(("maintdone", label, None))
+
     # --- Браузеры / Корзина ---
     def _t_browsers(self):
         self._ptitle("Браузеры", "Закрыть фоновые браузеры для разгрузки памяти (активное окно не трогается).")
@@ -765,6 +895,14 @@ class CleanMac(tk.Tk):
                     sub,data=a
                     if sub=="large": self._render_large(data)
                     elif sub=="dupes": self._render_dupes(data)
+                elif kind=="disk" and self.page=="tools": self._render_disk(a)
+                elif kind=="maintdone":
+                    try: self._mrez.configure(text="✅ Готово: "+a.replace("★","").strip())
+                    except Exception: pass
+                elif kind=="smart" and self.page=="smart": self._render_smart(*a)
+                elif kind=="smartdone":
+                    messagebox.showinfo("CleanMac", f"Освобождено: {human(a)} → Корзина.")
+                    if self.page=="smart": self.nav("smart")
                 elif kind=="update":
                     self.update_note=a; self.badge.configure(text=a if a.startswith("⬆️") else "")
                     if self.page=="pro": self.nav("pro")
