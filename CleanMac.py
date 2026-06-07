@@ -10,7 +10,7 @@ import urllib.request
 import tkinter as tk
 from tkinter import messagebox
 
-VERSION = "2.0.0"
+VERSION = "2.1.0"
 REPO    = "Alex1986-rgb/CleanMac"          # для проверки обновлений
 BUY_URL = "https://alex1986-rgb.gumroad.com/l/cleanmac"   # ссылка на Pro (заглушка)
 HOME  = os.path.expanduser("~")
@@ -447,38 +447,109 @@ class CleanMac(tk.Tk):
                 if to_trash(fp): freed+=s; moved+=1
         self.q.put(("cleaned",freed,moved))
 
-    # ================= ИНСТРУМЕНТЫ =================
+    # ================= ИНСТРУМЕНТЫ (интерактивные) =================
     def show_tools(self):
         tk.Label(self.main, text="Инструменты", bg=BG0, fg=TEXT, font=("SF Pro Display",22,"bold")
-                 ).pack(anchor="w", padx=24, pady=(16,10))
-        btns=tk.Frame(self.main, bg=BG0); btns.pack(fill="x", padx=20)
-        tools=[("⚙️ Автозагрузка",self.tool_startup),("📦 Крупные файлы (>100 МБ)",self.tool_large),
-               ("👯 Дубликаты",self.tool_dupes),("🌐 Закрыть фоновые браузеры",self.tool_browsers),
-               ("🗑 Очистить Корзину",self.tool_trash)]
-        for i,(lbl,cmd) in enumerate(tools):
-            b=tk.Label(btns, text=lbl, bg=GLASS, fg=TEXT, font=("SF Pro Text",12), padx=12, pady=10, cursor="pointinghand")
-            b.grid(row=i//2, column=i%2, sticky="ew", padx=6, pady=6); b.bind("<Button-1>", lambda e,c=cmd:c())
-        btns.grid_columnconfigure(0, weight=1); btns.grid_columnconfigure(1, weight=1)
-        self.out=tk.Text(self.main, bg="#0f1218", fg=TEXT, font=("SF Mono",11), relief="flat", padx=12, pady=10)
-        self.out.pack(fill="both", expand=True, padx=24, pady=14)
-        self.out.insert("end","Выберите инструмент выше.\n"); self.out.configure(state="disabled")
+                 ).pack(anchor="w", padx=24, pady=(16,8))
+        bar=tk.Frame(self.main, bg=BG0); bar.pack(fill="x", padx=22)
+        self.tool_chips={}
+        for key,lbl in [("startup","⚙️ Автозагрузка"),("large","📦 Крупные файлы"),
+                        ("dupes","👯 Дубликаты"),("uninstall","🧩 Деинсталлятор"),
+                        ("browsers","🌐 Браузеры"),("trash","♻️ Корзина")]:
+            b=tk.Label(bar, text=lbl, bg=GLASS, fg=TEXT, font=("SF Pro Text",12), padx=11, pady=8, cursor="pointinghand")
+            b.pack(side="left", padx=4); b.bind("<Button-1>", lambda e,k=key:self._tool(k)); self.tool_chips[key]=b
+        self.tpanel=tk.Frame(self.main, bg=BG0); self.tpanel.pack(fill="both", expand=True, padx=22, pady=(10,14))
+        self._lv=[]; self._tool("startup")
 
-    def _o(self,t,clear=True):
-        self.out.configure(state="normal")
-        if clear: self.out.delete("1.0","end")
-        self.out.insert("end",t); self.out.configure(state="disabled")
+    def _tool(self, key):
+        for k,b in self.tool_chips.items(): b.configure(bg=(BLUE if k==key else GLASS), fg=("white" if k==key else TEXT))
+        for w in self.tpanel.winfo_children(): w.destroy()
+        self._lv=[]
+        {"startup":self._t_startup,"large":self._t_large,"dupes":self._t_dupes,
+         "uninstall":self._t_uninstall,"browsers":self._t_browsers,"trash":self._t_trash}[key]()
 
-    def tool_startup(self):
-        self._o("⚙️  Автозагрузка\n\nЭлементы входа (Login Items):\n")
+    def _ptitle(self, text, sub=""):
+        tk.Label(self.tpanel, text=text, bg=BG0, fg=TEXT, font=("SF Pro Display",15,"bold")).pack(anchor="w")
+        if sub: tk.Label(self.tpanel, text=sub, bg=BG0, fg=MUTED, font=("SF Pro Text",11)).pack(anchor="w", pady=(0,6))
+
+    def _scrollarea(self):
+        wrap=tk.Frame(self.tpanel, bg=GLASS); wrap.pack(fill="both", expand=True, pady=(4,8))
+        cv=tk.Canvas(wrap, bg=GLASS, highlightthickness=0)
+        sb=tk.Scrollbar(wrap, orient="vertical", command=cv.yview)
+        inner=tk.Frame(cv, bg=GLASS)
+        inner.bind("<Configure>", lambda e: cv.configure(scrollregion=cv.bbox("all")))
+        win=cv.create_window((0,0), window=inner, anchor="nw")
+        cv.bind("<Configure>", lambda e: cv.itemconfigure(win, width=e.width))
+        cv.configure(yscrollcommand=sb.set)
+        cv.pack(side="left", fill="both", expand=True); sb.pack(side="right", fill="y")
+        def _wheel(e):
+            try: cv.yview_scroll(int(-e.delta/3), "units")
+            except Exception: pass
+        cv.bind("<Enter>", lambda e: cv.bind_all("<MouseWheel>", _wheel))
+        cv.bind("<Leave>", lambda e: cv.unbind_all("<MouseWheel>"))
+        return inner
+
+    def _checkrow(self, inner, path, label, size, preselect=False):
+        r=tk.Frame(inner, bg=GLASS); r.pack(fill="x", padx=8, pady=1)
+        v=tk.BooleanVar(value=preselect)
+        tk.Checkbutton(r, variable=v, bg=GLASS, selectcolor=BG0, activebackground=GLASS,
+                       highlightthickness=0, bd=0).pack(side="left")
+        tk.Label(r, text=human(size), bg=GLASS, fg=MUTED, font=("SF Pro Text",10), width=9, anchor="e").pack(side="right", padx=(6,4))
+        tk.Label(r, text=label, bg=GLASS, fg=TEXT, font=("SF Pro Text",11), anchor="w").pack(side="left", fill="x", expand=True)
+        self._lv.append((v,path,size))
+
+    def _actionbar(self, total_text, on_trash, trash_label="🗑 В Корзину выбранное"):
+        bar=tk.Frame(self.tpanel, bg=BG0); bar.pack(fill="x")
+        tk.Label(bar, text=total_text, bg=BG0, fg=TEXT, font=("SF Pro Text",12,"bold")).pack(side="left")
+        if on_trash: self._btn(bar, trash_label, GREEN, on_trash).pack(side="right", padx=(8,0))
+        self._btn(bar, "Показать в Finder", GLASS_HI, self._reveal_sel).pack(side="right")
+
+    def _reveal_sel(self):
+        for v,path,_ in getattr(self,"_lv",[]):
+            if v.get(): run(["/usr/bin/open","-R",path]); return
+        messagebox.showinfo("CleanMac","Отметьте хотя бы один элемент.")
+
+    def _trash_sel(self, rebuild):
+        sel=[(p,s) for v,p,s in getattr(self,"_lv",[]) if v.get()]
+        if not sel: messagebox.showinfo("CleanMac","Ничего не выбрано."); return
+        tot=sum(s for _,s in sel)
+        if not messagebox.askyesno("Подтверждение", f"Переместить в Корзину {len(sel)} элем. (~{human(tot)})?"): return
+        freed=sum(s for p,s in sel if to_trash(p))
+        messagebox.showinfo("CleanMac", f"В Корзину: {human(freed)}."); rebuild()
+
+    # --- Автозагрузка ---
+    def _t_startup(self):
+        self._ptitle("Автозагрузка", "Фоновые агенты при входе — можно включать/выключать.")
         li=run(["osascript","-e",'tell application "System Events" to get the name of every login item']).strip()
-        self._o(("  "+li if li else "  (пусто)")+"\n", clear=False)
-        la=os.path.join(HOME,"Library/LaunchAgents"); self._o("\nLaunchAgents:\n", clear=False)
+        tk.Label(self.tpanel, text="Элементы входа: "+(li or "пусто"), bg=BG0, fg=MUTED,
+                 font=("SF Pro Text",11)).pack(anchor="w", pady=(0,4))
+        inner=self._scrollarea(); la=os.path.join(HOME,"Library/LaunchAgents")
         if os.path.isdir(la):
             for f in sorted(os.listdir(la)):
-                self._o(f'  {"🟢" if f.endswith(".plist") else "⚪️ выкл"}  {f}\n', clear=False)
+                if not (f.endswith(".plist") or f.endswith(".disabled")): continue
+                on=f.endswith(".plist")
+                r=tk.Frame(inner, bg=GLASS); r.pack(fill="x", padx=8, pady=2)
+                tk.Label(r, text=("🟢" if on else "⚪️"), bg=GLASS, fg=TEXT, font=("SF Pro Text",11)).pack(side="left")
+                tk.Label(r, text="  "+f, bg=GLASS, fg=TEXT, font=("SF Pro Text",11), anchor="w").pack(side="left", fill="x", expand=True)
+                btn=tk.Label(r, text=("Выключить" if on else "Включить"), bg=(RED if on else GREEN), fg="white",
+                             font=("SF Pro Text",10,"bold"), padx=10, pady=3, cursor="pointinghand")
+                btn.pack(side="right"); btn.bind("<Button-1>", lambda e,fn=f,o=on: self._toggle_agent(fn,o))
 
-    def tool_large(self):
-        self._o("📦  Поиск файлов >100 МБ…"); threading.Thread(target=self._large_w, daemon=True).start()
+    def _toggle_agent(self, fname, on):
+        la=os.path.join(HOME,"Library/LaunchAgents"); src=os.path.join(la,fname); uid=str(os.getuid())
+        try:
+            if on:
+                run(["launchctl","bootout",f"gui/{uid}/{fname[:-6]}"]); os.rename(src, src+".disabled")
+            else:
+                dst=src[:-9]; os.rename(src, dst); run(["launchctl","bootstrap",f"gui/{uid}", dst])
+        except Exception: pass
+        self._tool("startup")
+
+    # --- Крупные файлы ---
+    def _t_large(self):
+        self._ptitle("Крупные файлы", "Файлы крупнее 100 МБ. Отметьте лишние → в Корзину.")
+        tk.Label(self.tpanel, text="🔎 Сканирую…", bg=BG0, fg=MUTED, font=("SF Pro Text",11)).pack(anchor="w")
+        threading.Thread(target=self._large_w, daemon=True).start()
 
     def _large_w(self):
         big,skip=[],{".Trash","Library"}
@@ -490,12 +561,23 @@ class CleanMac(tk.Tk):
                     s=os.path.getsize(os.path.join(root,fn))
                     if s>100*1024*1024: big.append((s,os.path.join(root,fn)))
                 except Exception: pass
-        big.sort(reverse=True)
-        t="📦  Крупные файлы (топ-30):\n\n"+"".join(f"  {human(s):>9}  {fp.replace(HOME,'~')}\n" for s,fp in big[:30])
-        self.q.put(("textout", t or "  пусто\n", None))
+        big.sort(reverse=True); self.q.put(("tool",("large",big[:60]),None))
 
-    def tool_dupes(self):
-        self._o("👯  Поиск дубликатов в Downloads/Desktop/Documents…"); threading.Thread(target=self._dupes_w, daemon=True).start()
+    def _render_large(self, rows):
+        for w in self.tpanel.winfo_children(): w.destroy()
+        self._lv=[]
+        self._ptitle("Крупные файлы", "Файлы крупнее 100 МБ. Отметьте лишние → в Корзину.")
+        inner=self._scrollarea()
+        for s,fp in rows: self._checkrow(inner, fp, fp.replace(HOME,"~"), s)
+        if not rows: tk.Label(inner, text="  Ничего крупного не найдено.", bg=GLASS, fg=MUTED).pack(anchor="w", padx=8, pady=8)
+        self._actionbar(f"Найдено: {len(rows)} (~{human(sum(s for s,_ in rows))})",
+                        lambda: self._trash_sel(lambda: self._tool('large')))
+
+    # --- Дубликаты ---
+    def _t_dupes(self):
+        self._ptitle("Дубликаты", "Одинаковые файлы в Downloads/Desktop/Documents.")
+        tk.Label(self.tpanel, text="🔎 Сканирую…", bg=BG0, fg=MUTED, font=("SF Pro Text",11)).pack(anchor="w")
+        threading.Thread(target=self._dupes_w, daemon=True).start()
 
     def _dupes_w(self):
         by_size={}
@@ -516,12 +598,23 @@ class CleanMac(tk.Tk):
                 h=self._hash(fp)
                 if h: bh.setdefault(h,[]).append(fp)
             for same in bh.values():
-                if len(same)>1: groups.append((s,same))
-        groups.sort(reverse=True); wasted=sum(s*(len(g)-1) for s,g in groups)
-        t=f"👯  Групп: {len(groups)}, освободить ~{human(wasted)}\n\n"
-        for s,same in groups[:20]:
-            t+=f"  {human(s)} ×{len(same)}:\n"+"".join(f"      {p.replace(HOME,'~')}\n" for p in same)+"\n"
-        self.q.put(("textout", t if groups else "  дубликатов нет.\n", None))
+                if len(same)>1: groups.append((s,sorted(same)))
+        groups.sort(reverse=True); self.q.put(("tool",("dupes",groups[:50]),None))
+
+    def _render_dupes(self, groups):
+        for w in self.tpanel.winfo_children(): w.destroy()
+        self._lv=[]
+        wasted=sum(s*(len(g)-1) for s,g in groups)
+        self._ptitle("Дубликаты", "Первая копия оставлена, остальные отмечены к удалению.")
+        inner=self._scrollarea()
+        for s,same in groups:
+            tk.Label(inner, text=f"  {human(s)} ×{len(same)}", bg=GLASS, fg=CYAN,
+                     font=("SF Pro Text",10,"bold")).pack(anchor="w", padx=8, pady=(6,0))
+            for i,fp in enumerate(same):
+                self._checkrow(inner, fp, "    "+fp.replace(HOME,"~"), s, preselect=(i>0))
+        if not groups: tk.Label(inner, text="  Дубликатов не найдено.", bg=GLASS, fg=MUTED).pack(anchor="w", padx=8, pady=8)
+        self._actionbar(f"Групп: {len(groups)} · освободить ~{human(wasted)}",
+                        lambda: self._trash_sel(lambda: self._tool('dupes')))
 
     @staticmethod
     def _hash(fp):
@@ -532,17 +625,66 @@ class CleanMac(tk.Tk):
             return h.hexdigest()
         except Exception: return None
 
-    def tool_browsers(self):
+    # --- Деинсталлятор ---
+    def _t_uninstall(self):
+        self._ptitle("Деинсталлятор", "Удаление приложения вместе с его кэшами и настройками.")
+        inner=self._scrollarea()
+        for base in ("/Applications", os.path.join(HOME,"Applications")):
+            if not os.path.isdir(base): continue
+            for f in sorted(os.listdir(base)):
+                if not f.endswith(".app"): continue
+                ap=os.path.join(base,f)
+                r=tk.Frame(inner, bg=GLASS); r.pack(fill="x", padx=8, pady=1)
+                tk.Label(r, text=f[:-4], bg=GLASS, fg=TEXT, font=("SF Pro Text",11), anchor="w").pack(side="left", fill="x", expand=True)
+                btn=tk.Label(r, text="Удалить…", bg=RED, fg="white", font=("SF Pro Text",10,"bold"),
+                             padx=10, pady=3, cursor="pointinghand")
+                btn.pack(side="right"); btn.bind("<Button-1>", lambda e,p=ap: self._uninstall(p))
+
+    def _uninstall(self, app_path):
+        import plistlib
+        name=os.path.basename(app_path)[:-4]; bid=""
+        try:
+            with open(os.path.join(app_path,"Contents","Info.plist"),"rb") as f:
+                bid=plistlib.load(f).get("CFBundleIdentifier","")
+        except Exception: pass
+        targets=[app_path]
+        for sub in ("Library/Caches","Library/Application Support","Library/Preferences","Library/Logs",
+                    "Library/Containers","Library/Saved Application State","Library/HTTPStorages","Library/WebKit"):
+            d=os.path.join(HOME,sub)
+            if not os.path.isdir(d): continue
+            for f in os.listdir(d):
+                low=f.lower()
+                if (bid and bid.lower() in low) or (len(name)>=4 and name.lower() in low):
+                    targets.append(os.path.join(d,f))
+        sizes=[(t,path_size(t)) for t in targets]; tot=sum(s for _,s in sizes)
+        lines="\n".join(f"  {human(s):>8}  {t.replace(HOME,'~')}" for t,s in sizes)
+        if not messagebox.askyesno("Удалить "+name, f"В Корзину уйдут (~{human(tot)}):\n\n{lines}\n\nПродолжить?"): return
+        freed=sum(s for t,s in sizes if to_trash(t))
+        messagebox.showinfo("CleanMac", f"{name}: в Корзину {human(freed)}."); self._tool("uninstall")
+
+    # --- Браузеры / Корзина ---
+    def _t_browsers(self):
+        self._ptitle("Браузеры", "Закрыть фоновые браузеры для разгрузки памяти (активное окно не трогается).")
+        self._btn(self.tpanel, "🌐 Закрыть фоновые браузеры", BLUE, self._do_browsers).pack(anchor="w", pady=8)
+        self._brez=tk.Label(self.tpanel, text="", bg=BG0, fg=MUTED, font=("SF Pro Text",12)); self._brez.pack(anchor="w")
+
+    def _do_browsers(self):
         front=run(["osascript","-e",'tell application "System Events" to name of first process whose frontmost is true']).strip()
         closed=[]
         for app in ("Microsoft Edge","Google Chrome","Safari","Yandex"):
             if app_running(app) and app!=front: run(["osascript","-e",f'quit app "{app}"']); closed.append(app)
-        self._o("🌐  "+("Закрыты: "+", ".join(closed) if closed else "Фоновых браузеров нет.")+"\n")
+        self._brez.configure(text=("Закрыты: "+", ".join(closed)) if closed else "Фоновых браузеров нет.")
 
-    def tool_trash(self):
+    def _t_trash(self):
+        sz=path_size(TRASH)
+        self._ptitle("Корзина", f"Сейчас в Корзине ~{human(sz)}.")
+        self._btn(self.tpanel, "♻️ Очистить Корзину (безвозвратно)", RED, self._do_trash).pack(anchor="w", pady=8)
+
+    def _do_trash(self):
         sz=path_size(TRASH)
         if not messagebox.askyesno("Очистить Корзину", f"В Корзине ~{human(sz)}. Удалить безвозвратно?"): return
-        run(["osascript","-e",'tell application "Finder" to empty the trash']); self._o(f"🗑  Запрошена очистка Корзины (~{human(sz)}).\n")
+        run(["osascript","-e",'tell application "Finder" to empty the trash'])
+        messagebox.showinfo("CleanMac","Запрошена очистка Корзины.")
 
     # ================= PRO / О ПРОГРАММЕ =================
     def show_pro(self):
@@ -619,7 +761,10 @@ class CleanMac(tk.Tk):
                 elif kind=="optimized":
                     messagebox.showinfo("CleanMac", f"Оптимизация выполнена.\nОсвобождено кэша: {human(a)}.")
                     if self.page=="autopilot": self._ap_refresh()
-                elif kind=="textout": self._o(a)
+                elif kind=="tool" and self.page=="tools":
+                    sub,data=a
+                    if sub=="large": self._render_large(data)
+                    elif sub=="dupes": self._render_dupes(data)
                 elif kind=="update":
                     self.update_note=a; self.badge.configure(text=a if a.startswith("⬆️") else "")
                     if self.page=="pro": self.nav("pro")
