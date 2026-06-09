@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-CleanMac 2.0 — оптимизатор для macOS со «стеклянным» интерфейсом.
+KRYLAN · CleanMac — оптимизатор для macOS со «стеклянным» интерфейсом.
+Слоган: «Дай устройству крылья».
+Создатель: Кырлан Александр Сергеевич.
 Дашборд с диаграммами, автопилот, очистка в Корзину, инструменты,
 проверка обновлений (GitHub) и Pro-каркас. Запуск: framework-python 3.12.
 """
@@ -10,7 +12,10 @@ import urllib.request
 import tkinter as tk
 from tkinter import messagebox
 
-VERSION = "2.5.0"
+VERSION = "2.6.0"
+BRAND   = "KRYLAN"
+SLOGAN  = "Дай устройству крылья"
+AUTHOR  = "Кырлан Александр Сергеевич"
 REPO    = "Alex1986-rgb/CleanMac"          # для проверки обновлений
 BUY_URL = "https://alex1986-rgb.gumroad.com/l/cleanmac"   # ссылка на Pro (заглушка)
 HOME  = os.path.expanduser("~")
@@ -240,10 +245,12 @@ class CleanMac(tk.Tk):
     def _build(self):
         self.side = tk.Frame(self, bg=SIDEBAR, width=204); self.side.pack(side="left", fill="y")
         self.side.pack_propagate(False)
-        tk.Label(self.side, text="  🧹 CleanMac", bg=SIDEBAR, fg=TEXT,
+        tk.Label(self.side, text="  🪽 KRYLAN", bg=SIDEBAR, fg=TEXT,
                  font=("SF Pro Display", 19, "bold")).pack(anchor="w", pady=(22,0), padx=12)
-        tk.Label(self.side, text=f"  v{VERSION} · оптимизатор", bg=SIDEBAR, fg=MUTED,
-                 font=("SF Pro Text", 10)).pack(anchor="w", padx=12, pady=(0,18))
+        tk.Label(self.side, text=f"  {SLOGAN}", bg=SIDEBAR, fg=GREEN,
+                 font=("SF Pro Text", 9, "bold")).pack(anchor="w", padx=12, pady=(2,0))
+        tk.Label(self.side, text=f"  CleanMac · v{VERSION}", bg=SIDEBAR, fg=MUTED,
+                 font=("SF Pro Text", 10)).pack(anchor="w", padx=12, pady=(0,16))
         self.nav_btns = {}
         for key,label in [("dash","📊  Дашборд"),("smart","✨  Умная очистка"),("privacy","🔒  Приватность"),
                           ("threats","🛡  Защита"),("autopilot","🚀  Автопилот"),("cleaner","🧽  Очистка"),
@@ -1015,19 +1022,24 @@ class CleanMac(tk.Tk):
 
     # ================= PRO / О ПРОГРАММЕ =================
     def show_pro(self):
-        tk.Label(self.main, text="CleanMac", bg=BG0, fg=TEXT, font=("SF Pro Display",26,"bold")
-                 ).pack(anchor="w", padx=24, pady=(24,2))
+        tk.Label(self.main, text="🪽 KRYLAN · CleanMac", bg=BG0, fg=TEXT, font=("SF Pro Display",26,"bold")
+                 ).pack(anchor="w", padx=24, pady=(24,0))
+        tk.Label(self.main, text=f"«{SLOGAN}»", bg=BG0, fg=GREEN, font=("SF Pro Display",14,"bold")
+                 ).pack(anchor="w", padx=24, pady=(0,4))
         tk.Label(self.main, text=f"Версия {VERSION}" + ("  ·  ⭐️ Pro активна" if self.is_pro else "  ·  Free"),
                  bg=BG0, fg=(GREEN if self.is_pro else MUTED), font=("SF Pro Text",12,"bold")).pack(anchor="w", padx=24)
+        tk.Label(self.main, text=f"Создатель: {AUTHOR}", bg=BG0, fg=TEXT, font=("SF Pro Text",12,"bold")
+                 ).pack(anchor="w", padx=24, pady=(6,0))
         if self.update_note:
             tk.Label(self.main, text=self.update_note, bg=BG0, fg=YELLOW, font=("SF Pro Text",12,"bold")).pack(anchor="w", padx=24, pady=(8,0))
-        for line in ["", "Оптимизатор для macOS со «стеклянным» интерфейсом.", "",
+        for line in ["", "Оптимизатор для macOS со «стеклянным» интерфейсом.",
+                     "Часть экосистемы KRYLAN: Mac · iPhone · Android (в разработке).", "",
                      "• Дашборд: диаграммы, батарея, процессы в реальном времени",
                      "• Автопилот: фоновая чистка и разгрузка памяти при пиках",
                      "• Очистка кэшей/логов → в Корзину (обратимо)",
-                     "• Инструменты: автозагрузка, крупные файлы, дубликаты", "",
-                     "Распространяется как нотаризованный .dmg (не App Store —",
-                     "ограничения песочницы не позволяют чистильщикам быть в MAS)."]:
+                     "• Приватность, Защита, Карта диска, Деинсталлятор", "",
+                     "Распространяется как нотаризованный .dmg и через Homebrew",
+                     "(не App Store — песочница не позволяет чистильщикам быть в MAS)."]:
             tk.Label(self.main, text=line, bg=BG0, fg=(TEXT if line.startswith("•") else MUTED),
                      font=("SF Pro Text",12), justify="left").pack(anchor="w", padx=24)
         row=tk.Frame(self.main, bg=BG0); row.pack(anchor="w", padx=24, pady=16)

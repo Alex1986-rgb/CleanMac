@@ -1,11 +1,16 @@
 <div align="center">
 
-<img src="icon_1024.png" width="128" alt="CleanMac"/>
+<img src="icon_1024.png" width="128" alt="KRYLAN CleanMac"/>
 
-# CleanMac
+# 🪽 KRYLAN · CleanMac
 
-**Красивый оптимизатor для macOS со «стеклянным» интерфейсом.**
+### «Дай устройству крылья»
+
+**Красивый оптимизатор со «стеклянным» интерфейсом.**
 Дашборд с диаграммами, автопилот, безопасная очистка — мощнее CCleaner, бесплатно и с открытым кодом.
+
+**Экосистема KRYLAN:** macOS (доступно) · iPhone · Android (в разработке).
+**Создатель:** Кырлан Александр Сергеевич.
 
 ![version](https://img.shields.io/badge/version-2.0.0-37d39a)
 ![platform](https://img.shields.io/badge/macOS-11%2B-blue)
@@ -88,5 +93,12 @@ cd CleanMac
 - Никаких сетевых отправок данных; единственный сетевой запрос — проверка
   версии на GitHub.
 
+## Дорожная карта (экосистема KRYLAN)
+- ✅ **macOS** — CleanMac (это приложение), universal Intel + Apple Silicon
+- 🔜 **iPhone** — KRYLAN для iOS (в рамках ограничений: фото-дубли, контакты, хранилище)
+- 🔜 **Android** — KRYLAN для Android (кэши приложений, крупные файлы)
+
+> Мобильные версии — отдельные приложения с функциями, допустимыми политиками App Store / Google Play.
+
 ## Лицензия
-[MIT](LICENSE) © Alex1986-rgb
+[MIT](LICENSE) © 2026 **Кырлан Александр Сергеевич**
