@@ -62,7 +62,7 @@
 
 ## 5. Инфраструктура
 - [x] Публичный GitHub, релизы, Homebrew tap, автообновление
-- [x] CI (GitHub Actions): сборка + тесты + релиз по тегу
+- [x] CI (GitHub Actions): macOS DMG + Windows .exe + Linux по тегу + тесты
 - [x] Sparkle appcast (шаблон docs/appcast.xml + generate-appcast.sh; EdDSA-подпись — после Developer ID)
 - [x] Аналитика загрузок (stats.sh — публичные счётчики GitHub, без телеметрии)
 
