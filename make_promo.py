@@ -44,7 +44,7 @@ def banner(w, h, out, title_sz, slogan_sz, with_features=True):
     d.text((tx, iy + int(isz*0.04) + int(title_sz*1.05)), "Дай устройству крылья",
            font=font(slogan_sz), fill=(55, 211, 154))
     d.text((tx, iy + int(isz*0.04) + int(title_sz*1.05) + int(slogan_sz*1.4)),
-           "Оптимизатор для macOS · iPhone · Android", font=font(int(slogan_sz*0.66)), fill=(138, 148, 166))
+           "Windows · macOS · Linux · iPhone · Android", font=font(int(slogan_sz*0.66)), fill=(138, 148, 166))
     if with_features:
         feats = ["Дашборд", "Умная очистка", "Автопилот", "Приватность", "Защита"]
         fy = int(h*0.80); fx = int(w*0.08); fnt = font(int(h*0.045))

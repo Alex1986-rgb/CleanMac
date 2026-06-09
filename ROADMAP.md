@@ -16,6 +16,8 @@
 
 Вывод: на телефонах — **другой, более лёгкий продукт** под тем же брендом, не порт Mac-версии.
 
+**Desktop (Windows · macOS · Linux):** реализовано в `krylan-desktop/` (Python + psutil) — мониторинг и очистка кэшей.
+
 ---
 
 ## 1. macOS (CleanMac) — есть, нужна полировка
@@ -38,6 +40,10 @@
 - [ ] macOS-таргет SwiftUI: перенести функции из Python-версии (постепенно)
 - [ ] Apple Developer Program ($99/год) — для TestFlight и публикации
 - [ ] Иконки всех размеров (Assets.xcassets) под бренд KRYLAN
+
+## 3.5. Desktop (Windows / Linux) — ГОТОВО
+- [x] KRYLAN Desktop (Python/psutil): дашборд + очистка кэшей, send2trash
+- [x] Сборка PyInstaller: .exe (Windows) / .app / бинарь Linux (см. README)
 
 ## 3. Android (Kotlin + Jetpack Compose) — отдельный проект
 - [~] Android: структура + Gradle готовы; открыть в Android Studio и Sync

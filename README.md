@@ -9,7 +9,7 @@
 **Красивый оптимизатор со «стеклянным» интерфейсом.**
 Дашборд с диаграммами, автопилот, безопасная очистка — мощнее CCleaner, бесплатно и с открытым кодом.
 
-**Экосистема KRYLAN:** macOS (доступно) · iPhone · Android (в разработке).
+**Экосистема KRYLAN:** macOS · **Windows · Linux** (доступно) · iPhone · Android (в разработке).
 **Создатель:** Кырлан Александр Сергеевич.
 
 ![version](https://img.shields.io/badge/version-2.0.0-37d39a)
@@ -49,6 +49,7 @@
 |---|---|---|
 | `.` (корень) | **CleanMac** — оптимизатор macOS (Python/tkinter) | этот файл |
 | `menubar.py` | мини-монитор в строке меню (rumps) | — |
+| `krylan-desktop/` | **Windows · macOS · Linux** (Python/psutil) | [README](krylan-desktop/README.md) |
 | `krylan-swift/` | каркас **iOS + macOS** (SwiftUI) | [README](krylan-swift/README.md) |
 | `krylan-android/` | каркас **Android** (Kotlin + Compose) | [README](krylan-android/README.md) |
 | `tests/` | юнит-тесты | [README](tests/README.md) |
