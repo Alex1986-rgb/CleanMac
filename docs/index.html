@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CleanMac — красивый оптимизатор для macOS</title>
+<meta name="description" content="CleanMac — бесплатный оптимизатор macOS со стеклянным интерфейсом: дашборд, умная очистка, автопилот, приватность, защита. Universal (Intel + Apple Silicon).">
+<style>
+  :root{--bg0:#0f131b;--bg1:#1a2230;--glass:#1e2735cc;--line:#2b3647;--text:#eef2f8;--muted:#8a94a6;
+        --green:#37d39a;--blue:#4b8cf9;--purple:#a78bfa;--yellow:#f6bb45;}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Segoe UI",sans-serif;
+       color:var(--text);background:radial-gradient(1200px 700px at 50% -10%,#21304a 0%,var(--bg0) 55%);min-height:100vh}
+  .wrap{max-width:960px;margin:0 auto;padding:0 24px}
+  header{text-align:center;padding:90px 0 40px}
+  .icon{width:128px;height:128px;border-radius:28px;box-shadow:0 20px 60px #0008;}
+  h1{font-size:54px;letter-spacing:-1px;margin:24px 0 10px}
+  .tag{font-size:20px;color:var(--muted);max-width:620px;margin:0 auto 12px}
+  .badges{margin:10px 0 28px}
+  .badges img{height:22px;margin:0 4px;vertical-align:middle}
+  .cta{display:inline-flex;gap:12px;flex-wrap:wrap;justify-content:center}
+  .btn{display:inline-block;padding:14px 26px;border-radius:14px;font-weight:700;font-size:16px;text-decoration:none;
+       transition:transform .12s ease,filter .12s ease}
+  .btn:hover{transform:translateY(-2px);filter:brightness(1.08)}
+  .btn-p{background:linear-gradient(135deg,#37d39a,#1f9e74);color:#04150f}
+  .btn-s{background:#222b3a;color:var(--text);border:1px solid var(--line)}
+  .install{margin:26px auto 0;max-width:560px;background:#0c1017;border:1px solid var(--line);border-radius:12px;
+           padding:14px 18px;font-family:"SF Mono",ui-monospace,monospace;color:#cdd6e4;text-align:left;font-size:14px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:18px;padding:30px 0 10px}
+  .card{background:var(--glass);border:1px solid var(--line);border-radius:18px;padding:22px;backdrop-filter:blur(12px)}
+  .card .e{font-size:30px}
+  .card h3{margin:10px 0 6px;font-size:18px}
+  .card p{color:var(--muted);font-size:14px;line-height:1.5}
+  .note{background:#1b2330;border:1px solid var(--line);border-radius:16px;padding:22px 26px;margin:34px 0;color:var(--muted);font-size:14px;line-height:1.6}
+  .note b{color:var(--text)}
+  footer{text-align:center;color:var(--muted);font-size:13px;padding:40px 0 60px}
+  a{color:var(--blue)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <img class="icon" src="icon.png" alt="CleanMac">
+    <h1>CleanMac</h1>
+    <p class="tag">Красивый оптимизатор для macOS со «стеклянным» интерфейсом. Дашборд, умная очистка, автопилот, приватность и защита — мощнее CCleaner, бесплатно и с открытым кодом.</p>
+    <div class="badges">
+      <img src="https://img.shields.io/badge/version-2.5.0-37d39a" alt="version">
+      <img src="https://img.shields.io/badge/macOS-11%2B-4b8cf9" alt="macOS">
+      <img src="https://img.shields.io/badge/Universal-Intel%20%2B%20Apple%20Silicon-a78bfa" alt="universal">
+      <img src="https://img.shields.io/badge/license-MIT-f6bb45" alt="license">
+    </div>
+    <div class="cta">
+      <a class="btn btn-p" href="https://github.com/Alex1986-rgb/CleanMac/releases/latest">⬇︎ Скачать .dmg</a>
+      <a class="btn btn-s" href="https://github.com/Alex1986-rgb/CleanMac">GitHub</a>
+    </div>
+    <div class="install"># Установка через Homebrew:<br>brew install --cask Alex1986-rgb/tap/cleanmac</div>
+  </header>
+
+  <section class="grid">
+    <div class="card"><div class="e">📊</div><h3>Дашборд</h3><p>Кольца Health/CPU/ОЗУ/SWAP/Диск, пончики памяти и диска, график нагрузки, виджет батареи, живые процессы — в реальном времени.</p></div>
+    <div class="card"><div class="e">✨</div><h3>Умная очистка</h3><p>Один проход по всем безопасным категориям и очистка в один клик. Всё уходит в Корзину — обратимо.</p></div>
+    <div class="card"><div class="e">🚀</div><h3>Автопилот</h3><p>Фоновый страж следит за памятью и при пике сам чистит кэши и разгружает систему.</p></div>
+    <div class="card"><div class="e">🔒</div><h3>Приватность</h3><p>Очистка истории и cookies браузеров, недавних файлов и сохранённых состояний окон.</p></div>
+    <div class="card"><div class="e">🛡</div><h3>Защита</h3><p>Эвристический поиск известного рекламного и нежелательного ПО в точках автозапуска.</p></div>
+    <div class="card"><div class="e">🗺</div><h3>Карта диска</h3><p>Визуальная разбивка крупнейших папок — мгновенно видно, что съело место.</p></div>
+    <div class="card"><div class="e">🩺</div><h3>Обслуживание</h3><p>Освободить память, сбросить DNS, переиндексировать Spotlight, очистить кэш шрифтов и Quick Look.</p></div>
+    <div class="card"><div class="e">🧩</div><h3>Деинсталлятор</h3><p>Полное удаление приложений вместе с их кэшами и настройками.</p></div>
+    <div class="card"><div class="e">☀️</div><h3>Яркость и быстрые действия</h3><p>Кнопка «100%» и слайдер яркости прямо на дашборде. Работает на Apple Silicon.</p></div>
+  </section>
+
+  <div class="note">
+    <b>Почему не в App Store?</b> Системные оптимизаторы не проходят песочницу Mac App Store — поэтому CleanMac, как CCleaner и CleanMyMac, распространяется напрямую (нотаризованный .dmg / Homebrew). <b>Universal</b>-сборка работает на Intel и Apple Silicon. Первый запуск без подписи: ПКМ → «Открыть».
+  </div>
+
+  <footer>
+    Сделано с ❤️ · <a href="https://github.com/Alex1986-rgb/CleanMac">исходный код</a> · MIT License
+  </footer>
+</div>
+</body>
+</html>
