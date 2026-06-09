@@ -44,6 +44,19 @@
 
 ---
 
+## Структура проекта (экосистема KRYLAN)
+| Папка | Что это | README |
+|---|---|---|
+| `.` (корень) | **CleanMac** — оптимизатор macOS (Python/tkinter) | этот файл |
+| `menubar.py` | мини-монитор в строке меню (rumps) | — |
+| `krylan-swift/` | каркас **iOS + macOS** (SwiftUI) | [README](krylan-swift/README.md) |
+| `krylan-android/` | каркас **Android** (Kotlin + Compose) | [README](krylan-android/README.md) |
+| `tests/` | юнит-тесты | [README](tests/README.md) |
+| `design/` | дизайн-токены для Figma | [DESIGN.md](DESIGN.md) |
+| `docs/` | лендинг (GitHub Pages) + промо + appcast | — |
+
+Документы: [ROADMAP](ROADMAP.md) · [DISTRIBUTION](DISTRIBUTION.md) · [PRIVACY](PRIVACY.md) · [TERMS](TERMS.md)
+
 ## Установка
 
 **Homebrew** (после публичного релиза):

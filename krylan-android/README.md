@@ -9,7 +9,11 @@
 ## Как открыть
 1. Установи **Android Studio**.
 2. `Open` → выбери папку `krylan-android/`.
-3. Дай Gradle синхронизироваться, выбери эмулятор/устройство, ▶ Run.
+3. Gradle Sync (Android Studio сам докачает `gradle-wrapper.jar` и SDK),
+   выбери эмулятор/устройство, ▶ Run.
+
+> Конфигурация готова: корневой `build.gradle.kts`, `settings.gradle.kts`,
+> `app/build.gradle.kts`, `gradle.properties` и `gradle/wrapper/`.
 
 ## Что внутри
 - `MainActivity.kt` — Compose-дашборд: хранилище, память, батарея
