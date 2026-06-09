@@ -10,7 +10,7 @@ import urllib.request
 import tkinter as tk
 from tkinter import messagebox
 
-VERSION = "2.3.0"
+VERSION = "2.4.0"
 REPO    = "Alex1986-rgb/CleanMac"          # для проверки обновлений
 BUY_URL = "https://alex1986-rgb.gumroad.com/l/cleanmac"   # ссылка на Pro (заглушка)
 HOME  = os.path.expanduser("~")
@@ -46,6 +46,37 @@ def run(cmd, t=8):
         return subprocess.run(cmd, capture_output=True, text=True, timeout=t).stdout
     except Exception:
         return ""
+
+def _lighten(hexc, amt=0.16):
+    r,g,b = int(hexc[1:3],16), int(hexc[3:5],16), int(hexc[5:7],16)
+    f = lambda c: min(255, int(c+(255-c)*amt))
+    return f"#{f(r):02x}{f(g):02x}{f(b):02x}"
+
+# ---------- яркость экрана (приватный DisplayServices, без Accessibility) ----------
+_DS=None; _DID=None
+def _ds_init():
+    global _DS,_DID
+    if _DS is None:
+        import ctypes
+        cg=ctypes.CDLL("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices")
+        cg.CGMainDisplayID.restype=ctypes.c_uint32; _DID=cg.CGMainDisplayID()
+        ds=ctypes.CDLL("/System/Library/PrivateFrameworks/DisplayServices.framework/DisplayServices")
+        ds.DisplayServicesSetBrightness.argtypes=[ctypes.c_uint32, ctypes.c_float]
+        ds.DisplayServicesGetBrightness.argtypes=[ctypes.c_uint32, ctypes.POINTER(ctypes.c_float)]
+        _DS=ds
+    return _DS,_DID
+
+def set_brightness(val):
+    try:
+        ds,did=_ds_init(); ds.DisplayServicesSetBrightness(did, float(val)); return True
+    except Exception: return False
+
+def get_brightness():
+    try:
+        import ctypes
+        ds,did=_ds_init(); cur=ctypes.c_float(0)
+        ds.DisplayServicesGetBrightness(did, ctypes.byref(cur)); return cur.value
+    except Exception: return None
 
 def path_size(p):
     if not os.path.exists(p): return 0
@@ -216,7 +247,10 @@ class CleanMac(tk.Tk):
                           ("tools","🛠  Инструменты"),("pro","⭐️  Pro / О программе")]:
             b = tk.Label(self.side, text="   "+label, bg=SIDEBAR, fg=TEXT, font=("SF Pro Text", 13),
                          anchor="w", padx=10, pady=12, cursor="pointinghand")
-            b.pack(fill="x"); b.bind("<Button-1>", lambda e,k=key: self.nav(k)); self.nav_btns[key]=b
+            b.pack(fill="x"); b.bind("<Button-1>", lambda e,k=key: self.nav(k))
+            b.bind("<Enter>", lambda e,bb=b,k=key: bb.configure(bg=GLASS_HI) if self.page!=k else None)
+            b.bind("<Leave>", lambda e,bb=b,k=key: bb.configure(bg=(GLASS if self.page==k else SIDEBAR)))
+            self.nav_btns[key]=b
         self.badge = tk.Label(self.side, text="", bg=SIDEBAR, fg=YELLOW, font=("SF Pro Text", 11, "bold"),
                               wraplength=184, justify="left"); self.badge.pack(side="bottom", fill="x", padx=12, pady=(0,6))
         self.statusbar = tk.Label(self.side, text="", bg=SIDEBAR, fg=MUTED, font=("SF Pro Text", 10),
@@ -280,8 +314,28 @@ class CleanMac(tk.Tk):
                  ).pack(anchor="w", padx=24, pady=(16,0))
         tk.Label(self.main, text="Состояние системы в реальном времени", bg=BG0, fg=MUTED,
                  font=("SF Pro Text", 11)).pack(anchor="w", padx=24, pady=(0,6))
+        qa=tk.Frame(self.main, bg=BG0); qa.pack(fill="x", padx=22, pady=(0,8))
+        self.bri_btn=self._btn(qa, "☀️ Яркость 100%", YELLOW, self._brightness_max)
+        self.bri_btn.pack(side="left", padx=(2,10))
+        cur=get_brightness()
+        self.bri_var=tk.IntVar(value=int((cur if cur is not None else 0.7)*100))
+        tk.Scale(qa, from_=0, to=100, orient="horizontal", variable=self.bri_var, command=self._bri_slide,
+                 bg=BG0, fg=MUTED, troughcolor=TRACK, highlightthickness=0, bd=0, length=150,
+                 showvalue=False, activebackground=YELLOW, sliderrelief="flat").pack(side="left", padx=(0,14))
+        self._btn(qa, "✨ Умная очистка", GREEN, lambda: self.nav("smart")).pack(side="left", padx=(0,8))
+        self._btn(qa, "🚀 Автопилот", BLUE, lambda: self.nav("autopilot")).pack(side="left")
         self.cv = tk.Canvas(self.main, bg=BG0, highlightthickness=0)
         self.cv.pack(fill="both", expand=True, padx=14, pady=(0,12))
+
+    def _brightness_max(self):
+        set_brightness(1.0)
+        try: self.bri_var.set(100)
+        except Exception: pass
+        old=self.bri_btn.cget("text"); self.bri_btn.configure(text="  ✓ 100%  ")
+        self.after(1200, lambda: self.bri_btn.configure(text=old))
+
+    def _bri_slide(self, val):
+        set_brightness(max(0.05, int(val)/100))
 
     def _card(self, c, x,y,w,h, title=None):
         self._round(c, x,y,x+w,y+h, 16, fill=GLASS, outline=GLASS_HI)
@@ -496,8 +550,11 @@ class CleanMac(tk.Tk):
         self._btn(bar,"Анализ",BLUE,self.run_analyze).pack(side="right")
 
     def _btn(self, parent, text, color, cmd):
+        hov=_lighten(color)
         b=tk.Label(parent, text="  "+text+"  ", bg=color, fg="white", font=("SF Pro Text",13,"bold"),
-                   padx=14, pady=8, cursor="pointinghand"); b.bind("<Button-1>", lambda e:cmd()); return b
+                   padx=14, pady=8, cursor="pointinghand")
+        b.bind("<Enter>", lambda e: b.configure(bg=hov)); b.bind("<Leave>", lambda e: b.configure(bg=color))
+        b.bind("<Button-1>", lambda e:cmd()); return b
 
     def run_analyze(self):
         self.total_lbl.configure(text="Анализирую…")
