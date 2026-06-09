@@ -5,7 +5,7 @@ KRYLAN Desktop — кросс-платформенный оптимизатор:
 «Дай устройству крылья». Создатель: Кырлан Александр Сергеевич.
 Зависимости: psutil, send2trash.  Запуск: python krylan.py
 """
-import os, sys, platform, threading, queue, math
+import os, sys, platform, threading, queue, math, hashlib
 import tkinter as tk
 from tkinter import messagebox
 import psutil
@@ -84,7 +84,7 @@ class Krylan(tk.Tk):
         tk.Label(side, text="  Дай устройству крылья", bg=SIDEBAR, fg=GREEN, font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=12)
         tk.Label(side, text=f"  {os_label()} · v{VERSION}", bg=SIDEBAR, fg=MUTED, font=("Segoe UI", 9)).pack(anchor="w", padx=12, pady=(0,16))
         self.nav_btns = {}
-        for key, label in [("dash","📊  Дашборд"),("clean","🧽  Очистка"),("about","ℹ️  О программе")]:
+        for key, label in [("dash","📊  Дашборд"),("clean","🧽  Очистка"),("tools","🛠  Инструменты"),("about","ℹ️  О программе")]:
             b = tk.Label(side, text="   "+label, bg=SIDEBAR, fg=TEXT, font=("Segoe UI", 12), anchor="w", padx=10, pady=11, cursor="hand2")
             b.pack(fill="x"); b.bind("<Button-1>", lambda e,k=key: self.nav(k)); self.nav_btns[key] = b
         self.main = tk.Frame(self, bg=BG0); self.main.pack(side="left", fill="both", expand=True)
@@ -93,7 +93,7 @@ class Krylan(tk.Tk):
         self.page = key
         for k,b in self.nav_btns.items(): b.configure(bg=GLASS if k==key else SIDEBAR)
         for w in self.main.winfo_children(): w.destroy()
-        {"dash":self.show_dash, "clean":self.show_clean, "about":self.show_about}[key]()
+        {"dash":self.show_dash, "clean":self.show_clean, "tools":self.show_tools, "about":self.show_about}[key]()
 
     # ---------- кольца ----------
     def _ring(self, c, cx, cy, r, frac, color, w, val, label):
@@ -180,6 +180,108 @@ class Krylan(tk.Tk):
             freed += sz
         self.q.put(("cldone", freed, None))
 
+    # ---------- инструменты (в духе BoostSpeed) ----------
+    def show_tools(self):
+        tk.Label(self.main, text="Инструменты", bg=BG0, fg=TEXT, font=("Segoe UI", 20, "bold")).pack(anchor="w", padx=24, pady=(18,8))
+        bar = tk.Frame(self.main, bg=BG0); bar.pack(fill="x", padx=22)
+        for lbl, cmd in [("⚙️ Автозагрузка", self.t_startup), ("👯 Дубликаты", self.t_dupes), ("📦 Крупные файлы", self.t_large)]:
+            self._btn(bar, lbl, GLASS, cmd).pack(side="left", padx=4)
+        self._dupe_extras = []
+        self.t_action = tk.Frame(self.main, bg=BG0); self.t_action.pack(fill="x", padx=24, pady=(8,0))
+        self.tout = tk.Text(self.main, bg="#0f1218", fg=TEXT, font=("Consolas", 11), relief="flat", padx=12, pady=10)
+        self.tout.pack(fill="both", expand=True, padx=24, pady=12)
+        self.tout.insert("end", "Выберите инструмент.\n"); self.tout.configure(state="disabled")
+
+    def _out(self, t):
+        self.tout.configure(state="normal"); self.tout.delete("1.0","end"); self.tout.insert("end", t); self.tout.configure(state="disabled")
+        for w in self.t_action.winfo_children(): w.destroy()
+
+    def t_startup(self):
+        self._out("⚙️ Сканирую автозагрузку…"); threading.Thread(target=self._startup_w, daemon=True).start()
+
+    def _startup_w(self):
+        lines = ["⚙️  Автозагрузка\n\n"]
+        if SYSTEM == "Windows":
+            try:
+                import winreg
+                k = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Run")
+                i = 0
+                while True:
+                    try:
+                        n, v, _ = winreg.EnumValue(k, i); lines.append(f"  • {n}\n      {v}\n"); i += 1
+                    except OSError: break
+            except Exception as e:
+                lines.append(f"  ошибка чтения реестра: {e}\n")
+            lines.append("\nОтключить: Диспетчер задач → вкладка «Автозагрузка».\n")
+        elif SYSTEM == "Darwin":
+            la = os.path.join(HOME, "Library/LaunchAgents")
+            for f in (sorted(os.listdir(la)) if os.path.isdir(la) else []): lines.append(f"  • {f}\n")
+            lines.append("\nОтключить: переименуйте .plist → .plist.disabled.\n")
+        else:
+            ad = os.path.join(HOME, ".config/autostart")
+            for f in (sorted(os.listdir(ad)) if os.path.isdir(ad) else []): lines.append(f"  • {f}\n")
+            lines.append("\nОтключить: удалите .desktop из ~/.config/autostart.\n")
+        self.q.put(("tout", "".join(lines), None))
+
+    def t_large(self):
+        self._out("📦 Ищу файлы >100 МБ…"); threading.Thread(target=self._large_w, daemon=True).start()
+
+    def _large_w(self):
+        big, skip = [], {"Library", "AppData", ".cache"}
+        for root, dirs, files in os.walk(HOME):
+            parts = root.replace(HOME, "").strip(os.sep).split(os.sep)
+            if parts and parts[0] in skip: dirs[:] = []; continue
+            for fn in files:
+                try:
+                    s = os.path.getsize(os.path.join(root, fn))
+                    if s > 100*1024*1024: big.append((s, os.path.join(root, fn)))
+                except Exception: pass
+        big.sort(reverse=True)
+        t = "📦  Крупные файлы (топ-25):\n\n" + "".join(f"  {human(s):>9}  {fp.replace(HOME,'~')}\n" for s, fp in big[:25])
+        self.q.put(("tout", t or "  ничего\n", None))
+
+    def t_dupes(self):
+        self._out("👯 Ищу дубликаты…"); threading.Thread(target=self._dupes_w, daemon=True).start()
+
+    def _dupes_w(self):
+        bases = [os.path.join(HOME, d) for d in ("Downloads", "Desktop", "Documents")]
+        by_size = {}
+        for base in bases:
+            if not os.path.isdir(base): continue
+            for root, _, files in os.walk(base):
+                for fn in files:
+                    fp = os.path.join(root, fn)
+                    try:
+                        s = os.path.getsize(fp)
+                        if s > 1024*1024: by_size.setdefault(s, []).append(fp)
+                    except Exception: pass
+        groups, extras = [], []
+        for s, paths in by_size.items():
+            if len(paths) < 2: continue
+            bh = {}
+            for fp in paths:
+                try:
+                    h = hashlib.md5(open(fp, "rb").read()).hexdigest()
+                    bh.setdefault(h, []).append(fp)
+                except Exception: pass
+            for same in bh.values():
+                if len(same) > 1:
+                    groups.append((s, sorted(same))); extras.extend(sorted(same)[1:])
+        groups.sort(reverse=True)
+        wasted = sum(s*(len(g)-1) for s, g in groups)
+        t = f"👯  Дубликаты: групп {len(groups)}, освободить ~{human(wasted)}\n\n"
+        for s, same in groups[:20]:
+            t += f"  {human(s)} ×{len(same)}:\n" + "".join(f"      {p.replace(HOME,'~')}\n" for p in same) + "\n"
+        self.q.put(("dupes", t if groups else "  дубликатов нет.\n", extras))
+
+    def _trash_dupes(self, extras):
+        if not extras or not messagebox.askyesno("KRYLAN", f"Удалить {len(extras)} лишних копий в Корзину?"): return
+        ok = 0
+        for p in extras:
+            try: send2trash(p); ok += 1
+            except Exception: pass
+        messagebox.showinfo("KRYLAN", f"В Корзину: {ok} файлов."); self.t_dupes()
+
     # ---------- о программе ----------
     def show_about(self):
         tk.Label(self.main, text="🪽 KRYLAN", bg=BG0, fg=TEXT, font=("Segoe UI", 24, "bold")).pack(anchor="w", padx=24, pady=(26,0))
@@ -229,6 +331,14 @@ class Krylan(tk.Tk):
                 elif kind == "cldone":
                     self.cl_total.configure(text=f"Очищено: {human(a)} → Корзина")
                     messagebox.showinfo("KRYLAN", f"В Корзину: {human(a)}."); self.found = {}
+                elif kind == "tout":
+                    if self.page == "tools": self._out(a)
+                elif kind == "dupes":
+                    if self.page == "tools":
+                        self._out(a)
+                        if b:
+                            self._btn(self.t_action, f"🗑 Удалить {len(b)} лишних копий", RED,
+                                      lambda ex=b: self._trash_dupes(ex)).pack(side="left", pady=4)
         except queue.Empty: pass
         except Exception: pass
         self.after(120, self._poll)

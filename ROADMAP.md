@@ -44,6 +44,8 @@
 ## 3.5. Desktop (Windows / Linux) — ГОТОВО
 - [x] KRYLAN Desktop (Python/psutil): дашборд + очистка кэшей, send2trash
 - [x] Сборка PyInstaller: .exe (Windows) / .app / бинарь Linux (см. README)
+- [x] Инструменты BoostSpeed-style: автозагрузка, дубликаты (удаление), крупные файлы
+- [x] Windows .ico + материалы для сторов (store/listing.md)
 
 ## 3. Android (Kotlin + Jetpack Compose) — отдельный проект
 - [~] Android: структура + Gradle готовы; открыть в Android Studio и Sync

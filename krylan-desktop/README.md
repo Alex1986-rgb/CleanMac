@@ -15,12 +15,12 @@ python krylan.py
 
 ### Windows (.exe)
 ```bat
-pip install pyinstaller
-pyinstaller --onefile --windowed --name KRYLAN --icon ..\CleanMac.icns krylan.py
+pip install -r requirements.txt pyinstaller
+pyinstaller --onefile --windowed --name KRYLAN --icon krylan.ico krylan.py
 :: результат: dist\KRYLAN.exe — запускается на любом Windows без Python
 ```
-> Для иконки на Windows нужен `.ico` (сконвертируй из `icon_1024.png`).
-> Без подписи Windows SmartScreen покажет «Запустить всё равно».
+> Иконка `krylan.ico` уже в комплекте.
+> Без подписи Windows SmartScreen покажет «Запустить всё равно» (Подробнее → Выполнить).
 
 ### macOS (.app/.dmg)
 ```bash
