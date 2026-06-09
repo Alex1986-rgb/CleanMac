@@ -5,6 +5,8 @@ enum Section: String, CaseIterable, Identifiable {
     case dashboard = "Дашборд"
     case storage   = "Хранилище"
     case battery   = "Батарея"
+    case photos    = "Фото-дубли"
+    case contacts  = "Контакты"
     case about     = "О программе"
     var id: String { rawValue }
     var icon: String {
@@ -12,6 +14,8 @@ enum Section: String, CaseIterable, Identifiable {
         case .dashboard: return "gauge.with.dots.needle.67percent"
         case .storage:   return "internaldrive"
         case .battery:   return "battery.100"
+        case .photos:    return "photo.on.rectangle.angled"
+        case .contacts:  return "person.2"
         case .about:     return "info.circle"
         }
     }
@@ -45,6 +49,8 @@ struct ContentView: View {
                                             lines: ["Заряд: \(monitor.batteryPercent)%",
                                                     "Память: \(Int(monitor.memoryUsedPercent))% занято",
                                                     "ОЗУ: \(monitor.ramTotalGB) ГБ"])
+                case .photos:    PhotoDuplicatesView()
+                case .contacts:  ContactsDuplicatesView()
                 case .about:     AboutScreen()
                 }
             }

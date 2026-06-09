@@ -12,7 +12,7 @@ import urllib.request
 import tkinter as tk
 from tkinter import messagebox
 
-VERSION = "2.6.1"
+VERSION = "2.7.0"
 BRAND   = "KRYLAN"
 SLOGAN  = "Дай устройству крылья"
 AUTHOR  = "Кырлан Александр Сергеевич"
@@ -23,6 +23,28 @@ TRASH = os.path.join(HOME, ".Trash")
 OPT   = os.path.join(HOME, "mac-optimizer")
 CFG   = os.path.join(HOME, ".config", "cleanmac")
 LIC   = os.path.join(CFG, "license")
+LANG_FILE = os.path.join(CFG, "lang")
+
+# ---------- локализация (RU/EN) ----------
+def _load_lang():
+    try:
+        v=open(LANG_FILE).read().strip()
+        if v in ("ru","en"): return v
+    except Exception: pass
+    try:
+        import locale; loc=(locale.getlocale()[0] or "")
+        return "ru" if loc.lower().startswith("ru") else "en"
+    except Exception: return "ru"
+LANG = _load_lang()
+TR = {
+    "Дашборд":"Dashboard","Умная очистка":"Smart Scan","Приватность":"Privacy","Защита":"Protection",
+    "Автопилот":"Autopilot","Очистка":"Cleanup","Инструменты":"Tools","Pro / О программе":"Pro / About",
+    "Состояние системы в реальном времени":"Real-time system status",
+    "☀️ Яркость 100%":"☀️ Brightness 100%","✨ Умная очистка":"✨ Smart Scan","🚀 Автопилот":"🚀 Autopilot",
+    "Анализ":"Analyze","Очистить":"Clean","Готово к анализу":"Ready to analyze",
+}
+def L(s):
+    return TR.get(s, s) if LANG=="en" else s
 
 # ---------- палитра «тёмное стекло» ----------
 BG0, BG1 = "#11151d", "#1b2330"     # градиент фона
@@ -252,10 +274,10 @@ class CleanMac(tk.Tk):
         tk.Label(self.side, text=f"  CleanMac · v{VERSION}", bg=SIDEBAR, fg=MUTED,
                  font=("SF Pro Text", 10)).pack(anchor="w", padx=12, pady=(0,16))
         self.nav_btns = {}
-        for key,label in [("dash","📊  Дашборд"),("smart","✨  Умная очистка"),("privacy","🔒  Приватность"),
-                          ("threats","🛡  Защита"),("autopilot","🚀  Автопилот"),("cleaner","🧽  Очистка"),
-                          ("tools","🛠  Инструменты"),("pro","⭐️  Pro / О программе")]:
-            b = tk.Label(self.side, text="   "+label, bg=SIDEBAR, fg=TEXT, font=("SF Pro Text", 13),
+        for key,icon,name in [("dash","📊","Дашборд"),("smart","✨","Умная очистка"),("privacy","🔒","Приватность"),
+                          ("threats","🛡","Защита"),("autopilot","🚀","Автопилот"),("cleaner","🧽","Очистка"),
+                          ("tools","🛠","Инструменты"),("pro","⭐️","Pro / О программе")]:
+            b = tk.Label(self.side, text=f"   {icon}  {L(name)}", bg=SIDEBAR, fg=TEXT, font=("SF Pro Text", 13),
                          anchor="w", padx=10, pady=12, cursor="pointinghand")
             b.pack(fill="x"); b.bind("<Button-1>", lambda e,k=key: self.nav(k))
             b.bind("<Enter>", lambda e,bb=b,k=key: bb.configure(bg=GLASS_HI) if self.page!=k else None)
@@ -277,6 +299,17 @@ class CleanMac(tk.Tk):
          "tools":self.show_tools,"pro":self.show_pro}[key]()
 
     def status(self,t): self.statusbar.configure(text=t)
+
+    def set_lang(self, lang):
+        global LANG
+        LANG = lang
+        try:
+            os.makedirs(CFG, exist_ok=True)
+            with open(LANG_FILE, "w") as f: f.write(lang)
+        except Exception: pass
+        cur = self.page or "dash"
+        for w in self.winfo_children(): w.destroy()
+        self.nav_btns = {}; self._build(); self.nav(cur)
 
     # ---------- рисовалки ----------
     @staticmethod
@@ -321,12 +354,12 @@ class CleanMac(tk.Tk):
 
     # ================= ДАШБОРД =================
     def show_dash(self):
-        tk.Label(self.main, text="Дашборд", bg=BG0, fg=TEXT, font=("SF Pro Display", 22, "bold")
+        tk.Label(self.main, text=L("Дашборд"), bg=BG0, fg=TEXT, font=("SF Pro Display", 22, "bold")
                  ).pack(anchor="w", padx=24, pady=(16,0))
-        tk.Label(self.main, text="Состояние системы в реальном времени", bg=BG0, fg=MUTED,
+        tk.Label(self.main, text=L("Состояние системы в реальном времени"), bg=BG0, fg=MUTED,
                  font=("SF Pro Text", 11)).pack(anchor="w", padx=24, pady=(0,6))
         qa=tk.Frame(self.main, bg=BG0); qa.pack(fill="x", padx=22, pady=(0,8))
-        self.bri_btn=self._btn(qa, "☀️ Яркость 100%", YELLOW, self._brightness_max)
+        self.bri_btn=self._btn(qa, L("☀️ Яркость 100%"), YELLOW, self._brightness_max)
         self.bri_btn.pack(side="left", padx=(2,10))
         cur=get_brightness()
         self.bri_var=tk.IntVar(value=int((cur if cur is not None else 0.7)*100))
@@ -335,8 +368,8 @@ class CleanMac(tk.Tk):
                  showvalue=False, activebackground=YELLOW, sliderrelief="flat").pack(side="left", padx=(0,6))
         self.bri_pct=tk.Label(qa, text=f'{self.bri_var.get()}%', bg=BG0, fg=YELLOW, font=("SF Pro Text",11,"bold"))
         self.bri_pct.pack(side="left", padx=(0,14))
-        self._btn(qa, "✨ Умная очистка", GREEN, lambda: self.nav("smart")).pack(side="left", padx=(0,8))
-        self._btn(qa, "🚀 Автопилот", BLUE, lambda: self.nav("autopilot")).pack(side="left")
+        self._btn(qa, L("✨ Умная очистка"), GREEN, lambda: self.nav("smart")).pack(side="left", padx=(0,8))
+        self._btn(qa, L("🚀 Автопилот"), BLUE, lambda: self.nav("autopilot")).pack(side="left")
         self.cv = tk.Canvas(self.main, bg=BG0, highlightthickness=0)
         self.cv.pack(fill="both", expand=True, padx=14, pady=(0,12))
 
@@ -436,7 +469,7 @@ class CleanMac(tk.Tk):
 
     # ================= УМНАЯ ОЧИСТКА =================
     def show_smart(self):
-        tk.Label(self.main, text="Умная очистка", bg=BG0, fg=TEXT, font=("SF Pro Display",22,"bold")
+        tk.Label(self.main, text=L("Умная очистка"), bg=BG0, fg=TEXT, font=("SF Pro Display",22,"bold")
                  ).pack(anchor="w", padx=24, pady=(16,2))
         tk.Label(self.main, text="Один проход по всем безопасным категориям. Всё уходит в Корзину.",
                  bg=BG0, fg=MUTED, font=("SF Pro Text",11)).pack(anchor="w", padx=24, pady=(0,10))
@@ -492,7 +525,7 @@ class CleanMac(tk.Tk):
 
     # ================= АВТОПИЛОТ =================
     def show_autopilot(self):
-        tk.Label(self.main, text="Автопилот", bg=BG0, fg=TEXT, font=("SF Pro Display",22,"bold")
+        tk.Label(self.main, text=L("Автопилот"), bg=BG0, fg=TEXT, font=("SF Pro Display",22,"bold")
                  ).pack(anchor="w", padx=24, pady=(16,2))
         tk.Label(self.main, text="Фоновый страж следит за памятью и при пике сам чистит и разгружает.",
                  bg=BG0, fg=MUTED, font=("SF Pro Text",11)).pack(anchor="w", padx=24, pady=(0,14))
@@ -546,7 +579,7 @@ class CleanMac(tk.Tk):
 
     # ================= ОЧИСТКА =================
     def show_cleaner(self):
-        tk.Label(self.main, text="Очистка", bg=BG0, fg=TEXT, font=("SF Pro Display",22,"bold")
+        tk.Label(self.main, text=L("Очистка"), bg=BG0, fg=TEXT, font=("SF Pro Display",22,"bold")
                  ).pack(anchor="w", padx=24, pady=(16,2))
         tk.Label(self.main, text="«Анализ» посчитает объём, «Очистить» переместит в Корзину.",
                  bg=BG0, fg=MUTED, font=("SF Pro Text",11)).pack(anchor="w", padx=24, pady=(0,12))
@@ -560,9 +593,9 @@ class CleanMac(tk.Tk):
             if skip: tk.Label(r, text=f"(если {skip} закрыт)", bg=GLASS, fg=MUTED, font=("SF Pro Text",9)).pack(side="left", padx=6)
             sl=tk.Label(r, text="—", bg=GLASS, fg=GREEN, font=("SF Pro Text",11,"bold")); sl.pack(side="right"); self.cat_size_lbl[cid]=sl
         bar=tk.Frame(self.main, bg=BG0); bar.pack(fill="x", padx=24, pady=(4,16))
-        self.total_lbl=tk.Label(bar, text="Готово к анализу", bg=BG0, fg=TEXT, font=("SF Pro Text",13,"bold")); self.total_lbl.pack(side="left")
-        self._btn(bar,"Очистить",GREEN,self.run_clean).pack(side="right", padx=(8,0))
-        self._btn(bar,"Анализ",BLUE,self.run_analyze).pack(side="right")
+        self.total_lbl=tk.Label(bar, text=L("Готово к анализу"), bg=BG0, fg=TEXT, font=("SF Pro Text",13,"bold")); self.total_lbl.pack(side="left")
+        self._btn(bar,L("Очистить"),GREEN,self.run_clean).pack(side="right", padx=(8,0))
+        self._btn(bar,L("Анализ"),BLUE,self.run_analyze).pack(side="right")
 
     def _btn(self, parent, text, color, cmd):
         hov=_lighten(color)
@@ -607,7 +640,7 @@ class CleanMac(tk.Tk):
 
     # ================= ИНСТРУМЕНТЫ (интерактивные) =================
     def show_tools(self):
-        tk.Label(self.main, text="Инструменты", bg=BG0, fg=TEXT, font=("SF Pro Display",22,"bold")
+        tk.Label(self.main, text=L("Инструменты"), bg=BG0, fg=TEXT, font=("SF Pro Display",22,"bold")
                  ).pack(anchor="w", padx=24, pady=(16,8))
         bar=tk.Frame(self.main, bg=BG0); bar.pack(fill="x", padx=22)
         self.tool_chips={}
@@ -912,7 +945,7 @@ class CleanMac(tk.Tk):
 
     # ================= ПРИВАТНОСТЬ =================
     def show_privacy(self):
-        tk.Label(self.main, text="Приватность", bg=BG0, fg=TEXT, font=("SF Pro Display",22,"bold")
+        tk.Label(self.main, text=L("Приватность"), bg=BG0, fg=TEXT, font=("SF Pro Display",22,"bold")
                  ).pack(anchor="w", padx=24, pady=(16,2))
         tk.Label(self.main, text="Очистка следов работы → в Корзину (обратимо). Браузеры должны быть закрыты.",
                  bg=BG0, fg=MUTED, font=("SF Pro Text",11)).pack(anchor="w", padx=24, pady=(0,10))
@@ -956,7 +989,7 @@ class CleanMac(tk.Tk):
 
     # ================= ЗАЩИТА =================
     def show_threats(self):
-        tk.Label(self.main, text="Защита", bg=BG0, fg=TEXT, font=("SF Pro Display",22,"bold")
+        tk.Label(self.main, text=L("Защита"), bg=BG0, fg=TEXT, font=("SF Pro Display",22,"bold")
                  ).pack(anchor="w", padx=24, pady=(16,2))
         tk.Label(self.main, text="Эвристический поиск известного рекламного/нежелательного ПО в точках автозапуска. Не заменяет антивирус.",
                  bg=BG0, fg=MUTED, font=("SF Pro Text",11), wraplength=640, justify="left").pack(anchor="w", padx=24, pady=(0,8))
@@ -1047,6 +1080,8 @@ class CleanMac(tk.Tk):
             self._btn(row,"⭐️ Купить Pro",PURPLE, lambda: run(["/usr/bin/open",BUY_URL])).pack(side="left", padx=(0,8))
         self._btn(row,"Проверить обновления",BLUE, lambda: threading.Thread(target=self._check_update,args=(True,),daemon=True).start()).pack(side="left", padx=(0,8))
         self._btn(row,"GitHub",GLASS_HI, lambda: run(["/usr/bin/open",f"https://github.com/{REPO}"])).pack(side="left")
+        self._btn(row, ("🌐 EN" if LANG=="ru" else "🌐 RU"), GREEN,
+                  lambda: self.set_lang("en" if LANG=="ru" else "ru")).pack(side="left", padx=(8,0))
 
     # ---------- обновления ----------
     def _check_update(self, manual=False):
