@@ -12,7 +12,7 @@ import urllib.request
 import tkinter as tk
 from tkinter import messagebox
 
-VERSION = "2.6.0"
+VERSION = "2.6.1"
 BRAND   = "KRYLAN"
 SLOGAN  = "Дай устройству крылья"
 AUTHOR  = "Кырлан Александр Сергеевич"
@@ -1050,16 +1050,30 @@ class CleanMac(tk.Tk):
 
     # ---------- обновления ----------
     def _check_update(self, manual=False):
+        import ssl
+        url=f"https://raw.githubusercontent.com/{REPO}/main/VERSION"
+        req=urllib.request.Request(url, headers={"User-Agent":"CleanMac"})
+        latest=None
+        # сначала с проверкой сертификата; для замороженной сборки без CA — fallback
+        contexts=[None]
         try:
-            url=f"https://raw.githubusercontent.com/{REPO}/main/VERSION"
-            req=urllib.request.Request(url, headers={"User-Agent":"CleanMac"})
-            latest=urllib.request.urlopen(req, timeout=6).read().decode().strip()
-            if latest and latest!=VERSION:
-                self.q.put(("update", f"⬆️ Доступна версия {latest} (у вас {VERSION})", None))
-            elif manual:
-                self.q.put(("update", f"✅ Установлена последняя версия {VERSION}", None))
-        except Exception:
-            if manual: self.q.put(("update", "Не удалось проверить обновления (нет сети/репозитория).", None))
+            import certifi; contexts.append(ssl.create_default_context(cafile=certifi.where()))
+        except Exception: pass
+        contexts.append(ssl._create_unverified_context())
+        for ctx in contexts:
+            try:
+                kw={"timeout":6}
+                if ctx is not None: kw["context"]=ctx
+                latest=urllib.request.urlopen(req, **kw).read().decode().strip()
+                if latest: break
+            except Exception:
+                continue
+        if latest and latest!=VERSION:
+            self.q.put(("update", f"⬆️ Доступна версия {latest} (у вас {VERSION})", None))
+        elif latest and manual:
+            self.q.put(("update", f"✅ Установлена последняя версия {VERSION}", None))
+        elif manual:
+            self.q.put(("update", "Не удалось проверить обновления (нет сети).", None))
 
     # ---------- сэмплер ----------
     def _sampler(self):
