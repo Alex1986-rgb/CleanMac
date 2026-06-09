@@ -1,0 +1,45 @@
+# XcodeGen-конфиг. Установка и генерация проекта:
+#   brew install xcodegen
+#   cd krylan-swift && xcodegen generate && open KRYLAN.xcodeproj
+name: KRYLAN
+options:
+  bundleIdPrefix: com.krylan
+  deploymentTarget:
+    macOS: "12.0"
+    iOS: "16.0"
+settings:
+  base:
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    DEVELOPMENT_TEAM: ""   # ← впишите свой Apple Team ID после регистрации
+targets:
+  KRYLAN-macOS:
+    type: application
+    platform: macOS
+    sources: [Sources]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.krylan.app
+        PRODUCT_NAME: KRYLAN
+    info:
+      path: Generated-macOS-Info.plist
+      properties:
+        CFBundleDisplayName: KRYLAN
+        NSPhotoLibraryUsageDescription: "KRYLAN ищет дубликаты фотографий в вашей медиатеке."
+        NSContactsUsageDescription: "KRYLAN ищет дубликаты контактов."
+  KRYLAN-iOS:
+    type: application
+    platform: iOS
+    sources: [Sources]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.krylan.app
+        PRODUCT_NAME: KRYLAN
+        TARGETED_DEVICE_FAMILY: "1,2"
+    info:
+      path: Generated-iOS-Info.plist
+      properties:
+        CFBundleDisplayName: KRYLAN
+        UILaunchScreen: {}
+        NSPhotoLibraryUsageDescription: "KRYLAN ищет дубликаты фотографий в вашей медиатеке."
+        NSContactsUsageDescription: "KRYLAN ищет дубликаты контактов."

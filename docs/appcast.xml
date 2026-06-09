@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <channel>
+    <title>KRYLAN CleanMac</title>
+    <link>https://alex1986-rgb.github.io/CleanMac/appcast.xml</link>
+    <description>«Дай устройству крылья» — обновления KRYLAN CleanMac.</description>
+    <language>ru</language>
+    <item>
+      <title>v2.8.0</title>
+      <sparkle:version>2.8.0</sparkle:version>
+      <sparkle:shortVersionString>2.8.0</sparkle:shortVersionString>
+      <pubDate>2026-06-09T18:32:01Z</pubDate>
+      <enclosure url="https://github.com/Alex1986-rgb/CleanMac/releases/download/v2.8.0/CleanMac.dmg" sparkle:version="2.8.0" type="application/octet-stream" length="22307498"/>
+    </item>
+    <item>
+      <title>v2.7.0</title>
+      <sparkle:version>2.7.0</sparkle:version>
+      <sparkle:shortVersionString>2.7.0</sparkle:shortVersionString>
+      <pubDate>2026-06-09T18:18:43Z</pubDate>
+      <enclosure url="https://github.com/Alex1986-rgb/CleanMac/releases/download/v2.7.0/CleanMac.dmg" sparkle:version="2.7.0" type="application/octet-stream" length="22305390"/>
+    </item>
+    <item>
+      <title>v2.6.1</title>
+      <sparkle:version>2.6.1</sparkle:version>
+      <sparkle:shortVersionString>2.6.1</sparkle:shortVersionString>
+      <pubDate>2026-06-09T17:41:25Z</pubDate>
+      <enclosure url="https://github.com/Alex1986-rgb/CleanMac/releases/download/v2.6.1/CleanMac.dmg" sparkle:version="2.6.1" type="application/octet-stream" length="22304531"/>
+    </item>
+    <item>
+      <title>v2.6.0</title>
+      <sparkle:version>2.6.0</sparkle:version>
+      <sparkle:shortVersionString>2.6.0</sparkle:shortVersionString>
+      <pubDate>2026-06-09T07:38:12Z</pubDate>
+      <enclosure url="https://github.com/Alex1986-rgb/CleanMac/releases/download/v2.6.0/CleanMac.dmg" sparkle:version="2.6.0" type="application/octet-stream" length="22305369"/>
+    </item>
+    <item>
+      <title>v2.5.0</title>
+      <sparkle:version>2.5.0</sparkle:version>
+      <sparkle:shortVersionString>2.5.0</sparkle:shortVersionString>
+      <pubDate>2026-06-09T07:18:31Z</pubDate>
+      <enclosure url="https://github.com/Alex1986-rgb/CleanMac/releases/download/v2.5.0/CleanMac.dmg" sparkle:version="2.5.0" type="application/octet-stream" length="22307026"/>
+    </item>
+    <item>
+      <title>v2.4.0</title>
+      <sparkle:version>2.4.0</sparkle:version>
+      <sparkle:shortVersionString>2.4.0</sparkle:shortVersionString>
+      <pubDate>2026-06-09T07:10:40Z</pubDate>
+      <enclosure url="https://github.com/Alex1986-rgb/CleanMac/releases/download/v2.4.0/CleanMac.dmg" sparkle:version="2.4.0" type="application/octet-stream" length="13048271"/>
+    </item>
+    <item>
+      <title>v2.3.0</title>
+      <sparkle:version>2.3.0</sparkle:version>
+      <sparkle:shortVersionString>2.3.0</sparkle:shortVersionString>
+      <pubDate>2026-06-07T09:59:32Z</pubDate>
+      <enclosure url="https://github.com/Alex1986-rgb/CleanMac/releases/download/v2.3.0/CleanMac.dmg" sparkle:version="2.3.0" type="application/octet-stream" length="12988507"/>
+    </item>
+    <item>
+      <title>v2.2.0</title>
+      <sparkle:version>2.2.0</sparkle:version>
+      <sparkle:shortVersionString>2.2.0</sparkle:shortVersionString>
+      <pubDate>2026-06-07T09:49:51Z</pubDate>
+      <enclosure url="https://github.com/Alex1986-rgb/CleanMac/releases/download/v2.2.0/CleanMac.dmg" sparkle:version="2.2.0" type="application/octet-stream" length="12953058"/>
+    </item>
+    <item>
+      <title>v2.1.0</title>
+      <sparkle:version>2.1.0</sparkle:version>
+      <sparkle:shortVersionString>2.1.0</sparkle:shortVersionString>
+      <pubDate>2026-06-07T09:37:02Z</pubDate>
+      <enclosure url="https://github.com/Alex1986-rgb/CleanMac/releases/download/v2.1.0/CleanMac.dmg" sparkle:version="2.1.0" type="application/octet-stream" length="12953889"/>
+    </item>
+    <item>
+      <title>v2.0.0</title>
+      <sparkle:version>2.0.0</sparkle:version>
+      <sparkle:shortVersionString>2.0.0</sparkle:shortVersionString>
+      <pubDate>2026-06-07T09:26:14Z</pubDate>
+      <enclosure url="https://github.com/Alex1986-rgb/CleanMac/releases/download/v2.0.0/CleanMac.dmg" sparkle:version="2.0.0" type="application/octet-stream" length="12863914"/>
+    </item>
+  </channel>
+</rss>

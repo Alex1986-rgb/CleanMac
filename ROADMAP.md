@@ -31,7 +31,7 @@
 
 ## 2. Apple-стек на SwiftUI (Mac + iPhone) — каркас готов в `krylan-swift/`
 - [x] Каркас SwiftUI: бренд, навигация, дашборд, кольца, монитор системы
-- [ ] Открыть в **Xcode** как Multiplatform App, добавить таргеты macOS + iOS
+- [~] Xcode-проект: конфиг project.yml готов (xcodegen generate); сборка — у тебя в Xcode
 - [x] iOS: экраны Хранилище и Батарея (в каркасе)
 - [x] iOS: Фото-дубликаты (PhotoKit) — в каркасе
 - [x] iOS: Дубли контактов (Contacts) — в каркасе
@@ -40,7 +40,7 @@
 - [ ] Иконки всех размеров (Assets.xcassets) под бренд KRYLAN
 
 ## 3. Android (Kotlin + Jetpack Compose) — отдельный проект
-- [ ] Проект Android Studio (Kotlin + Compose), бренд KRYLAN
+- [~] Android: структура + Gradle готовы; открыть в Android Studio и Sync
 - [ ] Экран хранилища (StorageManager), крупные файлы (scoped storage / SAF)
 - [ ] Очистка кэша **своего** приложения, дубликаты медиа (MediaStore)
 - [ ] Google Play Console ($25 разово) + соответствие политике (без «фейк-бустеров»)
@@ -55,8 +55,8 @@
 ## 5. Инфраструктура
 - [x] Публичный GitHub, релизы, Homebrew tap, автообновление
 - [x] CI (GitHub Actions): сборка + тесты + релиз по тегу
-- [ ] Appcast/Sparkle для авто-обновления подписанной версии
-- [ ] Аналитика загрузок (опционально, приватно)
+- [x] Sparkle appcast (шаблон docs/appcast.xml + generate-appcast.sh; EdDSA-подпись — после Developer ID)
+- [x] Аналитика загрузок (stats.sh — публичные счётчики GitHub, без телеметрии)
 
 ---
 
