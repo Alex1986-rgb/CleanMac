@@ -12,7 +12,7 @@ import urllib.request
 import tkinter as tk
 from tkinter import messagebox
 
-VERSION = "2.7.0"
+VERSION = "2.8.0"
 BRAND   = "KRYLAN"
 SLOGAN  = "Дай устройству крылья"
 AUTHOR  = "Кырлан Александр Сергеевич"
@@ -46,15 +46,32 @@ TR = {
 def L(s):
     return TR.get(s, s) if LANG=="en" else s
 
-# ---------- палитра «тёмное стекло» ----------
-BG0, BG1 = "#11151d", "#1b2330"     # градиент фона
-SIDEBAR  = "#0e1219"
-GLASS    = "#222b3a"                 # карточка
-GLASS_HI = "#2b3647"
-TRACK    = "#333d4e"
-TEXT     = "#eef2f8"
-MUTED    = "#8a94a6"
+# ---------- акценты (общие для тем) ----------
 GREEN, BLUE, YELLOW, RED, PURPLE, CYAN = "#37d39a", "#4b8cf9", "#f6bb45", "#f2685f", "#a78bfa", "#36c6d6"
+
+# ---------- темы оформления ----------
+THEMES = {
+    "dark":  {"BG0":"#11151d","BG1":"#1b2330","SIDEBAR":"#0e1219","GLASS":"#222b3a",
+              "GLASS_HI":"#2b3647","TRACK":"#333d4e","TEXT":"#eef2f8","MUTED":"#8a94a6"},
+    "light": {"BG0":"#eef1f7","BG1":"#e2e8f2","SIDEBAR":"#e6ebf4","GLASS":"#ffffff",
+              "GLASS_HI":"#dbe2ee","TRACK":"#ccd5e1","TEXT":"#1b2230","MUTED":"#5f6b7a"},
+}
+THEME_FILE = os.path.join(CFG, "theme")
+def _load_theme():
+    try:
+        v=open(THEME_FILE).read().strip()
+        if v in THEMES: return v
+    except Exception: pass
+    return "dark"
+
+BG0=BG1=SIDEBAR=GLASS=GLASS_HI=TRACK=TEXT=MUTED=""
+def apply_theme(name):
+    global BG0,BG1,SIDEBAR,GLASS,GLASS_HI,TRACK,TEXT,MUTED,THEME
+    THEME=name; p=THEMES.get(name, THEMES["dark"])
+    BG0,BG1,SIDEBAR,GLASS,GLASS_HI,TRACK,TEXT,MUTED = (
+        p["BG0"],p["BG1"],p["SIDEBAR"],p["GLASS"],p["GLASS_HI"],p["TRACK"],p["TEXT"],p["MUTED"])
+THEME="dark"
+apply_theme(_load_theme())
 
 def col_for(p, inv=False):
     v = p if inv else 100 - p
@@ -113,8 +130,23 @@ def path_size(p):
 def app_running(name):
     return name.lower() in run(["/bin/ps", "-axo", "comm"]).lower()
 
+# Пути, которые НИКОГДА нельзя перемещать в Корзину (защита от ошибки).
+PROTECTED = {os.path.realpath(p) for p in (
+    "/", HOME, "/System", "/Library", "/Applications", "/usr", "/bin", "/etc", "/var", "/private",
+    os.path.join(HOME, "Library"), os.path.join(HOME, "Documents"), os.path.join(HOME, "Desktop"),
+    os.path.join(HOME, "Downloads"), os.path.join(HOME, "Pictures"), os.path.join(HOME, "Movies"),
+    os.path.join(HOME, "Music"), os.path.join(HOME, "Library/Keychains"),
+    os.path.join(HOME, "Library/Caches"), os.path.join(HOME, "Library/Application Support"),
+)}
+
+def is_protected(path):
+    """True, если путь — защищённый корень (его удалять нельзя; подпапки внутри — можно)."""
+    rp = os.path.realpath(path)
+    return rp in PROTECTED or rp == os.path.realpath(HOME) or len(rp.strip("/").split("/")) < 2
+
 def to_trash(path):
     if not os.path.exists(path): return False
+    if is_protected(path): return False          # страховка: не трогаем системные/корневые папки
     base = os.path.basename(path.rstrip("/")) or "item"
     dest = os.path.join(TRASH, base)
     if os.path.exists(dest): dest = os.path.join(TRASH, f"{base}-{int(time.time()*1000)}")
@@ -254,7 +286,7 @@ class CleanMac(tk.Tk):
         self.procs = []
         self.cpu_hist = collections.deque([0]*70, maxlen=70)
         self.ram_hist = collections.deque([0]*70, maxlen=70)
-        self.cat_vars={}; self.cat_size_lbl={}; self.found={}
+        self.cat_vars={}; self.cat_size_lbl={}; self.found={}; self._alert_t={}
         self.is_pro = os.path.exists(LIC)
         self.update_note = ""
         self._build()
@@ -307,6 +339,28 @@ class CleanMac(tk.Tk):
             os.makedirs(CFG, exist_ok=True)
             with open(LANG_FILE, "w") as f: f.write(lang)
         except Exception: pass
+        cur = self.page or "dash"
+        for w in self.winfo_children(): w.destroy()
+        self.nav_btns = {}; self._build(); self.nav(cur)
+
+    def _maybe_alert(self, disk, batt_health):
+        now = time.time()
+        def fire(key, cooldown, title, msg):
+            if now - self._alert_t.get(key, 0) > cooldown:
+                self._alert_t[key] = now
+                run(["osascript", "-e", f'display notification "{msg}" with title "{title}"'])
+        if disk >= 90:
+            fire("disk", 6*3600, "🪽 KRYLAN", "Диск почти заполнен — запустите Умную очистку.")
+        if batt_health and batt_health < 80:
+            fire("batt", 24*3600, "🪽 KRYLAN", f"Батарея деградирует: ёмкость {int(batt_health)}%.")
+
+    def set_theme(self, name):
+        apply_theme(name)
+        try:
+            os.makedirs(CFG, exist_ok=True)
+            with open(THEME_FILE, "w") as f: f.write(name)
+        except Exception: pass
+        self.configure(bg=BG0)
         cur = self.page or "dash"
         for w in self.winfo_children(): w.destroy()
         self.nav_btns = {}; self._build(); self.nav(cur)
@@ -1082,6 +1136,8 @@ class CleanMac(tk.Tk):
         self._btn(row,"GitHub",GLASS_HI, lambda: run(["/usr/bin/open",f"https://github.com/{REPO}"])).pack(side="left")
         self._btn(row, ("🌐 EN" if LANG=="ru" else "🌐 RU"), GREEN,
                   lambda: self.set_lang("en" if LANG=="ru" else "ru")).pack(side="left", padx=(8,0))
+        self._btn(row, ("☀️ Светлая" if THEME=="dark" else "🌙 Тёмная"), PURPLE,
+                  lambda: self.set_theme("light" if THEME=="dark" else "dark")).pack(side="left", padx=(8,0))
 
     # ---------- обновления ----------
     def _check_update(self, manual=False):
@@ -1139,6 +1195,7 @@ class CleanMac(tk.Tk):
                     self.disk_free=a["dfree"]; self.disk_total=a["dtot"]
                     self.cpu_hist.append(a["cpu"]); self.ram_hist.append(a["ram"])
                     self.status(f'Здоровье {int(a["health"])} · CPU {int(a["cpu"])}% · ОЗУ {int(a["ram"])}% · бат {a["batt"]["pct"]}%')
+                    self._maybe_alert(a["disk"], a["batt"].get("health", 100))
                 elif kind=="catsize":
                     lbl=self.cat_size_lbl.get(a)
                     if lbl: lbl.configure(text=("—" if a is None else "пропуск" if b=="skip" else ("—" if b is None else human(b))))
