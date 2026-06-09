@@ -10,7 +10,7 @@ import urllib.request
 import tkinter as tk
 from tkinter import messagebox
 
-VERSION = "2.4.0"
+VERSION = "2.5.0"
 REPO    = "Alex1986-rgb/CleanMac"          # для проверки обновлений
 BUY_URL = "https://alex1986-rgb.gumroad.com/l/cleanmac"   # ссылка на Pro (заглушка)
 HOME  = os.path.expanduser("~")
@@ -211,7 +211,10 @@ class CleanMac(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("CleanMac")
-        self.geometry("1000x720"); self.minsize(960, 680)
+        self.minsize(960, 680)
+        _w,_h=1000,720
+        _x=max(0,(self.winfo_screenwidth()-_w)//2); _y=max(0,(self.winfo_screenheight()-_h)//3)
+        self.geometry(f"{_w}x{_h}+{_x}+{_y}")
         self.configure(bg=BG0)
         try: self.attributes("-alpha", 0.985)          # лёгкая «стеклянная» прозрачность
         except Exception: pass
@@ -259,7 +262,8 @@ class CleanMac(tk.Tk):
 
     def nav(self, key):
         self.page = key
-        for k,b in self.nav_btns.items(): b.configure(bg=GLASS if k==key else SIDEBAR)
+        for k,b in self.nav_btns.items():
+            b.configure(bg=GLASS if k==key else SIDEBAR, fg=TEXT if k==key else "#9aa3b2")
         for w in self.main.winfo_children(): w.destroy()
         {"dash":self.show_dash,"smart":self.show_smart,"privacy":self.show_privacy,"threats":self.show_threats,
          "autopilot":self.show_autopilot,"cleaner":self.show_cleaner,
@@ -320,8 +324,10 @@ class CleanMac(tk.Tk):
         cur=get_brightness()
         self.bri_var=tk.IntVar(value=int((cur if cur is not None else 0.7)*100))
         tk.Scale(qa, from_=0, to=100, orient="horizontal", variable=self.bri_var, command=self._bri_slide,
-                 bg=BG0, fg=MUTED, troughcolor=TRACK, highlightthickness=0, bd=0, length=150,
-                 showvalue=False, activebackground=YELLOW, sliderrelief="flat").pack(side="left", padx=(0,14))
+                 bg=BG0, fg=MUTED, troughcolor=TRACK, highlightthickness=0, bd=0, length=140,
+                 showvalue=False, activebackground=YELLOW, sliderrelief="flat").pack(side="left", padx=(0,6))
+        self.bri_pct=tk.Label(qa, text=f'{self.bri_var.get()}%', bg=BG0, fg=YELLOW, font=("SF Pro Text",11,"bold"))
+        self.bri_pct.pack(side="left", padx=(0,14))
         self._btn(qa, "✨ Умная очистка", GREEN, lambda: self.nav("smart")).pack(side="left", padx=(0,8))
         self._btn(qa, "🚀 Автопилот", BLUE, lambda: self.nav("autopilot")).pack(side="left")
         self.cv = tk.Canvas(self.main, bg=BG0, highlightthickness=0)
@@ -329,13 +335,15 @@ class CleanMac(tk.Tk):
 
     def _brightness_max(self):
         set_brightness(1.0)
-        try: self.bri_var.set(100)
+        try: self.bri_var.set(100); self.bri_pct.configure(text="100%")
         except Exception: pass
         old=self.bri_btn.cget("text"); self.bri_btn.configure(text="  ✓ 100%  ")
         self.after(1200, lambda: self.bri_btn.configure(text=old))
 
     def _bri_slide(self, val):
         set_brightness(max(0.05, int(val)/100))
+        try: self.bri_pct.configure(text=f"{int(val)}%")
+        except Exception: pass
 
     def _card(self, c, x,y,w,h, title=None):
         self._round(c, x,y,x+w,y+h, 16, fill=GLASS, outline=GLASS_HI)

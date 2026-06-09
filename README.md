@@ -41,9 +41,16 @@
 
 ## Установка
 
+**Homebrew** (после публичного релиза):
+```bash
+brew install --cask Alex1986-rgb/tap/cleanmac
+```
+
 **Готовый `.dmg`** — на странице [Releases](https://github.com/Alex1986-rgb/CleanMac/releases).
 Перетащите CleanMac в «Программы». Первый запуск: ПКМ → «Открыть» (приложение
 распространяется вне App Store, как все чистильщики).
+
+> Сборка **universal2** (Intel + Apple Silicon) — работает на всех маках с macOS 11+.
 
 **Из исходников:**
 ```bash

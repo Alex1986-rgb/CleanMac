@@ -12,6 +12,7 @@ mkdir -p "$STAGE"
 if "$PY" -c "import PyInstaller" 2>/dev/null; then
   echo "▶ Сборка самодостаточного .app через PyInstaller…"
   "$PY" -m PyInstaller --windowed --name "$NAME" --icon CleanMac.icns \
+        --target-arch universal2 \
         --osx-bundle-identifier com.macbook.cleanmac --noconfirm CleanMac.py
   cp -R "dist/$NAME.app" "$STAGE/"
 else
