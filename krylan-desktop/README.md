@@ -34,6 +34,8 @@ pyinstaller --onefile --name krylan krylan.py   # ./dist/krylan
 
 ## Что внутри
 - **Дашборд** — кольца CPU/ОЗУ/Диск/Батарея (psutil), инфо об ОС/диске/памяти.
+- **Процессы** — диспетчер задач: топ по памяти/CPU + завершение процесса.
+- **Сеть** — скорость ↓/↑ на дашборде.
 - **Очистка** — временные файлы и кэши, **зависят от ОС**:
   - Windows: `%TEMP%`, кэш Chrome/Edge/Explorer
   - macOS: `~/Library/Caches`, `~/Library/Logs`

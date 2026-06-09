@@ -11,7 +11,7 @@ from tkinter import messagebox
 import psutil
 from send2trash import send2trash
 
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 SYSTEM = platform.system()           # Windows / Darwin / Linux
 HOME = os.path.expanduser("~")
 
@@ -84,7 +84,7 @@ class Krylan(tk.Tk):
         tk.Label(side, text="  Дай устройству крылья", bg=SIDEBAR, fg=GREEN, font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=12)
         tk.Label(side, text=f"  {os_label()} · v{VERSION}", bg=SIDEBAR, fg=MUTED, font=("Segoe UI", 9)).pack(anchor="w", padx=12, pady=(0,16))
         self.nav_btns = {}
-        for key, label in [("dash","📊  Дашборд"),("clean","🧽  Очистка"),("tools","🛠  Инструменты"),("about","ℹ️  О программе")]:
+        for key, label in [("dash","📊  Дашборд"),("procs","🧠  Процессы"),("clean","🧽  Очистка"),("tools","🛠  Инструменты"),("about","ℹ️  О программе")]:
             b = tk.Label(side, text="   "+label, bg=SIDEBAR, fg=TEXT, font=("Segoe UI", 12), anchor="w", padx=10, pady=11, cursor="hand2")
             b.pack(fill="x"); b.bind("<Button-1>", lambda e,k=key: self.nav(k)); self.nav_btns[key] = b
         self.main = tk.Frame(self, bg=BG0); self.main.pack(side="left", fill="both", expand=True)
@@ -93,7 +93,7 @@ class Krylan(tk.Tk):
         self.page = key
         for k,b in self.nav_btns.items(): b.configure(bg=GLASS if k==key else SIDEBAR)
         for w in self.main.winfo_children(): w.destroy()
-        {"dash":self.show_dash, "clean":self.show_clean, "tools":self.show_tools, "about":self.show_about}[key]()
+        {"dash":self.show_dash, "procs":self.show_procs, "clean":self.show_clean, "tools":self.show_tools, "about":self.show_about}[key]()
 
     # ---------- кольца ----------
     def _ring(self, c, cx, cy, r, frac, color, w, val, label):
@@ -120,14 +120,15 @@ class Krylan(tk.Tk):
             p = self.disp[k]; col = load_color(100-p) if inv else load_color(p)
             self._ring(c, int(gap*i+gap/2), 70, 48, min(1,p/100), col, 12, val, lbl)
         # карточка инфо
-        c.create_rectangle(20,150,W-20,260, fill=GLASS, outline=GLASS)
+        c.create_rectangle(20,150,W-20,282, fill=GLASS, outline=GLASS)
         info = [f"ОС: {self.info.get('os','—')}",
                 f"Диск: свободно {human(self.info.get('disk_free',0))} из {human(self.info.get('disk_total',0))}",
                 f"ОЗУ: {human(self.info.get('ram_total',0))} всего, занято {int(self.disp['ram'])}%",
-                f"CPU: {self.info.get('cores','?')} ядер"]
+                f"CPU: {self.info.get('cores','?')} ядер",
+                f"Сеть: ↓ {human(self.info.get('net_down',0))}/с   ↑ {human(self.info.get('net_up',0))}/с"]
         for i,line in enumerate(info):
-            c.create_text(40,175+i*22, anchor="w", fill=TEXT, font=("Segoe UI", 11), text=line)
-        c.configure(scrollregion=(0,0,W,280))
+            c.create_text(40,173+i*22, anchor="w", fill=TEXT, font=("Segoe UI", 11), text=line)
+        c.configure(scrollregion=(0,0,W,300))
 
     # ---------- очистка ----------
     def show_clean(self):
@@ -179,6 +180,44 @@ class Krylan(tk.Tk):
                 except Exception: pass
             freed += sz
         self.q.put(("cldone", freed, None))
+
+    # ---------- процессы (диспетчер задач) ----------
+    def show_procs(self):
+        tk.Label(self.main, text="Процессы", bg=BG0, fg=TEXT, font=("Segoe UI", 20, "bold")).pack(anchor="w", padx=24, pady=(18,2))
+        tk.Label(self.main, text="Топ по памяти. «Завершить» закрывает выбранный процесс.", bg=BG0, fg=MUTED, font=("Segoe UI", 10)).pack(anchor="w", padx=24, pady=(0,8))
+        head = tk.Frame(self.main, bg=BG0); head.pack(fill="x", padx=26)
+        tk.Label(head, text="Процесс", bg=BG0, fg=MUTED, font=("Segoe UI", 10, "bold"), anchor="w", width=28).pack(side="left")
+        tk.Label(head, text="ОЗУ", bg=BG0, fg=MUTED, font=("Segoe UI", 10, "bold"), width=10).pack(side="left")
+        tk.Label(head, text="CPU", bg=BG0, fg=MUTED, font=("Segoe UI", 10, "bold"), width=8).pack(side="left")
+        self.proc_box = tk.Frame(self.main, bg=GLASS); self.proc_box.pack(fill="both", expand=True, padx=24, pady=(4,14))
+        self._procs_refresh()
+
+    def _procs_refresh(self):
+        if self.page != "procs" or not self.proc_box.winfo_exists(): return
+        rows = []
+        for p in psutil.process_iter(["pid", "name", "memory_info", "cpu_percent"]):
+            try:
+                rss = p.info["memory_info"].rss if p.info["memory_info"] else 0
+                rows.append((rss, p.info.get("cpu_percent") or 0, p.info["pid"], p.info["name"] or "?"))
+            except Exception: pass
+        rows.sort(reverse=True)
+        for w in self.proc_box.winfo_children(): w.destroy()
+        for rss, cpu, pid, name in rows[:14]:
+            r = tk.Frame(self.proc_box, bg=GLASS); r.pack(fill="x", padx=8, pady=1)
+            tk.Label(r, text=name[:30], bg=GLASS, fg=TEXT, font=("Segoe UI", 11), anchor="w", width=28).pack(side="left")
+            tk.Label(r, text=human(rss), bg=GLASS, fg=MUTED, font=("Segoe UI", 10), width=10).pack(side="left")
+            tk.Label(r, text=f"{cpu:.0f}%", bg=GLASS, fg=load_color(min(100, cpu)), font=("Segoe UI", 10), width=7).pack(side="left")
+            b = tk.Label(r, text="Завершить", bg=RED, fg="white", font=("Segoe UI", 9, "bold"), padx=8, pady=2, cursor="hand2")
+            b.pack(side="right"); b.bind("<Button-1>", lambda e, pp=pid, nn=name: self._kill_proc(pp, nn))
+        self.after(2500, self._procs_refresh)
+
+    def _kill_proc(self, pid, name):
+        if not messagebox.askyesno("KRYLAN", f"Завершить процесс «{name}» (PID {pid})?"): return
+        try:
+            psutil.Process(pid).terminate()
+        except Exception as e:
+            messagebox.showerror("KRYLAN", f"Не удалось завершить: {e}")
+        self._procs_refresh()
 
     # ---------- инструменты (в духе BoostSpeed) ----------
     def show_tools(self):
@@ -299,15 +338,24 @@ class Krylan(tk.Tk):
         vm = psutil.virtual_memory()
         self.info = {"os": f"{platform.system()} {platform.release()}",
                      "ram_total": vm.total, "cores": psutil.cpu_count(logical=True)}
+        try: prev, prev_t = psutil.net_io_counters(), time.time()
+        except Exception: prev, prev_t = None, time.time()
         while True:
             try:
                 cpu = psutil.cpu_percent(interval=0.5)
                 ram = psutil.virtual_memory().percent
                 du = psutil.disk_usage(HOME if SYSTEM != "Windows" else os.environ.get("SystemDrive", "C:") + "\\")
                 b = psutil.sensors_battery()
+                up = down = 0
+                try:
+                    cur = psutil.net_io_counters(); now = time.time(); dt = max(0.2, now - prev_t)
+                    if prev: up = (cur.bytes_sent - prev.bytes_sent)/dt; down = (cur.bytes_recv - prev.bytes_recv)/dt
+                    prev, prev_t = cur, now
+                except Exception: pass
                 self.q.put(("stats", {"cpu":cpu,"ram":ram,"disk":du.percent,
                             "batt": (b.percent if b else None),
-                            "disk_free": du.free, "disk_total": du.total}, None))
+                            "disk_free": du.free, "disk_total": du.total,
+                            "net_up": max(0,up), "net_down": max(0,down)}, None))
             except Exception: pass
             time.sleep(1.2)
 
@@ -324,6 +372,7 @@ class Krylan(tk.Tk):
                 if kind == "stats":
                     self.tgt.update({"cpu":a["cpu"],"ram":a["ram"],"disk":a["disk"],"batt":a["batt"] or 0})
                     self.info["batt"] = a["batt"]; self.info["disk_free"]=a["disk_free"]; self.info["disk_total"]=a["disk_total"]
+                    self.info["net_up"]=a.get("net_up",0); self.info["net_down"]=a.get("net_down",0)
                     self.info["os"] = self.info.get("os","")
                 elif kind == "clsize":
                     if a in self.cl_lbl: self.cl_lbl[a].configure(text=human(b))
