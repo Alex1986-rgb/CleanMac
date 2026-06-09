@@ -39,7 +39,7 @@
 - [x] iOS: Дубли контактов (Contacts) — в каркасе
 - [ ] macOS-таргет SwiftUI: перенести функции из Python-версии (постепенно)
 - [ ] Apple Developer Program ($99/год) — для TestFlight и публикации
-- [ ] Иконки всех размеров (Assets.xcassets) под бренд KRYLAN
+- [x] Иконка приложения (Assets.xcassets) под бренд KRYLAN — готова
 
 ## 3.5. Desktop (Windows / Linux) — ГОТОВО
 - [x] KRYLAN Desktop (Python/psutil): дашборд + очистка кэшей, send2trash
