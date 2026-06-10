@@ -43,10 +43,15 @@ struct CleanupView: View {
             Text("Очистка").font(.largeTitle.bold()).foregroundStyle(Brand.text)
             Text("Кэш этого приложения. На iOS доступна очистка только собственных данных.")
                 .font(.callout).foregroundStyle(Brand.muted)
-            HStack(spacing: 8) {
-                Text("Размер кэша:").foregroundStyle(Brand.muted)
-                Text(cleaner.sizeText).font(.title3.bold()).foregroundStyle(Brand.green)
+            VStack(spacing: 4) {
+                Text(cleaner.sizeText)
+                    .font(.system(size: 40, weight: .bold)).foregroundStyle(Brand.green)
+                Text("кэш приложения").font(.caption).foregroundStyle(Brand.muted)
             }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 24)
+            .background(Brand.glass)
+            .clipShape(RoundedRectangle(cornerRadius: 16))
             Button { cleaner.clean() } label: {
                 Text("Очистить кэш").bold()
                     .padding(.horizontal, 20).padding(.vertical, 11)
