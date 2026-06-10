@@ -1,4 +1,4 @@
-// Навигация и экраны KRYLAN.
+// Навигация KRYLAN: вкладки (TabView) на iOS, NavigationSplitView на macOS.
 import SwiftUI
 
 enum Section: String, CaseIterable, Identifiable {
@@ -30,6 +30,38 @@ struct ContentView: View {
     @StateObject private var monitor = SystemMonitor()
 
     var body: some View {
+        content.onAppear { monitor.start() }
+    }
+
+    @ViewBuilder private func screen(_ s: Section) -> some View {
+        switch s {
+        case .dashboard: DashboardView(monitor: monitor)
+        case .storage:   StorageView(monitor: monitor)
+        case .battery:   BatteryView(monitor: monitor)
+        case .cleanup:   CleanupView()
+        case .photos:    PhotoDuplicatesView()
+        case .contacts:  ContactsDuplicatesView()
+        case .tips:      TipsView(monitor: monitor)
+        case .about:     AboutScreen()
+        }
+    }
+
+    #if os(iOS)
+    private var content: some View {
+        TabView {
+            ForEach(Section.allCases) { s in
+                NavigationStack {
+                    screen(s)
+                        .navigationTitle(s.rawValue)
+                        .navigationBarTitleDisplayMode(.inline)
+                }
+                .tabItem { Label(s.rawValue, systemImage: s.icon) }
+            }
+        }
+        .tint(Brand.green)
+    }
+    #else
+    private var content: some View {
         NavigationSplitView {
             VStack(alignment: .leading, spacing: 2) {
                 Text("🪽 \(Brand.name)").font(.title2.bold()).foregroundStyle(Brand.text)
@@ -42,41 +74,12 @@ struct ContentView: View {
                 Label(s.rawValue, systemImage: s.icon).tag(s as Section?)
             }
         } detail: {
-            Group {
-                switch selection ?? .dashboard {
-                case .dashboard: DashboardView(monitor: monitor)
-                case .storage:   StorageView(monitor: monitor)
-                case .battery:   BatteryView(monitor: monitor)
-                case .cleanup:   CleanupView()
-                case .photos:    PhotoDuplicatesView()
-                case .contacts:  ContactsDuplicatesView()
-                case .tips:      TipsView(monitor: monitor)
-                case .about:     AboutScreen()
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Brand.bg0)
+            screen(selection ?? .dashboard)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Brand.bg0)
         }
-        .onAppear { monitor.start() }
     }
-}
-
-struct InfoScreen: View {
-    let title: String
-    let lines: [String]
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text(title).font(.largeTitle.bold()).foregroundStyle(Brand.text)
-            ForEach(lines, id: \.self) { l in
-                Text(l).foregroundStyle(Brand.muted)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(16).background(Brand.glass)
-                    .clipShape(RoundedRectangle(cornerRadius: 14))
-            }
-            Spacer()
-        }
-        .padding(24).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    }
+    #endif
 }
 
 struct AboutScreen: View {
@@ -90,5 +93,6 @@ struct AboutScreen: View {
             Spacer()
         }
         .padding(24).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(Brand.bg0)
     }
 }

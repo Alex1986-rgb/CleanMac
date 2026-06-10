@@ -1,4 +1,4 @@
-// Дашборд KRYLAN.
+// Дашборд KRYLAN — модернизированный дизайн (надёжная раскладка).
 import SwiftUI
 
 struct DashboardView: View {
@@ -6,65 +6,97 @@ struct DashboardView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Дашборд").font(.largeTitle.bold()).foregroundStyle(Brand.text)
-                    Text("Состояние устройства в реальном времени")
-                        .font(.callout).foregroundStyle(Brand.muted)
+            VStack(spacing: 16) {
+
+                // Заголовок
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Дашборд").font(.system(size: 28, weight: .bold)).foregroundStyle(Brand.text)
+                        Text("Состояние в реальном времени")
+                            .font(.subheadline).foregroundStyle(Brand.muted)
+                    }
+                    Spacer(minLength: 0)
                 }
 
-                // Health-кольцо (общая оценка)
-                ZStack {
-                    Circle().stroke(Brand.track, lineWidth: 16)
-                    Circle().trim(from: 0, to: monitor.healthScore / 100)
-                        .stroke(Brand.load(100 - monitor.healthScore),
-                                style: StrokeStyle(lineWidth: 16, lineCap: .round))
-                        .rotationEffect(.degrees(-90))
-                        .animation(.easeOut(duration: 0.5), value: monitor.healthScore)
-                    VStack(spacing: 2) {
-                        Text("\(Int(monitor.healthScore))")
-                            .font(.system(size: 42, weight: .bold)).foregroundStyle(Brand.text)
-                        Text(monitor.healthLabel)
-                            .font(.caption.bold()).foregroundStyle(Brand.load(100 - monitor.healthScore))
+                // Health-герой
+                VStack(spacing: 0) {
+                    ZStack {
+                        Circle().stroke(Brand.track, lineWidth: 16)
+                        Circle().trim(from: 0, to: monitor.healthScore / 100)
+                            .stroke(Brand.load(100 - monitor.healthScore),
+                                    style: StrokeStyle(lineWidth: 16, lineCap: .round))
+                            .rotationEffect(.degrees(-90))
+                            .animation(.easeOut(duration: 0.5), value: monitor.healthScore)
+                        VStack(spacing: 0) {
+                            Text("\(Int(monitor.healthScore))")
+                                .font(.system(size: 46, weight: .bold)).foregroundStyle(Brand.text)
+                            Text(monitor.healthLabel)
+                                .font(.subheadline.bold()).foregroundStyle(Brand.load(100 - monitor.healthScore))
+                        }
                     }
+                    .frame(width: 160, height: 160)
                 }
-                .frame(width: 152, height: 152)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 22)
-                .background(Brand.glass)
-                .clipShape(RoundedRectangle(cornerRadius: 18))
+                .background(RoundedRectangle(cornerRadius: 20).fill(Brand.glass))
 
-                HStack(spacing: 22) {
-                    RingGauge(value: monitor.memoryUsedPercent, label: "ПАМЯТЬ")
-                    RingGauge(value: monitor.diskUsedPercent, label: "ДИСК")
-                    RingGauge(value: Double(monitor.batteryPercent), label: "БАТАРЕЯ", invert: true)
+                // Кольца метрик
+                HStack(spacing: 0) {
+                    Spacer(minLength: 0)
+                    ring(monitor.memoryUsedPercent, "ПАМЯТЬ")
+                    Spacer(minLength: 0)
+                    ring(monitor.diskUsedPercent, "ДИСК")
+                    Spacer(minLength: 0)
+                    ring(Double(monitor.batteryPercent), "БАТАРЕЯ", invert: true)
+                    Spacer(minLength: 0)
                 }
-                .frame(maxWidth: .infinity)
                 .padding(.vertical, 18)
-                .background(Brand.glass)
-                .clipShape(RoundedRectangle(cornerRadius: 18))
+                .frame(maxWidth: .infinity)
+                .background(RoundedRectangle(cornerRadius: 20).fill(Brand.glass))
 
-                card(title: "Хранилище",
-                     value: "\(monitor.diskFreeGB) ГБ свободно",
-                     sub: "из \(monitor.diskTotalGB) ГБ")
-                card(title: "Оперативная память",
-                     value: "\(Int(monitor.memoryUsedPercent))% занято",
-                     sub: "установлено \(monitor.ramTotalGB) ГБ")
+                // Карточки
+                infoCard("internaldrive.fill", "Хранилище",
+                         "\(monitor.diskFreeGB) ГБ свободно", "из \(monitor.diskTotalGB) ГБ", Brand.blue)
+                infoCard("memorychip.fill", "Оперативная память",
+                         "\(Int(monitor.memoryUsedPercent))% занято", "всего \(monitor.ramTotalGB) ГБ", Brand.purple)
             }
-            .padding(24)
+            .padding(16)
+            .frame(maxWidth: .infinity)
         }
         .background(Brand.bg0)
     }
 
-    func card(title: String, value: String, sub: String) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title).font(.caption.bold()).foregroundStyle(Brand.muted)
-            Text(value).font(.title2.bold()).foregroundStyle(Brand.text)
-            Text(sub).font(.callout).foregroundStyle(Brand.muted)
+    private func ring(_ value: Double, _ label: String, invert: Bool = false) -> some View {
+        let color = invert ? Brand.load(100 - value) : Brand.load(value)
+        return VStack(spacing: 8) {
+            ZStack {
+                Circle().stroke(Brand.track, lineWidth: 9)
+                Circle().trim(from: 0, to: min(1, value / 100))
+                    .stroke(color, style: StrokeStyle(lineWidth: 9, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                    .animation(.easeOut(duration: 0.4), value: value)
+                Text("\(Int(value))%").font(.callout.bold()).foregroundStyle(Brand.text)
+            }
+            .frame(width: 70, height: 70)
+            Text(label).font(.caption2).foregroundStyle(Brand.muted)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(18)
-        .background(Brand.glass)
-        .clipShape(RoundedRectangle(cornerRadius: 16))
+    }
+
+    private func infoCard(_ icon: String, _ title: String, _ value: String, _ sub: String, _ tint: Color) -> some View {
+        HStack(spacing: 14) {
+            Image(systemName: icon)
+                .font(.title2).foregroundStyle(tint)
+                .frame(width: 46, height: 46)
+                .background(tint.opacity(0.15)).clipShape(RoundedRectangle(cornerRadius: 12))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.caption.bold()).foregroundStyle(Brand.muted)
+                Text(value).font(.title3.bold()).foregroundStyle(Brand.text)
+                Text(sub).font(.caption).foregroundStyle(Brand.muted)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity)
+        .background(RoundedRectangle(cornerRadius: 16).fill(Brand.glass))
     }
 }
