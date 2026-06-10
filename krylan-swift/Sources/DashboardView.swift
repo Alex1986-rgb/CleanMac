@@ -8,13 +8,10 @@ struct DashboardView: View {
         ScrollView {
             VStack(spacing: 16) {
 
-                // Заголовок
+                // Подзаголовок (титул показывает нав-бар)
                 HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Дашборд").font(.system(size: 28, weight: .bold)).foregroundStyle(Brand.text)
-                        Text("Состояние в реальном времени")
-                            .font(.subheadline).foregroundStyle(Brand.muted)
-                    }
+                    Text("Состояние в реальном времени")
+                        .font(.subheadline).foregroundStyle(Brand.muted)
                     Spacer(minLength: 0)
                 }
 
