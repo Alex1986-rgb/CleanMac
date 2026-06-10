@@ -34,9 +34,10 @@
 ## 2. Apple-стек на SwiftUI (Mac + iPhone) — каркас готов в `krylan-swift/`
 - [x] iOS-приложение: СОБРАНО и ЗАПУЩЕНО на симуляторе iPhone 17 Pro (BUILD SUCCEEDED)
 - [x] Xcode-проект: project.yml → xcodegen; СБОРКА УСПЕШНА (macOS-таргет собран и запущен)
-- [x] iOS: экраны Хранилище и Батарея (в каркасе)
-- [x] iOS: Фото-дубликаты (PhotoKit) — в каркасе
-- [x] iOS: Дубли контактов (Contacts) — в каркасе
+- [x] iOS: экраны Хранилище и Батарея (кольца, тёмная тема)
+- [x] iOS: Фото-дубликаты (PhotoKit) — группы с миниатюрами + удаление в «Недавно удалённые»
+- [x] iOS: Дубли контактов (Contacts) — список групп с телефонами
+- [x] iOS: фикс горизонтальной обрезки контента (minWidth только для macOS)
 - [x] macOS-таргет SwiftUI: собирается и запускается (BUILD SUCCEEDED)
 - [x] iOS-таргет компилируется и работает на симуляторе iPhone (скриншот docs/iphone-screenshot.png)
 - [ ] Apple Developer Program ($99/год) — для TestFlight и публикации
@@ -72,9 +73,8 @@
 
 ---
 
-## Ближайшие 5 шагов (рекомендую)
-1. Поставить **Xcode** (App Store) → открыть `krylan-swift/` как Multiplatform App.
-2. Оформить **Apple Developer Program** → подписать Mac-версию (`sign_and_notarize.sh`).
-3. Доработать iOS-экраны (хранилище, батарея, фото-дубли).
-4. Промо-скриншоты и дизайн-система (Figma).
-5. Завести Android-проект в Android Studio по разделу 3.
+## Ближайшие шаги (что осталось — только действия пользователя)
+1. Оформить **Apple Developer Program** ($99/год) → подписать Mac-версию (`sign_and_notarize.sh`) → TestFlight.
+2. Открыть `krylan-android/` в **Android Studio** → Gradle Sync → собрать и проверить на устройстве.
+3. **Google Play Console** ($25 разово) — публикация Android-версии.
+4. По желанию: промо-скриншоты для сторов и Figma по DESIGN.md.
