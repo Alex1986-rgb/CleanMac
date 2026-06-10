@@ -11,7 +11,7 @@ from tkinter import messagebox
 import psutil
 from send2trash import send2trash
 
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 SYSTEM = platform.system()           # Windows / Darwin / Linux
 HOME = os.path.expanduser("~")
 
@@ -223,7 +223,8 @@ class Krylan(tk.Tk):
     def show_tools(self):
         tk.Label(self.main, text="Инструменты", bg=BG0, fg=TEXT, font=("Segoe UI", 20, "bold")).pack(anchor="w", padx=24, pady=(18,8))
         bar = tk.Frame(self.main, bg=BG0); bar.pack(fill="x", padx=22)
-        for lbl, cmd in [("⚙️ Автозагрузка", self.t_startup), ("👯 Дубликаты", self.t_dupes), ("📦 Крупные файлы", self.t_large)]:
+        for lbl, cmd in [("⚙️ Автозагрузка", self.t_startup), ("👯 Дубликаты", self.t_dupes), ("📦 Крупные файлы", self.t_large),
+                         ("🗺 Карта диска", self.t_diskmap), ("🧳 Деинсталлятор", self.t_uninstall)]:
             self._btn(bar, lbl, GLASS, cmd).pack(side="left", padx=4)
         self._dupe_extras = []
         self.t_action = tk.Frame(self.main, bg=BG0); self.t_action.pack(fill="x", padx=24, pady=(8,0))
@@ -320,6 +321,86 @@ class Krylan(tk.Tk):
             try: send2trash(p); ok += 1
             except Exception: pass
         messagebox.showinfo("KRYLAN", f"В Корзину: {ok} файлов."); self.t_dupes()
+
+    def t_diskmap(self):
+        self._out("🗺 Считаю размеры папок…"); threading.Thread(target=self._diskmap_w, daemon=True).start()
+
+    def _diskmap_w(self):
+        sizes = []
+        try:
+            for name in sorted(os.listdir(HOME)):
+                p = os.path.join(HOME, name)
+                if os.path.isdir(p) and not os.path.islink(p):
+                    sizes.append((dir_size(p), name))
+        except Exception: pass
+        sizes.sort(reverse=True)
+        top = sizes[:18]
+        mx = top[0][0] if top and top[0][0] > 0 else 1
+        lines = ["🗺  Карта диска — домашняя папка (топ-18):\n\n"]
+        for s, name in top:
+            bar = "█" * max(1, int(s / mx * 28))
+            lines.append(f"  {human(s):>9}  {bar}  {name}\n")
+        lines.append("\nСамые тяжёлые папки — кандидаты на разбор в «Крупные файлы».\n")
+        self.q.put(("tout", "".join(lines), None))
+
+    def t_uninstall(self):
+        self._out("🧳 Собираю список приложений…"); threading.Thread(target=self._uninstall_w, daemon=True).start()
+
+    def _uninstall_w(self):
+        lines = ["🧳  Деинсталлятор — установленные приложения\n\n"]
+        if SYSTEM == "Windows":
+            try:
+                import winreg
+                apps = []
+                for hive, path in [(winreg.HKEY_LOCAL_MACHINE, r"Software\Microsoft\Windows\CurrentVersion\Uninstall"),
+                                   (winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Uninstall")]:
+                    try:
+                        k = winreg.OpenKey(hive, path)
+                        for i in range(winreg.QueryInfoKey(k)[0]):
+                            try:
+                                sk = winreg.OpenKey(k, winreg.EnumKey(k, i))
+                                name, _ = winreg.QueryValueEx(sk, "DisplayName")
+                                try: size, _ = winreg.QueryValueEx(sk, "EstimatedSize")
+                                except OSError: size = 0
+                                apps.append((int(size or 0) * 1024, name))
+                            except OSError: pass
+                    except OSError: pass
+                apps.sort(reverse=True)
+                for s, n in apps[:30]:
+                    lines.append(f"  {human(s):>9}  {n}\n" if s else f"      —      {n}\n")
+                lines.append("\nУдаление: Параметры → Приложения → выбрать → «Удалить».\n")
+            except Exception as e:
+                lines.append(f"  ошибка чтения реестра: {e}\n")
+        elif SYSTEM == "Darwin":
+            apps = []
+            for base in ("/Applications", os.path.join(HOME, "Applications")):
+                if not os.path.isdir(base): continue
+                for name in sorted(os.listdir(base)):
+                    if name.endswith(".app"):
+                        apps.append((dir_size(os.path.join(base, name)), name[:-4]))
+            apps.sort(reverse=True)
+            for s, n in apps[:30]:
+                lines.append(f"  {human(s):>9}  {n}\n")
+            lines.append("\nУдаление: перетащите .app из «Программ» в Корзину\n"
+                         "(остатки ищите в ~/Library/Application Support и Caches).\n")
+        else:
+            import subprocess
+            try:
+                out = subprocess.run(["dpkg-query", "-W", "-f", "${Installed-Size}\t${Package}\n"],
+                                     capture_output=True, text=True, timeout=20)
+                apps = []
+                for line in out.stdout.splitlines():
+                    try:
+                        sz, name = line.split("\t", 1)
+                        apps.append((int(sz) * 1024, name))
+                    except ValueError: pass
+                apps.sort(reverse=True)
+                for s, n in apps[:30]:
+                    lines.append(f"  {human(s):>9}  {n}\n")
+                lines.append("\nУдаление: sudo apt remove <пакет>.\n")
+            except Exception:
+                lines.append("  dpkg не найден — посмотрите менеджер пакетов вашего дистрибутива.\n")
+        self.q.put(("tout", "".join(lines), None))
 
     # ---------- о программе ----------
     def show_about(self):
