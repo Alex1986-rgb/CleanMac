@@ -13,6 +13,27 @@ struct DashboardView: View {
                         .font(.callout).foregroundStyle(Brand.muted)
                 }
 
+                // Health-кольцо (общая оценка)
+                ZStack {
+                    Circle().stroke(Brand.track, lineWidth: 16)
+                    Circle().trim(from: 0, to: monitor.healthScore / 100)
+                        .stroke(Brand.load(100 - monitor.healthScore),
+                                style: StrokeStyle(lineWidth: 16, lineCap: .round))
+                        .rotationEffect(.degrees(-90))
+                        .animation(.easeOut(duration: 0.5), value: monitor.healthScore)
+                    VStack(spacing: 2) {
+                        Text("\(Int(monitor.healthScore))")
+                            .font(.system(size: 42, weight: .bold)).foregroundStyle(Brand.text)
+                        Text(monitor.healthLabel)
+                            .font(.caption.bold()).foregroundStyle(Brand.load(100 - monitor.healthScore))
+                    }
+                }
+                .frame(width: 152, height: 152)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 22)
+                .background(Brand.glass)
+                .clipShape(RoundedRectangle(cornerRadius: 18))
+
                 HStack(spacing: 22) {
                     RingGauge(value: monitor.memoryUsedPercent, label: "ПАМЯТЬ")
                     RingGauge(value: monitor.diskUsedPercent, label: "ДИСК")

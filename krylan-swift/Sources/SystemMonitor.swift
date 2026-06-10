@@ -16,6 +16,18 @@ final class SystemMonitor: ObservableObject {
 
     private var timer: Timer?
 
+    /// Общая оценка состояния 0…100 (больше — лучше).
+    var healthScore: Double {
+        let ramOk = 100 - memoryUsedPercent
+        let diskOk = 100 - diskUsedPercent
+        let battOk = Double(batteryPercent)
+        return max(0, min(100, 0.4 * ramOk + 0.4 * diskOk + 0.2 * battOk))
+    }
+
+    var healthLabel: String {
+        healthScore >= 75 ? "Отлично" : (healthScore >= 50 ? "Хорошо" : "Внимание")
+    }
+
     func start() {
         #if os(iOS)
         UIDevice.current.isBatteryMonitoringEnabled = true
