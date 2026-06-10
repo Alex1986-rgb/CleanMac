@@ -21,6 +21,8 @@ object Brand {
     val blue = Color(0xFF4B8CF9)
     val yellow = Color(0xFFF6BB45)
     val red = Color(0xFFF2685F)
+    val purple = Color(0xFFA78BFA)
+    val cyan = Color(0xFF36C6D6)
 
     fun load(p: Float): Color = if (p < 60) green else if (p < 85) yellow else red
 }
