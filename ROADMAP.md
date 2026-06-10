@@ -33,11 +33,11 @@
 
 ## 2. Apple-стек на SwiftUI (Mac + iPhone) — каркас готов в `krylan-swift/`
 - [x] Каркас SwiftUI: бренд, навигация, дашборд, кольца, монитор системы
-- [~] Xcode-проект: конфиг project.yml готов (xcodegen generate); сборка — у тебя в Xcode
+- [x] Xcode-проект: project.yml → xcodegen; СБОРКА УСПЕШНА (macOS-таргет собран и запущен)
 - [x] iOS: экраны Хранилище и Батарея (в каркасе)
 - [x] iOS: Фото-дубликаты (PhotoKit) — в каркасе
 - [x] iOS: Дубли контактов (Contacts) — в каркасе
-- [ ] macOS-таргет SwiftUI: перенести функции из Python-версии (постепенно)
+- [x] macOS-таргет SwiftUI: собирается и запускается (BUILD SUCCEEDED)
 - [ ] Apple Developer Program ($99/год) — для TestFlight и публикации
 - [x] Иконка приложения (Assets.xcassets) под бренд KRYLAN — готова
 

@@ -14,3 +14,7 @@ dist/
 
 # macOS
 .DS_Store
+
+# XcodeGen генерирует проект
+krylan-swift/KRYLAN.xcodeproj/
+*.xcuserstate

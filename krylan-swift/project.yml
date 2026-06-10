@@ -5,8 +5,8 @@ name: KRYLAN
 options:
   bundleIdPrefix: com.krylan
   deploymentTarget:
-    macOS: "12.0"
-    iOS: "16.0"
+    macOS: "14.0"
+    iOS: "17.0"
 settings:
   base:
     MARKETING_VERSION: "0.1.0"
