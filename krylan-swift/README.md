@@ -31,7 +31,12 @@ open KRYLAN.xcodeproj
 
 `SystemMonitor` — кросс-платформенный сбор метрик (Mach + FileManager + UIDevice).
 
+## Тестовый хук
+Открыть приложение сразу на нужной вкладке (для скриншотов в симуляторе):
+```bash
+xcrun simctl launch booted com.krylan.app -KrylanTab photos
+# ключи: dashboard · storage · battery · cleanup · photos · contacts · tips · about
+```
+
 ## Что доработать (см. ../ROADMAP.md, раздел 2)
-- iOS: фото-дубликаты (PhotoKit), дубли контактов (Contacts)
-- Иконки KRYLAN в Assets.xcassets
 - Apple Developer Program → TestFlight/App Store
