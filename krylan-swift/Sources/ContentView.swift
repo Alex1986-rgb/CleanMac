@@ -45,10 +45,7 @@ struct ContentView: View {
             Group {
                 switch selection ?? .dashboard {
                 case .dashboard: DashboardView(monitor: monitor)
-                case .storage:   InfoScreen(title: "Хранилище",
-                                            lines: ["Свободно: \(monitor.diskFreeGB) ГБ",
-                                                    "Всего: \(monitor.diskTotalGB) ГБ",
-                                                    "Занято: \(Int(monitor.diskUsedPercent))%"])
+                case .storage:   StorageView(monitor: monitor)
                 case .battery:   InfoScreen(title: "Батарея",
                                             lines: ["Заряд: \(monitor.batteryPercent)%",
                                                     "Память: \(Int(monitor.memoryUsedPercent))% занято",
