@@ -46,10 +46,7 @@ struct ContentView: View {
                 switch selection ?? .dashboard {
                 case .dashboard: DashboardView(monitor: monitor)
                 case .storage:   StorageView(monitor: monitor)
-                case .battery:   InfoScreen(title: "Батарея",
-                                            lines: ["Заряд: \(monitor.batteryPercent)%",
-                                                    "Память: \(Int(monitor.memoryUsedPercent))% занято",
-                                                    "ОЗУ: \(monitor.ramTotalGB) ГБ"])
+                case .battery:   BatteryView(monitor: monitor)
                 case .cleanup:   CleanupView()
                 case .photos:    PhotoDuplicatesView()
                 case .contacts:  ContactsDuplicatesView()
