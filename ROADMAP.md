@@ -32,12 +32,13 @@
 - [x] Защита от удаления важного (белый список путей)
 
 ## 2. Apple-стек на SwiftUI (Mac + iPhone) — каркас готов в `krylan-swift/`
-- [x] Каркас SwiftUI: бренд, навигация, дашборд, кольца, монитор системы
+- [x] iOS-приложение: СОБРАНО и ЗАПУЩЕНО на симуляторе iPhone 17 Pro (BUILD SUCCEEDED)
 - [x] Xcode-проект: project.yml → xcodegen; СБОРКА УСПЕШНА (macOS-таргет собран и запущен)
 - [x] iOS: экраны Хранилище и Батарея (в каркасе)
 - [x] iOS: Фото-дубликаты (PhotoKit) — в каркасе
 - [x] iOS: Дубли контактов (Contacts) — в каркасе
 - [x] macOS-таргет SwiftUI: собирается и запускается (BUILD SUCCEEDED)
+- [x] iOS-таргет компилируется и работает на симуляторе iPhone (скриншот docs/iphone-screenshot.png)
 - [ ] Apple Developer Program ($99/год) — для TestFlight и публикации
 - [x] Иконка приложения (Assets.xcassets) под бренд KRYLAN — готова
 
