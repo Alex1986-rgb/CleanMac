@@ -11,6 +11,19 @@ enum Section: String, CaseIterable, Identifiable {
     case tips      = "Советы"
     case about     = "О программе"
     var id: String { rawValue }
+    /// Латинский ключ для launch-аргумента -KrylanTab (тестовый хук).
+    var key: String {
+        switch self {
+        case .dashboard: return "dashboard"
+        case .storage:   return "storage"
+        case .battery:   return "battery"
+        case .cleanup:   return "cleanup"
+        case .photos:    return "photos"
+        case .contacts:  return "contacts"
+        case .tips:      return "tips"
+        case .about:     return "about"
+        }
+    }
     var icon: String {
         switch self {
         case .dashboard: return "gauge.with.dots.needle.67percent"
@@ -47,8 +60,15 @@ struct ContentView: View {
     }
 
     #if os(iOS)
+    @State private var tab: Section = {
+        let args = ProcessInfo.processInfo.arguments
+        if let i = args.firstIndex(of: "-KrylanTab"), i + 1 < args.count,
+           let s = Section.allCases.first(where: { $0.key == args[i + 1] }) { return s }
+        return .dashboard
+    }()
+
     private var content: some View {
-        TabView {
+        TabView(selection: $tab) {
             ForEach(Section.allCases) { s in
                 NavigationStack {
                     screen(s)
@@ -56,9 +76,11 @@ struct ContentView: View {
                         .navigationBarTitleDisplayMode(.inline)
                 }
                 .tabItem { Label(s.rawValue, systemImage: s.icon) }
+                .tag(s)
             }
         }
         .tint(Brand.green)
+        .preferredColorScheme(.dark)   // бренд KRYLAN — тёмная тема
     }
     #else
     private var content: some View {

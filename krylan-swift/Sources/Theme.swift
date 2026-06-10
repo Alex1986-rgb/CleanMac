@@ -23,3 +23,15 @@ enum Brand {
         p < 60 ? green : (p < 85 ? yellow : red)
     }
 }
+
+/// Заголовок страницы: на iOS его показывает нав-бар, поэтому рендерим только на macOS.
+struct PageHeader: View {
+    let title: String
+    var body: some View {
+        #if os(macOS)
+        Text(title).font(.largeTitle.bold()).foregroundStyle(Brand.text)
+        #else
+        EmptyView()
+        #endif
+    }
+}

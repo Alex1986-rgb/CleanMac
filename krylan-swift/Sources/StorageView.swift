@@ -6,7 +6,7 @@ struct StorageView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Хранилище").font(.largeTitle.bold()).foregroundStyle(Brand.text)
+            PageHeader(title: "Хранилище")
 
             ZStack {
                 Circle().stroke(Brand.track, lineWidth: 18)
@@ -32,6 +32,7 @@ struct StorageView: View {
         }
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(Brand.bg0)
     }
 
     func row(_ title: String, _ value: String, _ color: Color) -> some View {

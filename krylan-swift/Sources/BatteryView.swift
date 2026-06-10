@@ -11,7 +11,7 @@ struct BatteryView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Батарея").font(.largeTitle.bold()).foregroundStyle(Brand.text)
+            PageHeader(title: "Батарея")
 
             ZStack {
                 Circle().stroke(Brand.track, lineWidth: 18)
@@ -35,6 +35,7 @@ struct BatteryView: View {
         }
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(Brand.bg0)
     }
 
     func infoRow(_ title: String, _ value: String) -> some View {

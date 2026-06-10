@@ -12,7 +12,10 @@ final class CacheCleaner: ObservableObject {
 
     func refresh() {
         guard let url = cachesURL else { sizeText = "—"; return }
-        sizeText = ByteCountFormatter.string(fromByteCount: Self.dirSize(url), countStyle: .file)
+        let fmt = ByteCountFormatter()
+        fmt.countStyle = .file
+        fmt.allowsNonnumericFormatting = false   // «0 КБ» вместо «Zero KB»
+        sizeText = fmt.string(fromByteCount: Self.dirSize(url))
     }
 
     func clean() {
@@ -40,7 +43,7 @@ struct CleanupView: View {
     @StateObject private var cleaner = CacheCleaner()
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Очистка").font(.largeTitle.bold()).foregroundStyle(Brand.text)
+            PageHeader(title: "Очистка")
             Text("Кэш этого приложения. На iOS доступна очистка только собственных данных.")
                 .font(.callout).foregroundStyle(Brand.muted)
             VStack(spacing: 4) {
@@ -63,6 +66,7 @@ struct CleanupView: View {
             Spacer()
         }
         .padding(24).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(Brand.bg0)
         .onAppear { cleaner.refresh() }
     }
 }

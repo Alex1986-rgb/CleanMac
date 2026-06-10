@@ -23,7 +23,7 @@ struct TipsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Советы").font(.largeTitle.bold()).foregroundStyle(Brand.text)
+            PageHeader(title: "Советы")
             ForEach(Array(tips.enumerated()), id: \.offset) { _, tip in
                 HStack(alignment: .top, spacing: 12) {
                     Image(systemName: tip.0).foregroundStyle(tip.2).font(.title3)
@@ -38,5 +38,6 @@ struct TipsView: View {
             Spacer()
         }
         .padding(24).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(Brand.bg0)
     }
 }
