@@ -14,11 +14,18 @@ struct DupGroup: Identifiable {
     var assets: [PHAsset]
 }
 
+enum PhotoScanMode: String, CaseIterable, Identifiable {
+    case exact  = "Дубли"
+    case series = "Серии"
+    var id: String { rawValue }
+}
+
 @MainActor
 final class PhotoScanner: ObservableObject {
     @Published var status = "Готово к сканированию"
     @Published var groups: [DupGroup] = []
     @Published var scanning = false
+    @Published var mode: PhotoScanMode = .exact
 
     var extraCount: Int { groups.reduce(0) { $0 + $1.assets.count - 1 } }
 
@@ -30,12 +37,12 @@ final class PhotoScanner: ObservableObject {
                 guard st == .authorized || st == .limited else {
                     self.status = "Нет доступа к медиатеке"; return
                 }
-                self.run()
+                self.mode == .exact ? self.runExact() : self.runSeries()
             }
         }
     }
 
-    private func run() {
+    private func runExact() {
         scanning = true
         status = "Сканирую медиатеку…"
         let assets = PHAsset.fetchAssets(with: .image, options: nil)
@@ -51,6 +58,35 @@ final class PhotoScanner: ObservableObject {
         scanning = false
         status = groups.isEmpty ? "Дубликатов не найдено"
                                 : "Похожих групп: \(groups.count), лишних снимков: \(extraCount)"
+    }
+
+    /// Серии: кадры подряд с паузой ≤10 с и одинаковым разрешением, от 3 штук.
+    private func runSeries() {
+        scanning = true
+        status = "Ищу серии снимков…"
+        let opts = PHFetchOptions()
+        opts.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: true)]
+        let assets = PHAsset.fetchAssets(with: .image, options: opts)
+        var all: [PHAsset] = []
+        assets.enumerateObjects { a, _, _ in all.append(a) }
+        var found: [[PHAsset]] = []
+        var cur: [PHAsset] = []
+        for a in all {
+            if let last = cur.last, let d1 = last.creationDate, let d2 = a.creationDate,
+               d2.timeIntervalSince(d1) <= 10,
+               a.pixelWidth == last.pixelWidth, a.pixelHeight == last.pixelHeight {
+                cur.append(a)
+            } else {
+                if cur.count >= 3 { found.append(cur) }
+                cur = [a]
+            }
+        }
+        if cur.count >= 3 { found.append(cur) }
+        groups = found.map { DupGroup(assets: $0) }
+            .sorted { $0.assets.count > $1.assets.count }
+        scanning = false
+        status = groups.isEmpty ? "Серий не найдено"
+                                : "Серий: \(groups.count), лишних кадров: \(extraCount)"
     }
 
     /// Удаляет все снимки группы кроме первого — через системное подтверждение.
@@ -78,6 +114,11 @@ struct PhotoDuplicatesView: View {
             VStack(alignment: .leading, spacing: 16) {
                 Text("Поиск похожих фото по размеру и дате (PhotoKit). Удалённое попадает в «Недавно удалённые».")
                     .font(.callout).foregroundStyle(Brand.muted)
+
+                Picker("Режим", selection: $scanner.mode) {
+                    ForEach(PhotoScanMode.allCases) { m in Text(m.rawValue).tag(m) }
+                }
+                .pickerStyle(.segmented)
 
                 HStack(spacing: 12) {
                     Button { scanner.scan() } label: {
