@@ -7,6 +7,8 @@ enum Section: String, CaseIterable, Identifiable {
     case battery   = "Батарея"
     case cleanup   = "Очистка"
     case photos    = "Фото-дубли"
+    case shots     = "Скриншоты"
+    case videos    = "Видео"
     case contacts  = "Контакты"
     case tips      = "Советы"
     case about     = "О программе"
@@ -19,6 +21,8 @@ enum Section: String, CaseIterable, Identifiable {
         case .battery:   return "battery"
         case .cleanup:   return "cleanup"
         case .photos:    return "photos"
+        case .shots:     return "screenshots"
+        case .videos:    return "videos"
         case .contacts:  return "contacts"
         case .tips:      return "tips"
         case .about:     return "about"
@@ -31,6 +35,8 @@ enum Section: String, CaseIterable, Identifiable {
         case .battery:   return "battery.100"
         case .cleanup:   return "trash"
         case .photos:    return "photo.on.rectangle.angled"
+        case .shots:     return "camera.viewfinder"
+        case .videos:    return "film"
         case .contacts:  return "person.2"
         case .tips:      return "lightbulb"
         case .about:     return "info.circle"
@@ -53,6 +59,8 @@ struct ContentView: View {
         case .battery:   BatteryView(monitor: monitor)
         case .cleanup:   CleanupView()
         case .photos:    PhotoDuplicatesView()
+        case .shots:     ScreenshotsView()
+        case .videos:    LargeVideosView()
         case .contacts:  ContactsDuplicatesView()
         case .tips:      TipsView(monitor: monitor)
         case .about:     AboutScreen()
