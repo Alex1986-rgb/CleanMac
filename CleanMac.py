@@ -12,7 +12,7 @@ import urllib.request
 import tkinter as tk
 from tkinter import messagebox
 
-VERSION = "2.8.0"
+VERSION = "2.9.0"
 BRAND   = "KRYLAN"
 SLOGAN  = "Дай устройству крылья"
 AUTHOR  = "Кырлан Александр Сергеевич"
@@ -243,6 +243,10 @@ CATEGORIES = [
     ("devcache", "Кэши пакетных менеджеров (npm/pip/yarn/brew)",
         [os.path.join(HOME,".npm/_cacache"), os.path.join(HOME,"Library/Caches/pip"),
          os.path.join(HOME,"Library/Caches/Yarn"), os.path.join(HOME,"Library/Caches/Homebrew")], None, "whole"),
+    ("iosbackup", "Резервные копии iPhone/iPad (MobileSync)",
+        [os.path.join(HOME,"Library/Application Support/MobileSync/Backup")], None, "subitems"),
+    ("maildl", "Вложения Почты (Mail Downloads)",
+        [os.path.join(HOME,"Library/Containers/com.apple.mail/Data/Library/Mail Downloads")], None, "subitems"),
 ]
 
 # ---------- приватность ----------
@@ -701,6 +705,7 @@ class CleanMac(tk.Tk):
         for key,lbl in [("startup","⚙️ Автозагрузка"),("large","📦 Крупные файлы"),
                         ("dupes","👯 Дубликаты"),("uninstall","🧩 Деинсталлятор"),
                         ("disk","🗺 Карта диска"),("maintain","🩺 Обслуживание"),
+                        ("shots","📸 Скриншоты"),
                         ("browsers","🌐 Браузеры"),("trash","♻️ Корзина")]:
             b=tk.Label(bar, text=lbl, bg=GLASS, fg=TEXT, font=("SF Pro Text",12), padx=11, pady=8, cursor="pointinghand")
             b.pack(side="left", padx=4); b.bind("<Button-1>", lambda e,k=key:self._tool(k)); self.tool_chips[key]=b
@@ -713,6 +718,7 @@ class CleanMac(tk.Tk):
         self._lv=[]
         {"startup":self._t_startup,"large":self._t_large,"dupes":self._t_dupes,
          "uninstall":self._t_uninstall,"disk":self._t_disk,"maintain":self._t_maintain,
+         "shots":self._t_shots,
          "browsers":self._t_browsers,"trash":self._t_trash}[key]()
 
     def _ptitle(self, text, sub=""):
@@ -972,6 +978,41 @@ class CleanMac(tk.Tk):
                 run(["/bin/bash","-c",cmd], 180)
         except Exception: pass
         self.q.put(("maintdone", label, None))
+
+    # --- Скриншоты ---
+    SHOT_PREFIXES = ("снимок экрана", "screenshot", "screen shot", "cleanshot", "снимок_экрана")
+
+    def _t_shots(self):
+        self._ptitle("Скриншоты", "Снимки экрана на Рабочем столе и в ~/Pictures — копятся незаметно.")
+        inner=self._scrollarea()
+        import time
+        total=0; n=0; now=time.time()
+        bases=[os.path.join(HOME,"Desktop"), os.path.join(HOME,"Pictures"),
+               os.path.join(HOME,"Pictures/Screenshots")]
+        seen=set()
+        rows=[]
+        for base in bases:
+            if not os.path.isdir(base): continue
+            for f in sorted(os.listdir(base)):
+                fp=os.path.join(base,f)
+                if fp in seen or not os.path.isfile(fp): continue
+                if not f.lower().startswith(self.SHOT_PREFIXES): continue
+                if not f.lower().endswith((".png",".jpg",".jpeg",".heic")): continue
+                seen.add(fp)
+                try:
+                    sz=os.path.getsize(fp); age=(now-os.path.getmtime(fp))/86400
+                except OSError: continue
+                rows.append((sz, age, fp, f))
+        rows.sort(reverse=True)
+        for sz, age, fp, f in rows:
+            label=f"{f}  ·  {int(age)} дн."
+            self._checkrow(inner, fp, label, sz, preselect=(age>30))
+            total+=sz; n+=1
+        if not n:
+            tk.Label(inner, text="Скриншотов не найдено.", bg=GLASS, fg=MUTED,
+                     font=("SF Pro Text",12)).pack(anchor="w", padx=10, pady=10)
+        self._actionbar(f"Скриншотов: {n} · ~{human(total)} (старше 30 дн. отмечены)",
+                        lambda: self._trash_sel(lambda: self._tool("shots")))
 
     # --- Браузеры / Корзина ---
     def _t_browsers(self):
