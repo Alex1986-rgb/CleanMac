@@ -11,7 +11,7 @@ from tkinter import messagebox
 import psutil
 from send2trash import send2trash
 
-VERSION = "1.3.0"
+VERSION = "1.4.0"
 SYSTEM = platform.system()           # Windows / Darwin / Linux
 HOME = os.path.expanduser("~")
 
@@ -111,6 +111,76 @@ def find_duplicates(bases=None):
     groups.sort(reverse=True)
     wasted = sum(s*(len(g)-1) for s, g in groups)
     return groups, extras, wasted
+
+# ---------- следы браузеров (Privacy Cleaner) ----------
+def running_browsers():
+    """Названия запущенных браузеров (по процессам psutil)."""
+    keys = {"chrome": "Chrome", "msedge": "Edge", "edge": "Edge",
+            "firefox": "Firefox", "yandex": "Yandex"}
+    found = set()
+    for p in psutil.process_iter(["name"]):
+        n = (p.info.get("name") or "").lower()
+        for k, label in keys.items():
+            if k in n: found.add(label)
+    return found
+
+def privacy_targets():
+    """Файлы следов: [(браузер, что, путь)]. Только существующие."""
+    import glob
+    t = []
+    if SYSTEM == "Darwin":
+        ch = os.path.join(HOME, "Library/Application Support/Google/Chrome/Default")
+        ed = os.path.join(HOME, "Library/Application Support/Microsoft Edge/Default")
+        ff = os.path.join(HOME, "Library/Application Support/Firefox/Profiles")
+    elif SYSTEM == "Windows":
+        local = os.environ.get("LOCALAPPDATA", os.path.join(HOME, "AppData", "Local"))
+        roam = os.environ.get("APPDATA", os.path.join(HOME, "AppData", "Roaming"))
+        ch = os.path.join(local, "Google", "Chrome", "User Data", "Default")
+        ed = os.path.join(local, "Microsoft", "Edge", "User Data", "Default")
+        ff = os.path.join(roam, "Mozilla", "Firefox", "Profiles")
+    else:
+        ch = os.path.join(HOME, ".config/google-chrome/Default")
+        ed = os.path.join(HOME, ".config/microsoft-edge/Default")
+        ff = os.path.join(HOME, ".mozilla/firefox")
+    for label, base in [("Chrome", ch), ("Edge", ed)]:
+        for item, fn in [("История", "History"), ("Cookies", "Cookies"),
+                         ("Посещённые ссылки", "Visited Links")]:
+            t.append((label, item, os.path.join(base, fn)))
+    for prof in glob.glob(os.path.join(ff, "*")):
+        for item, fn in [("История", "places.sqlite"), ("Cookies", "cookies.sqlite")]:
+            t.append(("Firefox", item, os.path.join(prof, fn)))
+    return [(b, i, p) for b, i, p in t if os.path.isfile(p)]
+
+# ---------- здоровье диска ----------
+def disk_health_report():
+    import subprocess
+    lines = ["🩺  Здоровье диска\n\n"]
+    try:
+        if SYSTEM == "Darwin":
+            out = subprocess.run(["diskutil", "info", "disk0"], capture_output=True, text=True, timeout=20).stdout
+            for row in out.splitlines():
+                if any(k in row for k in ("SMART", "Device / Media Name", "Disk Size", "Solid State")):
+                    lines.append("  " + row.strip() + "\n")
+            ok = "Verified" in out
+            lines.append("\n  Статус: " + ("✅ SMART в норме (Verified)\n" if ok else "⚠️ проверьте диск в Дисковой утилите\n"))
+        elif SYSTEM == "Windows":
+            out = subprocess.run(["wmic", "diskdrive", "get", "model,status,size"],
+                                 capture_output=True, text=True, timeout=20).stdout
+            lines += ["  " + r.strip() + "\n" for r in out.splitlines() if r.strip()]
+            lines.append("\n  Статус «OK» = SMART в норме.\n")
+        else:
+            r = subprocess.run(["smartctl", "-H", "/dev/sda"], capture_output=True, text=True, timeout=20)
+            if r.returncode in (0, 4) and r.stdout:
+                lines += ["  " + x + "\n" for x in r.stdout.splitlines()[-4:]]
+            else:
+                lines.append("  smartctl не найден: sudo apt install smartmontools\n")
+    except Exception as e:
+        lines.append(f"  не удалось прочитать SMART: {e}\n")
+    du = psutil.disk_usage(HOME if SYSTEM != "Windows" else os.environ.get("SystemDrive", "C:") + "\\")
+    lines.append(f"\n  Занято {du.percent:.0f}% · свободно {human(du.free)} из {human(du.total)}\n")
+    if du.percent > 90:
+        lines.append("  ⚠️ Меньше 10% свободного места замедляет систему — освободите диск.\n")
+    return "".join(lines)
 
 # ---------- headless-очистка (для планировщика) ----------
 def clean_caches_headless(dry=False):
@@ -448,7 +518,8 @@ class Krylan(tk.Tk):
         tk.Label(self.main, text="Инструменты", bg=BG0, fg=TEXT, font=("Segoe UI", 20, "bold")).pack(anchor="w", padx=24, pady=(18,8))
         bar = tk.Frame(self.main, bg=BG0); bar.pack(fill="x", padx=22)
         for lbl, cmd in [("⚙️ Автозагрузка", self.t_startup), ("👯 Дубликаты", self.t_dupes), ("📦 Крупные файлы", self.t_large),
-                         ("🗺 Карта диска", self.t_diskmap), ("🧳 Деинсталлятор", self.t_uninstall)]:
+                         ("🗺 Карта диска", self.t_diskmap), ("🧳 Деинсталлятор", self.t_uninstall),
+                         ("🔒 Приватность", self.t_privacy), ("🩺 Диск", self.t_smart)]:
             self._btn(bar, lbl, GLASS, cmd).pack(side="left", padx=4)
         self._dupe_extras = []
         self.t_action = tk.Frame(self.main, bg=BG0); self.t_action.pack(fill="x", padx=24, pady=(8,0))
@@ -602,6 +673,40 @@ class Krylan(tk.Tk):
                 lines.append("  dpkg не найден — посмотрите менеджер пакетов вашего дистрибутива.\n")
         self.q.put(("tout", "".join(lines), None))
 
+    def t_privacy(self):
+        self._out("🔒 Ищу следы браузеров…"); threading.Thread(target=self._privacy_w, daemon=True).start()
+
+    def _privacy_w(self):
+        targets = privacy_targets()
+        running = running_browsers()
+        lines = ["🔒  Приватность — следы браузеров\n\n"]
+        total = 0
+        for b, item, p in targets:
+            try: sz = os.path.getsize(p)
+            except OSError: sz = 0
+            total += sz
+            lines.append(f"  {human(sz):>9}  {b}: {item}\n")
+        if not targets:
+            lines.append("  следов не найдено.\n")
+        if running:
+            lines.append(f"\n⚠️ Сначала закройте: {', '.join(sorted(running))} — иначе файлы заняты.\n")
+        lines.append(f"\nВсего следов: ~{human(total)}. История и cookies уйдут в Корзину (вы выйдете из аккаунтов).\n")
+        files = [] if running else [p for _, _, p in targets]
+        self.q.put(("privacy", "".join(lines), files))
+
+    def _privacy_clean(self, files):
+        if not messagebox.askyesno("KRYLAN", f"Переместить {len(files)} файлов следов в Корзину?\n"
+                                   "Вы выйдете из аккаунтов в браузерах."): return
+        ok = 0
+        for p in files:
+            try: send2trash(p); ok += 1
+            except Exception: pass
+        messagebox.showinfo("KRYLAN", f"В Корзину: {ok} файлов."); self.t_privacy()
+
+    def t_smart(self):
+        self._out("🩺 Читаю состояние диска…")
+        threading.Thread(target=lambda: self.q.put(("tout", disk_health_report(), None)), daemon=True).start()
+
     # ---------- о программе ----------
     def show_about(self):
         tk.Label(self.main, text="🪽 KRYLAN", bg=BG0, fg=TEXT, font=("Segoe UI", 24, "bold")).pack(anchor="w", padx=24, pady=(26,0))
@@ -673,6 +778,12 @@ class Krylan(tk.Tk):
                         if b:
                             self._btn(self.t_action, f"🗑 Удалить {len(b)} лишних копий", RED,
                                       lambda ex=b: self._trash_dupes(ex)).pack(side="left", pady=4)
+                elif kind == "privacy":
+                    if self.page == "tools":
+                        self._out(a)
+                        if b:
+                            self._btn(self.t_action, f"🔒 Очистить следы ({len(b)})", RED,
+                                      lambda fs=b: self._privacy_clean(fs)).pack(side="left", pady=4)
         except queue.Empty: pass
         except Exception: pass
         self.after(120, self._poll)
