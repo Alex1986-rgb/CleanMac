@@ -10,6 +10,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -87,12 +88,45 @@ private fun rememberDeleter(ctx: Context, onDone: () -> Unit): (List<MediaFile>)
     }
 }
 
+/** Хаб «Медиа»: Крупные · Дубли · Скриншоты · Загрузки. */
 @Composable
-fun LargeFilesScreen(ctx: Context) {
+fun MediaHubScreen(ctx: Context) {
+    var tab by remember { mutableIntStateOf(0) }
+    val titles = listOf("Крупные", "Дубли", "Скриншоты", "Загрузки")
+    Column(Modifier.fillMaxSize().background(Brand.bg0)) {
+        Row(
+            Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            titles.forEachIndexed { i, t ->
+                val sel = tab == i
+                Text(
+                    t,
+                    color = if (sel) Color(0xFF0B1410) else Brand.text,
+                    fontSize = 13.sp, fontWeight = FontWeight.Bold,
+                    modifier = Modifier
+                        .background(if (sel) Brand.green else Brand.glass, RoundedCornerShape(50))
+                        .clickable { tab = i }
+                        .padding(horizontal = 13.dp, vertical = 8.dp)
+                )
+            }
+        }
+        when (tab) {
+            0 -> GenericMediaScreen(ctx, "Крупные медиа-файлы") { MediaStoreUtils.largeFiles(it) }
+            1 -> DuplicatesScreen(ctx)
+            2 -> GenericMediaScreen(ctx, "Скриншоты") { MediaStoreUtils.screenshots(it) }
+            else -> GenericMediaScreen(ctx, "Загрузки") { MediaStoreUtils.downloads(it) }
+        }
+    }
+}
+
+@Composable
+private fun GenericMediaScreen(ctx: Context, title: String, loader: (Context) -> List<MediaFile>) {
     MediaPermissionGate(ctx) {
         var reload by remember { mutableIntStateOf(0) }
-        val files = remember(reload) { MediaStoreUtils.largeFiles(ctx) }
+        val files = remember(reload, title) { loader(ctx) }
         val deleter = rememberDeleter(ctx) { reload++ }
+        val total = files.sumOf { it.size }
 
         LazyColumn(
             Modifier.fillMaxSize().background(Brand.bg0),
@@ -100,14 +134,15 @@ fun LargeFilesScreen(ctx: Context) {
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             item {
-                Text("Крупные медиа-файлы · ${files.size}", color = Brand.muted, fontSize = 13.sp,
+                Text("$title · ${files.size} · ${SystemInfo.fmtSize(total)}",
+                    color = Brand.muted, fontSize = 13.sp,
                     modifier = Modifier.padding(bottom = 4.dp))
             }
             items(files, key = { it.id }) { f ->
                 FileRow(f, actionLabel = "Удалить") { deleter(listOf(f)) }
             }
             if (files.isEmpty()) item {
-                Text("Медиа-файлы не найдены.", color = Brand.muted, fontSize = 14.sp)
+                Text("Ничего не найдено.", color = Brand.muted, fontSize = 14.sp)
             }
         }
     }

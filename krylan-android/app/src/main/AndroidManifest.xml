@@ -8,6 +8,11 @@
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="32" />
 
+    <!-- Менеджер приложений: список установленных + запрос удаления.
+         Для Google Play на QUERY_ALL_PACKAGES нужна декларация (категория: app management). -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+    <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
+
     <application
         android:label="KRYLAN"
         android:supportsRtl="true"

@@ -6,9 +6,9 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.CleaningServices
-import androidx.compose.material.icons.filled.FileCopy
-import androidx.compose.material.icons.filled.InsertDriveFile
+import androidx.compose.material.icons.filled.PermMedia
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material3.Icon
@@ -21,10 +21,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.sp
+import com.krylan.app.screens.AppsScreen
 import com.krylan.app.screens.CleanupScreen
 import com.krylan.app.screens.DashboardScreen
-import com.krylan.app.screens.DuplicatesScreen
-import com.krylan.app.screens.LargeFilesScreen
+import com.krylan.app.screens.MediaHubScreen
 import com.krylan.app.screens.StorageScreen
 import com.krylan.app.ui.Brand
 import com.krylan.app.ui.KrylanTheme
@@ -33,8 +33,8 @@ private enum class Tab(val title: String, val icon: ImageVector) {
     Dashboard("Дашборд", Icons.Filled.Speed),
     Storage("Хранилище", Icons.Filled.Storage),
     Cleanup("Очистка", Icons.Filled.CleaningServices),
-    Files("Файлы", Icons.Filled.InsertDriveFile),
-    Dupes("Дубли", Icons.Filled.FileCopy),
+    Media("Медиа", Icons.Filled.PermMedia),
+    Apps("Приложения", Icons.Filled.Apps),
 }
 
 class MainActivity : ComponentActivity() {
@@ -76,8 +76,8 @@ private fun Root() {
                 Tab.Dashboard -> DashboardScreen(ctx)
                 Tab.Storage   -> StorageScreen(ctx)
                 Tab.Cleanup   -> CleanupScreen(ctx)
-                Tab.Files     -> LargeFilesScreen(ctx)
-                Tab.Dupes     -> DuplicatesScreen(ctx)
+                Tab.Media     -> MediaHubScreen(ctx)
+                Tab.Apps      -> AppsScreen(ctx)
             }
         }
     }

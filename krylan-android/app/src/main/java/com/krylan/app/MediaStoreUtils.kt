@@ -23,6 +23,27 @@ object MediaStoreUtils {
     fun largeFiles(ctx: Context, limit: Int = 100): List<MediaFile> =
         query(ctx, sort = "${MediaStore.Files.FileColumns.SIZE} DESC", limit = limit)
 
+    /** Скриншоты: по относительному пути (API 29+) или по DATA (старые версии). */
+    fun screenshots(ctx: Context, limit: Int = 500): List<MediaFile> {
+        val (sel, args) = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
+            "${MediaStore.Images.Media.RELATIVE_PATH} LIKE ?" to arrayOf("%Screenshots%")
+        else
+            "${MediaStore.Images.Media.DATA} LIKE ?" to arrayOf("%/Screenshots/%")
+        return query(ctx, sort = "${MediaStore.Files.FileColumns.SIZE} DESC", limit = limit,
+                     collection = MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                     selection = sel, selectionArgs = args)
+    }
+
+    /** Содержимое папки Загрузки (API 29+: коллекция Downloads). */
+    fun downloads(ctx: Context, limit: Int = 300): List<MediaFile> =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
+            query(ctx, sort = "${MediaStore.Files.FileColumns.SIZE} DESC", limit = limit,
+                  collection = MediaStore.Downloads.EXTERNAL_CONTENT_URI)
+        else
+            query(ctx, sort = "${MediaStore.Files.FileColumns.SIZE} DESC", limit = limit,
+                  selection = "${MediaStore.Files.FileColumns.DATA} LIKE ?",
+                  selectionArgs = arrayOf("%/Download/%"))
+
     /** Группы дубликатов: одинаковые имя+размер, групп больше одной записи. */
     fun duplicateGroups(ctx: Context): List<List<MediaFile>> =
         query(ctx, sort = "${MediaStore.Files.FileColumns.SIZE} DESC", limit = 5000)
@@ -31,15 +52,18 @@ object MediaStoreUtils {
             .values.filter { it.size > 1 }
             .sortedByDescending { it.first().size * it.size }
 
-    private fun query(ctx: Context, sort: String, limit: Int): List<MediaFile> {
-        val collection = MediaStore.Files.getContentUri("external")
+    private fun query(
+        ctx: Context, sort: String, limit: Int,
+        collection: Uri = MediaStore.Files.getContentUri("external"),
+        selection: String? = null, selectionArgs: Array<String>? = null,
+    ): List<MediaFile> {
         val proj = arrayOf(
             MediaStore.Files.FileColumns._ID,
             MediaStore.Files.FileColumns.DISPLAY_NAME,
             MediaStore.Files.FileColumns.SIZE,
         )
         val out = mutableListOf<MediaFile>()
-        ctx.contentResolver.query(collection, proj, null, null, sort)?.use { c ->
+        ctx.contentResolver.query(collection, proj, selection, selectionArgs, sort)?.use { c ->
             val idIdx = c.getColumnIndexOrThrow(MediaStore.Files.FileColumns._ID)
             val nameIdx = c.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DISPLAY_NAME)
             val sizeIdx = c.getColumnIndexOrThrow(MediaStore.Files.FileColumns.SIZE)
