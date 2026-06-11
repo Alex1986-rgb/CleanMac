@@ -11,7 +11,7 @@ from tkinter import messagebox
 import psutil
 from send2trash import send2trash
 
-VERSION = "1.2.0"
+VERSION = "1.3.0"
 SYSTEM = platform.system()           # Windows / Darwin / Linux
 HOME = os.path.expanduser("~")
 
@@ -61,6 +61,135 @@ def dir_size(p):
     except Exception: pass
     return total
 
+def trash_dir():
+    if SYSTEM == "Darwin": return os.path.join(HOME, ".Trash")
+    if SYSTEM == "Linux":  return os.path.join(HOME, ".local/share/Trash/files")
+    return None   # Windows: корзина доступна только через WinAPI
+
+def old_downloads(days=180):
+    """Файлы и папки в Загрузках старше N дней: [(size, path)]."""
+    import time
+    base = os.path.join(HOME, "Downloads")
+    out, cutoff = [], time.time() - days * 86400
+    if os.path.isdir(base):
+        for name in os.listdir(base):
+            fp = os.path.join(base, name)
+            try:
+                if os.path.getmtime(fp) < cutoff:
+                    sz = dir_size(fp) if os.path.isdir(fp) else os.path.getsize(fp)
+                    out.append((sz, fp))
+            except Exception: pass
+    out.sort(reverse=True)
+    return out
+
+def find_duplicates(bases=None):
+    """Точные дубликаты (размер → md5) в пользовательских папках.
+    Возвращает (groups, extras, wasted)."""
+    bases = bases or [os.path.join(HOME, d) for d in ("Downloads", "Desktop", "Documents")]
+    by_size = {}
+    for base in bases:
+        if not os.path.isdir(base): continue
+        for root, _, files in os.walk(base):
+            for fn in files:
+                fp = os.path.join(root, fn)
+                try:
+                    s = os.path.getsize(fp)
+                    if s > 1024*1024: by_size.setdefault(s, []).append(fp)
+                except Exception: pass
+    groups, extras = [], []
+    for s, paths in by_size.items():
+        if len(paths) < 2: continue
+        bh = {}
+        for fp in paths:
+            try:
+                h = hashlib.md5(open(fp, "rb").read()).hexdigest()
+                bh.setdefault(h, []).append(fp)
+            except Exception: pass
+        for same in bh.values():
+            if len(same) > 1:
+                groups.append((s, sorted(same))); extras.extend(sorted(same)[1:])
+    groups.sort(reverse=True)
+    wasted = sum(s*(len(g)-1) for s, g in groups)
+    return groups, extras, wasted
+
+# ---------- headless-очистка (для планировщика) ----------
+def clean_caches_headless(dry=False):
+    """Содержимое кэшей → Корзина. Возвращает (байт, строки отчёта)."""
+    freed, lines = 0, []
+    for name, p in cleanup_targets():
+        sz = dir_size(p); freed += sz
+        lines.append(f"  {name}: {human(sz)}")
+        if not dry:
+            for n in os.listdir(p):
+                try: send2trash(os.path.join(p, n))
+                except Exception: pass
+    return freed, lines
+
+# ---------- планировщик обслуживания ----------
+SCHED_LABEL = "com.krylan.desktop.clean"
+
+def _sched_cmd():
+    return [sys.executable, os.path.abspath(__file__), "--clean-caches"]
+
+def schedule_status():
+    import subprocess
+    try:
+        if SYSTEM == "Darwin":
+            return os.path.isfile(os.path.join(HOME, "Library/LaunchAgents", SCHED_LABEL + ".plist"))
+        if SYSTEM == "Linux":
+            r = subprocess.run(["crontab", "-l"], capture_output=True, text=True)
+            return "KRYLAN-CLEAN" in (r.stdout or "")
+        r = subprocess.run(["schtasks", "/Query", "/TN", "KRYLAN Clean"], capture_output=True)
+        return r.returncode == 0
+    except Exception:
+        return False
+
+def schedule_enable():
+    """Еженедельная авто-очистка кэшей (понедельник 12:00). Всё уходит в Корзину."""
+    import subprocess
+    cmd = _sched_cmd()
+    if SYSTEM == "Darwin":
+        args = "".join(f"<string>{c}</string>" for c in cmd)
+        plist = (f'<?xml version="1.0" encoding="UTF-8"?>\n'
+                 f'<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
+                 f'"http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n'
+                 f'<plist version="1.0"><dict>'
+                 f'<key>Label</key><string>{SCHED_LABEL}</string>'
+                 f'<key>ProgramArguments</key><array>{args}</array>'
+                 f'<key>StartCalendarInterval</key><dict>'
+                 f'<key>Weekday</key><integer>1</integer>'
+                 f'<key>Hour</key><integer>12</integer><key>Minute</key><integer>0</integer>'
+                 f'</dict></dict></plist>')
+        path = os.path.join(HOME, "Library/LaunchAgents", SCHED_LABEL + ".plist")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        open(path, "w").write(plist)
+        subprocess.run(["launchctl", "load", path], capture_output=True)
+    elif SYSTEM == "Linux":
+        r = subprocess.run(["crontab", "-l"], capture_output=True, text=True)
+        cur = r.stdout if r.returncode == 0 else ""
+        line = f'0 12 * * 1 {" ".join(cmd)} # KRYLAN-CLEAN'
+        if "KRYLAN-CLEAN" not in cur:
+            subprocess.run(["crontab", "-"], input=cur.rstrip("\n") + "\n" + line + "\n", text=True)
+    else:
+        subprocess.run(["schtasks", "/Create", "/F", "/SC", "WEEKLY", "/D", "MON",
+                        "/ST", "12:00", "/TN", "KRYLAN Clean",
+                        "/TR", " ".join(f'"{c}"' for c in cmd)], capture_output=True)
+
+def schedule_disable():
+    import subprocess
+    if SYSTEM == "Darwin":
+        path = os.path.join(HOME, "Library/LaunchAgents", SCHED_LABEL + ".plist")
+        subprocess.run(["launchctl", "unload", path], capture_output=True)
+        try: os.remove(path)
+        except OSError: pass
+    elif SYSTEM == "Linux":
+        r = subprocess.run(["crontab", "-l"], capture_output=True, text=True)
+        if r.returncode == 0:
+            keep = "\n".join(l for l in r.stdout.splitlines() if "KRYLAN-CLEAN" not in l)
+            subprocess.run(["crontab", "-"], input=keep + "\n", text=True)
+    else:
+        subprocess.run(["schtasks", "/Delete", "/F", "/TN", "KRYLAN Clean"], capture_output=True)
+
 
 class Krylan(tk.Tk):
     def __init__(self):
@@ -84,7 +213,7 @@ class Krylan(tk.Tk):
         tk.Label(side, text="  Дай устройству крылья", bg=SIDEBAR, fg=GREEN, font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=12)
         tk.Label(side, text=f"  {os_label()} · v{VERSION}", bg=SIDEBAR, fg=MUTED, font=("Segoe UI", 9)).pack(anchor="w", padx=12, pady=(0,16))
         self.nav_btns = {}
-        for key, label in [("dash","📊  Дашборд"),("procs","🧠  Процессы"),("clean","🧽  Очистка"),("tools","🛠  Инструменты"),("about","ℹ️  О программе")]:
+        for key, label in [("dash","📊  Дашборд"),("scan","🚀  Сканер"),("procs","🧠  Процессы"),("clean","🧽  Очистка"),("tools","🛠  Инструменты"),("about","ℹ️  О программе")]:
             b = tk.Label(side, text="   "+label, bg=SIDEBAR, fg=TEXT, font=("Segoe UI", 12), anchor="w", padx=10, pady=11, cursor="hand2")
             b.pack(fill="x"); b.bind("<Button-1>", lambda e,k=key: self.nav(k)); self.nav_btns[key] = b
         self.main = tk.Frame(self, bg=BG0); self.main.pack(side="left", fill="both", expand=True)
@@ -93,7 +222,7 @@ class Krylan(tk.Tk):
         self.page = key
         for k,b in self.nav_btns.items(): b.configure(bg=GLASS if k==key else SIDEBAR)
         for w in self.main.winfo_children(): w.destroy()
-        {"dash":self.show_dash, "procs":self.show_procs, "clean":self.show_clean, "tools":self.show_tools, "about":self.show_about}[key]()
+        {"dash":self.show_dash, "scan":self.show_scan, "procs":self.show_procs, "clean":self.show_clean, "tools":self.show_tools, "about":self.show_about}[key]()
 
     # ---------- кольца ----------
     def _ring(self, c, cx, cy, r, frac, color, w, val, label):
@@ -180,6 +309,101 @@ class Krylan(tk.Tk):
                 except Exception: pass
             freed += sz
         self.q.put(("cldone", freed, None))
+
+    # ---------- сканер (one-click, в духе BoostSpeed My Scanner) ----------
+    def show_scan(self):
+        tk.Label(self.main, text="Сканер", bg=BG0, fg=TEXT, font=("Segoe UI", 20, "bold")).pack(anchor="w", padx=24, pady=(18,2))
+        tk.Label(self.main, text="Полная проверка одним кликом: кэши · корзина · старые загрузки · дубликаты.",
+                 bg=BG0, fg=MUTED, font=("Segoe UI", 10)).pack(anchor="w", padx=24, pady=(0,10))
+        bar = tk.Frame(self.main, bg=BG0); bar.pack(fill="x", padx=24)
+        self._btn(bar, "🚀 Сканировать всё", GREEN, self.run_scan).pack(side="left")
+        # планировщик
+        self.sched_lbl = tk.Label(bar, text="", bg=BG0, fg=MUTED, font=("Segoe UI", 10)); self.sched_lbl.pack(side="right")
+        self.sched_btn = tk.Label(bar, text="", bg=GLASS, fg=TEXT, font=("Segoe UI", 10, "bold"),
+                                  padx=10, pady=6, cursor="hand2")
+        self.sched_btn.pack(side="right", padx=(0,10))
+        self.sched_btn.bind("<Button-1>", lambda e: self._sched_toggle())
+        self._sched_refresh()
+        self.s_action = tk.Frame(self.main, bg=BG0); self.s_action.pack(fill="x", padx=24, pady=(8,0))
+        self.sout = tk.Text(self.main, bg="#0f1218", fg=TEXT, font=("Consolas", 11), relief="flat", padx=12, pady=10)
+        self.sout.pack(fill="both", expand=True, padx=24, pady=12)
+        self.sout.insert("end", "Нажмите «Сканировать всё».\n"); self.sout.configure(state="disabled")
+
+    def _sched_refresh(self):
+        on = schedule_status()
+        self.sched_btn.configure(text=("⏰ Выключить авто-очистку" if on else "⏰ Включить авто-очистку"),
+                                 bg=(GLASS if on else BLUE), fg=("white" if not on else TEXT))
+        self.sched_lbl.configure(text=("еженедельно, пн 12:00 · кэши → Корзина" if on else ""))
+
+    def _sched_toggle(self):
+        if schedule_status():
+            schedule_disable()
+        else:
+            if not messagebox.askyesno("KRYLAN", "Включить еженедельную авто-очистку кэшей?\n"
+                                       "Каждый понедельник в 12:00 содержимое кэшей будет уходить в Корзину."): return
+            schedule_enable()
+        self._sched_refresh()
+
+    def run_scan(self):
+        self._sout("🚀 Сканирую… это может занять минуту-другую.")
+        threading.Thread(target=self._scan_w, daemon=True).start()
+
+    def _sout(self, t):
+        self.sout.configure(state="normal"); self.sout.delete("1.0","end"); self.sout.insert("end", t); self.sout.configure(state="disabled")
+        for w in self.s_action.winfo_children(): w.destroy()
+
+    def _scan_w(self):
+        res = {}
+        caches = [(n, p, dir_size(p)) for n, p in cleanup_targets()]
+        res["caches"] = caches; csum = sum(s for _,_,s in caches)
+        td = trash_dir(); res["trash"] = dir_size(td) if td else None
+        old = old_downloads(); res["old"] = old; osum = sum(s for s,_ in old)
+        groups, extras, wasted = find_duplicates(); res["extras"] = extras
+        total = csum + osum + wasted + (res["trash"] or 0)
+        lines = ["🚀  Результат сканирования\n\n", "Кэши и временные файлы:\n"]
+        lines += [f"  {human(s):>9}  {n}\n" for n, p, s in caches]
+        lines.append(f"\nКорзина: {human(res['trash']) if res['trash'] is not None else '—'}\n")
+        lines.append(f"Старые загрузки (>6 мес): {human(osum)} · {len(old)} шт.\n")
+        for s, fp in old[:8]: lines.append(f"  {human(s):>9}  {fp.replace(HOME,'~')}\n")
+        lines.append(f"Дубликаты: {human(wasted)} в {len(groups)} группах\n")
+        lines.append(f"\n══════════════════════════════════\n")
+        lines.append(f"ИТОГО можно освободить: ~{human(total)}\n")
+        self.q.put(("scanout", "".join(lines), res))
+
+    def _scan_actions(self, res):
+        if sum(s for _,_,s in res["caches"]) > 0:
+            self._btn(self.s_action, "🧽 Кэши → Корзина", GREEN,
+                      lambda: self._scan_clean_caches()).pack(side="left", padx=(0,6))
+        if res["old"]:
+            self._btn(self.s_action, f"📥 Старые загрузки → Корзина ({len(res['old'])})", BLUE,
+                      lambda o=res["old"]: self._scan_trash_old(o)).pack(side="left", padx=6)
+        if res["extras"]:
+            self._btn(self.s_action, f"👯 Дубли → Корзина ({len(res['extras'])})", PURPLE,
+                      lambda ex=res["extras"]: self._trash_dupes_scan(ex)).pack(side="left", padx=6)
+
+    def _scan_clean_caches(self):
+        if not messagebox.askyesno("KRYLAN", "Переместить содержимое кэшей в Корзину?"): return
+        self._sout("🧽 Очищаю кэши…")
+        def w():
+            freed, _ = clean_caches_headless()
+            self.q.put(("scanout", f"🧽 Кэши очищены: ~{human(freed)} → Корзина.\n\nЗапустите сканирование заново для свежей сводки.", None))
+        threading.Thread(target=w, daemon=True).start()
+
+    def _scan_trash_old(self, old):
+        if not messagebox.askyesno("KRYLAN", f"Переместить {len(old)} старых файлов из Загрузок в Корзину?"): return
+        ok = 0
+        for s, fp in old:
+            try: send2trash(fp); ok += 1
+            except Exception: pass
+        messagebox.showinfo("KRYLAN", f"В Корзину: {ok} файлов."); self.run_scan()
+
+    def _trash_dupes_scan(self, extras):
+        if not messagebox.askyesno("KRYLAN", f"Удалить {len(extras)} лишних копий в Корзину?"): return
+        ok = 0
+        for p in extras:
+            try: send2trash(p); ok += 1
+            except Exception: pass
+        messagebox.showinfo("KRYLAN", f"В Корзину: {ok} файлов."); self.run_scan()
 
     # ---------- процессы (диспетчер задач) ----------
     def show_procs(self):
@@ -284,31 +508,7 @@ class Krylan(tk.Tk):
         self._out("👯 Ищу дубликаты…"); threading.Thread(target=self._dupes_w, daemon=True).start()
 
     def _dupes_w(self):
-        bases = [os.path.join(HOME, d) for d in ("Downloads", "Desktop", "Documents")]
-        by_size = {}
-        for base in bases:
-            if not os.path.isdir(base): continue
-            for root, _, files in os.walk(base):
-                for fn in files:
-                    fp = os.path.join(root, fn)
-                    try:
-                        s = os.path.getsize(fp)
-                        if s > 1024*1024: by_size.setdefault(s, []).append(fp)
-                    except Exception: pass
-        groups, extras = [], []
-        for s, paths in by_size.items():
-            if len(paths) < 2: continue
-            bh = {}
-            for fp in paths:
-                try:
-                    h = hashlib.md5(open(fp, "rb").read()).hexdigest()
-                    bh.setdefault(h, []).append(fp)
-                except Exception: pass
-            for same in bh.values():
-                if len(same) > 1:
-                    groups.append((s, sorted(same))); extras.extend(sorted(same)[1:])
-        groups.sort(reverse=True)
-        wasted = sum(s*(len(g)-1) for s, g in groups)
+        groups, extras, wasted = find_duplicates()
         t = f"👯  Дубликаты: групп {len(groups)}, освободить ~{human(wasted)}\n\n"
         for s, same in groups[:20]:
             t += f"  {human(s)} ×{len(same)}:\n" + "".join(f"      {p.replace(HOME,'~')}\n" for p in same) + "\n"
@@ -463,6 +663,10 @@ class Krylan(tk.Tk):
                     messagebox.showinfo("KRYLAN", f"В Корзину: {human(a)}."); self.found = {}
                 elif kind == "tout":
                     if self.page == "tools": self._out(a)
+                elif kind == "scanout":
+                    if self.page == "scan":
+                        self._sout(a)
+                        if b: self._scan_actions(b)
                 elif kind == "dupes":
                     if self.page == "tools":
                         self._out(a)
@@ -475,4 +679,12 @@ class Krylan(tk.Tk):
 
 
 if __name__ == "__main__":
+    if "--clean-caches" in sys.argv:
+        # headless-режим для планировщика: кэши → Корзина, отчёт в stdout
+        dry = "--dry-run" in sys.argv
+        freed, lines = clean_caches_headless(dry=dry)
+        print(("[dry-run] " if dry else "") + f"KRYLAN: кэшей ~{human(freed)}" +
+              (" (ничего не удалено)" if dry else " → Корзина"))
+        print("\n".join(lines))
+        sys.exit(0)
     Krylan().mainloop()
