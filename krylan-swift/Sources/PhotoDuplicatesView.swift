@@ -17,6 +17,7 @@ struct DupGroup: Identifiable {
 enum PhotoScanMode: String, CaseIterable, Identifiable {
     case exact  = "Дубли"
     case series = "Серии"
+    case blurry = "Размытые"
     var id: String { rawValue }
 }
 
@@ -37,7 +38,11 @@ final class PhotoScanner: ObservableObject {
                 guard st == .authorized || st == .limited else {
                     self.status = "Нет доступа к медиатеке"; return
                 }
-                self.mode == .exact ? self.runExact() : self.runSeries()
+                switch self.mode {
+                case .exact:  self.runExact()
+                case .series: self.runSeries()
+                case .blurry: self.runBlurry()
+                }
             }
         }
     }
@@ -89,6 +94,93 @@ final class PhotoScanner: ObservableObject {
                                 : "Серий: \(groups.count), лишних кадров: \(extraCount)"
     }
 
+    /// Размытые: оценка резкости по вариации Лапласиана миниатюры (меньше — размытее).
+    /// Кандидаты ниже порога, по 1 кадру в группе. Не удаляем автоматически.
+    private func runBlurry() {
+        scanning = true
+        status = "Анализирую резкость…"
+        Task.detached(priority: .userInitiated) {
+            let opts = PHFetchOptions()
+            opts.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
+            opts.fetchLimit = 800   // ограничиваем, чтобы не нагружать устройство
+            let fetch = PHAsset.fetchAssets(with: .image, options: opts)
+            var assets: [PHAsset] = []
+            fetch.enumerateObjects { a, _, _ in assets.append(a) }
+
+            let req = PHImageRequestOptions()
+            req.isSynchronous = true
+            req.deliveryMode = .fastFormat
+            req.isNetworkAccessAllowed = false
+            req.resizeMode = .fast
+
+            var scored: [(PHAsset, Double)] = []
+            for a in assets {
+                var cg: CGImage?
+                PHImageManager.default().requestImage(
+                    for: a, targetSize: CGSize(width: 120, height: 120),
+                    contentMode: .aspectFit, options: req
+                ) { img, _ in
+                    #if canImport(UIKit)
+                    cg = img?.cgImage
+                    #else
+                    if let img { var r = CGRect(origin: .zero, size: img.size)
+                        cg = img.cgImage(forProposedRect: &r, context: nil, hints: nil) }
+                    #endif
+                }
+                if let cg, let v = Self.laplacianVariance(cg), v < 55 {
+                    scored.append((a, v))
+                }
+            }
+            scored.sort { $0.1 < $1.1 }                 // блюр-кандидаты сначала
+            let top = scored.prefix(60).map { DupGroup(assets: [$0.0]) }
+            await MainActor.run {
+                self.groups = Array(top)
+                self.scanning = false
+                self.status = top.isEmpty ? "Размытых не найдено"
+                                          : "Размытых кадров: \(top.count) (проверьте перед удалением)"
+            }
+        }
+    }
+
+    /// Вариация Лапласиана grayscale-миниатюры (классический показатель резкости).
+    nonisolated static func laplacianVariance(_ cg: CGImage) -> Double? {
+        let w = 96, h = 96
+        var px = [UInt8](repeating: 0, count: w * h * 4)
+        let cs = CGColorSpaceCreateDeviceRGB()
+        guard let ctx = CGContext(data: &px, width: w, height: h, bitsPerComponent: 8,
+                                  bytesPerRow: w * 4, space: cs,
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
+        var gray = [Double](repeating: 0, count: w * h)
+        for i in 0..<(w * h) {
+            gray[i] = 0.299 * Double(px[i*4]) + 0.587 * Double(px[i*4+1]) + 0.114 * Double(px[i*4+2])
+        }
+        var lap: [Double] = []; lap.reserveCapacity((w-2) * (h-2))
+        for y in 1..<(h-1) {
+            for x in 1..<(w-1) {
+                let c = gray[y*w+x]
+                lap.append(gray[(y-1)*w+x] + gray[(y+1)*w+x] + gray[y*w+x-1] + gray[y*w+x+1] - 4*c)
+            }
+        }
+        guard !lap.isEmpty else { return nil }
+        let mean = lap.reduce(0, +) / Double(lap.count)
+        return lap.reduce(0) { $0 + ($1 - mean) * ($1 - mean) } / Double(lap.count)
+    }
+
+    /// Удаляет один снимок (для режима «Размытые»).
+    func deleteOne(_ group: DupGroup) {
+        guard let asset = group.assets.first else { return }
+        PHPhotoLibrary.shared().performChanges({
+            PHAssetChangeRequest.deleteAssets([asset] as NSArray)
+        }) { [weak self] ok, _ in
+            Task { @MainActor in
+                guard let self, ok else { return }
+                self.groups.removeAll { $0.id == group.id }
+                self.status = "Перенесено в «Недавно удалённые»"
+            }
+        }
+    }
+
     /// Удаляет все снимки группы кроме первого — через системное подтверждение.
     func deleteExtras(in group: DupGroup) {
         let extras = Array(group.assets.dropFirst())
@@ -129,28 +221,50 @@ struct PhotoDuplicatesView: View {
                     Text(scanner.status).font(.subheadline.bold()).foregroundStyle(Brand.green)
                 }
 
-                ForEach(scanner.groups) { group in
-                    VStack(alignment: .leading, spacing: 10) {
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 8) {
-                                ForEach(Array(group.assets.prefix(8).enumerated()), id: \.offset) { _, asset in
-                                    AssetThumb(asset: asset)
+                if scanner.mode == .blurry {
+                    ForEach(scanner.groups) { group in
+                        HStack(spacing: 12) {
+                            if let asset = group.assets.first { AssetThumb(asset: asset) }
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text("Размытый кадр").font(.subheadline.bold()).foregroundStyle(Brand.text)
+                                if let d = group.assets.first?.creationDate {
+                                    Text(d.formatted(date: .abbreviated, time: .shortened))
+                                        .font(.caption2).foregroundStyle(Brand.muted)
                                 }
                             }
-                        }
-                        HStack {
-                            Text("\(group.assets.count) похожих снимка")
-                                .font(.caption.bold()).foregroundStyle(Brand.muted)
-                            Spacer()
-                            Button { scanner.deleteExtras(in: group) } label: {
-                                Text("Удалить лишние (\(group.assets.count - 1))")
-                                    .font(.caption.bold()).foregroundStyle(Brand.red)
+                            Spacer(minLength: 0)
+                            Button { scanner.deleteOne(group) } label: {
+                                Text("Удалить").font(.caption.bold()).foregroundStyle(Brand.red)
                             }.buttonStyle(.plain)
                         }
+                        .padding(12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(RoundedRectangle(cornerRadius: 16).fill(Brand.glass))
                     }
-                    .padding(14)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(RoundedRectangle(cornerRadius: 16).fill(Brand.glass))
+                } else {
+                    ForEach(scanner.groups) { group in
+                        VStack(alignment: .leading, spacing: 10) {
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 8) {
+                                    ForEach(Array(group.assets.prefix(8).enumerated()), id: \.offset) { _, asset in
+                                        AssetThumb(asset: asset)
+                                    }
+                                }
+                            }
+                            HStack {
+                                Text("\(group.assets.count) похожих снимка")
+                                    .font(.caption.bold()).foregroundStyle(Brand.muted)
+                                Spacer()
+                                Button { scanner.deleteExtras(in: group) } label: {
+                                    Text("Удалить лишние (\(group.assets.count - 1))")
+                                        .font(.caption.bold()).foregroundStyle(Brand.red)
+                                }.buttonStyle(.plain)
+                            }
+                        }
+                        .padding(14)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(RoundedRectangle(cornerRadius: 16).fill(Brand.glass))
+                    }
                 }
             }
             .padding(16)
