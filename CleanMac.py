@@ -39,7 +39,7 @@ from tkinter import messagebox, filedialog
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from krylan_core import human  # noqa: E402
 
-VERSION = "2.24.0"
+VERSION = "2.25.0"
 BRAND   = "KRYLAN"
 SLOGAN  = "Дай устройству крылья"
 AUTHOR  = "Кырлан Александр Сергеевич"
@@ -1014,16 +1014,26 @@ class CleanMac(tk.Tk):
     def show_tools(self):
         tk.Label(self.main, text=L("Инструменты"), bg=BG0, fg=TEXT, font=("SF Pro Display",22,"bold")
                  ).pack(anchor="w", padx=24, pady=(16,8))
-        bar=tk.Frame(self.main, bg=BG0); bar.pack(fill="x", padx=22)
         self.tool_chips={}
-        for key,lbl in [("startup","⚙️ Автозагрузка"),("large","📦 Крупные файлы"),
-                        ("dupes","👯 Дубликаты"),("uninstall","🧩 Деинсталлятор"),
-                        ("disk","🗺 Карта диска"),("maintain","🩺 Обслуживание"),
-                        ("shots","📸 Скриншоты"),("shred","🔥 Шредер"),
-                        ("updater","📦 Апдейтер"),("leftovers","🧹 Остатки"),("history","📜 История"),
-                        ("browsers","🌐 Браузеры"),("trash","♻️ Корзина")]:
-            b=tk.Label(bar, text=lbl, bg=GLASS, fg=TEXT, font=("SF Pro Text",12), padx=11, pady=8, cursor="pointinghand")
-            b.pack(side="left", padx=4); b.bind("<Button-1>", lambda e,k=key:self._tool(k)); self.tool_chips[key]=b
+        chips=[("startup","⚙️ Автозагрузка"),("large","📦 Крупные файлы"),
+               ("dupes","👯 Дубликаты"),("uninstall","🧩 Деинсталлятор"),
+               ("disk","🗺 Карта диска"),("maintain","🩺 Обслуживание"),
+               ("shots","📸 Скриншоты"),("shred","🔥 Шредер"),
+               ("updater","📦 Апдейтер"),("leftovers","🧹 Остатки"),("history","📜 История"),
+               ("browsers","🌐 Браузеры"),("trash","♻️ Корзина")]
+        # переносим чипы в ряды, чтобы все помещались (по 7 в ряд)
+        per_row=7
+        wrap=tk.Frame(self.main, bg=BG0); wrap.pack(fill="x", padx=22)
+        for i in range(0, len(chips), per_row):
+            row=tk.Frame(wrap, bg=BG0); row.pack(fill="x", pady=2)
+            for key,lbl in chips[i:i+per_row]:
+                b=tk.Label(row, text=lbl, bg=GLASS, fg=TEXT, font=("SF Pro Text",12),
+                           padx=11, pady=8, cursor="pointinghand")
+                b.pack(side="left", padx=4)
+                b.bind("<Button-1>", lambda e,k=key:self._tool(k))
+                b.bind("<Enter>", lambda e,bb=b,k=key: bb.configure(bg=GLASS_HI) if self.tool_chips and bb.cget("bg")!=BLUE else None)
+                b.bind("<Leave>", lambda e,bb=b: bb.configure(bg=GLASS) if bb.cget("bg")==GLASS_HI else None)
+                self.tool_chips[key]=b
         self.tpanel=tk.Frame(self.main, bg=BG0); self.tpanel.pack(fill="both", expand=True, padx=22, pady=(10,14))
         self._lv=[]; self._tool("startup")
 
