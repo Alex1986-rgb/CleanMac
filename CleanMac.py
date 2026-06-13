@@ -39,7 +39,7 @@ from tkinter import messagebox, filedialog
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from krylan_core import human  # noqa: E402
 
-VERSION = "2.18.0"
+VERSION = "2.19.0"
 BRAND   = "KRYLAN"
 SLOGAN  = "Дай устройству крылья"
 AUTHOR  = "Кырлан Александр Сергеевич"
@@ -217,6 +217,56 @@ def brew_outdated():
     items = parse_brew_outdated(run([brew, "outdated", "--verbose"], 90), "формула")
     items += parse_brew_outdated(run([brew, "outdated", "--cask", "--greedy", "--verbose"], 90), "приложение")
     return items
+
+def installed_bundle_ids():
+    """Множество bundle id и имён всех установленных .app (нижний регистр)."""
+    import plistlib
+    ids = set()
+    for base in ("/Applications", os.path.join(HOME, "Applications"), "/System/Applications"):
+        if not os.path.isdir(base): continue
+        for name in os.listdir(base):
+            if not name.endswith(".app"): continue
+            ids.add(name[:-4].lower())
+            try:
+                with open(os.path.join(base, name, "Contents", "Info.plist"), "rb") as f:
+                    bid = plistlib.load(f).get("CFBundleIdentifier")
+                if bid: ids.add(bid.lower())
+            except Exception: pass
+    return ids
+
+_RDNS_TLDS = {"com","org","net","io","co","app","dev","me","ru","cloud","xyz","us","de","fr","uk","ai","tv"}
+def _is_orphan_name(name, ids):
+    """True, если имя — настоящий reverse-DNS bundle id (com.vendor.app, ≥3 сегмента,
+    известный TLD-префикс) без установленного .app. Apple/системное и обычные файлы не трогаем."""
+    low = name.lower()
+    if low.startswith(("com.apple.", "apple.", "group.com.apple")): return False
+    parts = low.split(".")
+    if len(parts) < 3: return False          # нужен com.vendor.app, а не default.store
+    if parts[0] not in _RDNS_TLDS: return False
+    if low in ids: return False
+    for i in ids:
+        if i == low or i.startswith(low + ".") or low.startswith(i + "."): return False
+    return True
+
+def orphaned_leftovers():
+    """Осиротевшие данные удалённых программ в ~/Library. [(path, size)] по убыванию."""
+    ids = installed_bundle_ids()
+    out = []
+    bases = [os.path.join(HOME, "Library", d) for d in
+             ("Application Support", "Caches", "Preferences", "Containers", "Logs", "Saved Application State")]
+    for base in bases:
+        if not os.path.isdir(base): continue
+        for name in os.listdir(base):
+            stem = name
+            for suf in (".plist", ".savedState"):
+                if stem.endswith(suf): stem = stem[:-len(suf)]
+            if _is_orphan_name(stem, ids):
+                p = os.path.join(base, name)
+                try: sz = path_size(p) if os.path.isdir(p) else os.path.getsize(p)
+                except Exception: sz = 0
+                out.append((p, sz))
+    out.sort(key=lambda x: -x[1])
+    return out
 
 def _history_path():
     return os.path.join(OPT, "cleanup_history.json")
@@ -954,7 +1004,7 @@ class CleanMac(tk.Tk):
                         ("dupes","👯 Дубликаты"),("uninstall","🧩 Деинсталлятор"),
                         ("disk","🗺 Карта диска"),("maintain","🩺 Обслуживание"),
                         ("shots","📸 Скриншоты"),("shred","🔥 Шредер"),
-                        ("updater","📦 Апдейтер"),("history","📜 История"),
+                        ("updater","📦 Апдейтер"),("leftovers","🧹 Остатки"),("history","📜 История"),
                         ("browsers","🌐 Браузеры"),("trash","♻️ Корзина")]:
             b=tk.Label(bar, text=lbl, bg=GLASS, fg=TEXT, font=("SF Pro Text",12), padx=11, pady=8, cursor="pointinghand")
             b.pack(side="left", padx=4); b.bind("<Button-1>", lambda e,k=key:self._tool(k)); self.tool_chips[key]=b
@@ -967,7 +1017,8 @@ class CleanMac(tk.Tk):
         self._lv=[]
         {"startup":self._t_startup,"large":self._t_large,"dupes":self._t_dupes,
          "uninstall":self._t_uninstall,"disk":self._t_disk,"maintain":self._t_maintain,
-         "shots":self._t_shots,"shred":self._t_shred,"updater":self._t_updater,"history":self._t_history,
+         "shots":self._t_shots,"shred":self._t_shred,"updater":self._t_updater,
+         "leftovers":self._t_leftovers,"history":self._t_history,
          "browsers":self._t_browsers,"trash":self._t_trash}[key]()
 
     def _ptitle(self, text, sub=""):
@@ -1354,6 +1405,25 @@ class CleanMac(tk.Tk):
             run([brew, "upgrade", "--cask", "--greedy"], 1800)
         self.q.put(("upgraded", None, None))
 
+    # --- Остатки удалённых программ ---
+    def _t_leftovers(self):
+        self._ptitle("Остатки удалённых программ",
+                     "Данные в ~/Library от приложений, которых уже нет. Только bundle-id-папки; Apple не трогается.")
+        tk.Label(self.tpanel, text="Сканирую…", bg=BG0, fg=MUTED, font=("SF Pro Text",12)).pack(anchor="w")
+        threading.Thread(target=lambda: self.q.put(("leftovers", orphaned_leftovers(), None)), daemon=True).start()
+
+    def _render_leftovers(self, items):
+        for w in self.tpanel.winfo_children()[2:]: w.destroy()
+        if not items:
+            tk.Label(self.tpanel, text="✅ Осиротевших данных не найдено.", bg=BG0, fg=GREEN,
+                     font=("SF Pro Text",13,"bold")).pack(anchor="w", pady=8); return
+        total=sum(s for _,s in items)
+        inner=self._scrollarea()
+        for p,s in items:
+            self._checkrow(inner, p, p.replace(HOME,"~"), s, preselect=False)
+        self._actionbar(f"Остатков: {len(items)} · ~{human(total)} (проверьте перед удалением)",
+                        lambda: self._trash_sel(lambda: self._tool("leftovers")))
+
     # --- История очисток ---
     def _t_history(self):
         hist = cleanup_history()
@@ -1671,6 +1741,8 @@ class CleanMac(tk.Tk):
                     if self.page=="smart": self.nav("smart")
                 elif kind=="updater":
                     if self.page=="tools": self._render_updater(a if a is not None else [])
+                elif kind=="leftovers":
+                    if self.page=="tools": self._render_leftovers(a or [])
                 elif kind=="upgraded":
                     self.status("")
                     messagebox.showinfo("CleanMac", "Обновление Homebrew завершено.")

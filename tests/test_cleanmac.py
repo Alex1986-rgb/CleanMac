@@ -99,6 +99,27 @@ class TestDiskAdvice(unittest.TestCase):
         self.assertEqual(adv[0][0], "🟢")
 
 
+class TestOrphanName(unittest.TestCase):
+    def setUp(self):
+        self.ids = {"com.acme.coolapp", "telegram", "com.tdesktop.telegram"}
+
+    def test_apple_never_orphan(self):
+        self.assertFalse(cm._is_orphan_name("com.apple.Safari", self.ids))
+        self.assertFalse(cm._is_orphan_name("group.com.apple.x", self.ids))
+
+    def test_installed_not_orphan(self):
+        self.assertFalse(cm._is_orphan_name("com.acme.coolapp", self.ids))
+        self.assertFalse(cm._is_orphan_name("com.acme.coolapp.helper", self.ids))  # суб-домен установленного
+
+    def test_non_bundle_skipped(self):
+        self.assertFalse(cm._is_orphan_name("RandomFolder", self.ids))   # нет точки
+        self.assertFalse(cm._is_orphan_name("default.store", self.ids))  # 2 сегмента, не bundle id
+        self.assertFalse(cm._is_orphan_name("foo.bar.baz", self.ids))    # неизвестный TLD-префикс
+
+    def test_real_orphan(self):
+        self.assertTrue(cm._is_orphan_name("com.deleted.oldapp", self.ids))
+
+
 class TestBrewParser(unittest.TestCase):
     def test_formula_lines(self):
         text = "ack (3.9.0) < 3.10.0\naircrack-ng (1.7_1) < 1.7_2"
