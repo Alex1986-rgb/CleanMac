@@ -10,6 +10,28 @@ KRYLAN · CleanMac — оптимизатор для macOS со «стеклян
 import os, time, shutil, hashlib, threading, queue, subprocess, collections, math, re, json
 import sys
 import urllib.request
+try:
+    import psutil
+except Exception:
+    psutil = None
+
+# ---------- сеть (интернет): скорость вниз/вверх ----------
+_net_prev = {"t": None, "down": 0, "up": 0}
+def stat_net():
+    """Текущая скорость сети (байт/с) как (down, up). Без psutil — нули."""
+    if psutil is None: return (0.0, 0.0)
+    try:
+        io = psutil.net_io_counters(); now = time.time()
+        if _net_prev["t"] is None:
+            _net_prev.update({"t": now, "down": io.bytes_recv, "up": io.bytes_sent})
+            return (0.0, 0.0)
+        dt = max(0.5, now - _net_prev["t"])
+        down = max(0, (io.bytes_recv - _net_prev["down"]) / dt)
+        up = max(0, (io.bytes_sent - _net_prev["up"]) / dt)
+        _net_prev.update({"t": now, "down": io.bytes_recv, "up": io.bytes_sent})
+        return (down, up)
+    except Exception:
+        return (0.0, 0.0)
 import tkinter as tk
 from tkinter import messagebox, filedialog
 
@@ -17,7 +39,7 @@ from tkinter import messagebox, filedialog
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from krylan_core import human  # noqa: E402
 
-VERSION = "2.15.0"
+VERSION = "2.16.0"
 BRAND   = "KRYLAN"
 SLOGAN  = "Дай устройству крылья"
 AUTHOR  = "Кырлан Александр Сергеевич"
@@ -353,6 +375,9 @@ class CleanMac(tk.Tk):
         self.procs = []
         self.cpu_hist = collections.deque([0]*70, maxlen=70)
         self.ram_hist = collections.deque([0]*70, maxlen=70)
+        self.net_down_hist = collections.deque([0]*70, maxlen=70)
+        self.net_up_hist = collections.deque([0]*70, maxlen=70)
+        self.net_down = 0.0; self.net_up = 0.0
         self.cat_vars={}; self.cat_size_lbl={}; self.found={}; self._alert_t={}
         self.is_pro = os.path.exists(LIC)
         self.update_note = ""
@@ -473,6 +498,19 @@ class CleanMac(tk.Tk):
             for i,v in enumerate(deq): pts += [x+i*sw, y+h-(min(100,v)/100)*h]
             if len(pts)>=4: c.create_line(*pts, fill=color, width=2, smooth=True)
 
+    def _spark_auto(self, c, x,y,w,h, series, peak):
+        """График с авто-масштабом по пику (для сети в байт/с): заливка + линия."""
+        c.create_line(x,y+h,x+w,y+h, fill=TRACK)
+        peak=max(1,peak)
+        for deq,color in series:
+            n=len(deq); sw=w/max(1,n-1); pts=[]
+            for i,v in enumerate(deq): pts += [x+i*sw, y+h-min(1.0,v/peak)*h]
+            if len(pts)>=4:
+                # полупрозрачная заливка под линией (имитация через тёмный фон-цвет)
+                fillpts=[x,y+h]+pts+[x+w,y+h]
+                c.create_polygon(*fillpts, fill=color, outline="", stipple="gray25")
+                c.create_line(*pts, fill=color, width=2, smooth=True)
+
     # ================= ДАШБОРД =================
     def show_dash(self):
         tk.Label(self.main, text=L("Дашборд"), bg=BG0, fg=TEXT, font=("SF Pro Display", 22, "bold")
@@ -582,9 +620,19 @@ class CleanMac(tk.Tk):
             c.create_text(bx+bw+40,py, anchor="e", fill=MUTED, font=("SF Pro Text",11), text=f"{cpu:.0f}%")
             c.create_text(x+w-16,py, anchor="e", fill=MUTED, font=("SF Pro Text",11), text=human(mem))
             py+=21
-        # --- Карта 7: рекомендации ---
+        # --- Карта 7: Интернет (сеть) с графиком ---
+        yN=y4+h+m; x,w,h=m,W-2*m,150; self._card(c,x,yN,w,h,"Интернет")
+        peak=max(list(self.net_down_hist)+list(self.net_up_hist)+[1])
+        self._spark_auto(c, x+16,yN+34,w-32,h-58, [(self.net_down_hist,GREEN),(self.net_up_hist,BLUE)], peak)
+        c.create_text(x+16,yN+h-14, anchor="w", fill=GREEN, font=("SF Pro Text",10),
+                      text=f"● ↓ {human(self.net_down)}/с")
+        c.create_text(x+150,yN+h-14, anchor="w", fill=BLUE, font=("SF Pro Text",10),
+                      text=f"● ↑ {human(self.net_up)}/с")
+        c.create_text(x+w-16,yN+22, anchor="e", fill=MUTED, font=("SF Pro Text",10),
+                      text=f"пик ↓ {human(peak)}/с")
+        # --- Карта 8: рекомендации ---
         adv=disk_advice(self.disp["disk"], self.disp["ram"], self.batt.get("pct"))
-        y5=y4+h+m; ah=28+len(adv)*22; x,w=m,W-2*m; self._card(c,x,y5,w,ah,"Рекомендации")
+        y5=yN+h+m; ah=28+len(adv)*22; x,w=m,W-2*m; self._card(c,x,y5,w,ah,"Рекомендации")
         ay=y5+38
         for icon,text in adv:
             c.create_text(x+16,ay, anchor="w", fill=TEXT, font=("SF Pro Text",11), text=f"{icon}  {text}")
@@ -1477,10 +1525,12 @@ class CleanMac(tk.Tk):
         while True:
             cpu=stat_cpu(); ram=stat_mem(); sused,_=stat_swap()
             disk,dfree,dtot=stat_disk(); vm=stat_vm(); batt=stat_batt(); procs=stat_procs()
+            ndown,nup=stat_net()
             swap_sev=min(100, sused/8192*100)
             health=(0.30*(100-ram)+0.20*(100-swap_sev)+0.20*(100-disk)+0.15*(100-cpu)+0.15*(batt["health"] or 100))
             self.q.put(("stats", {"cpu":cpu,"ram":ram,"swap":swap_sev,"swap_mb":sused,"disk":disk,
-                        "health":health,"batt":batt,"procs":procs,"vm":vm,"dfree":dfree,"dtot":dtot}, None))
+                        "health":health,"batt":batt,"procs":procs,"vm":vm,"dfree":dfree,"dtot":dtot,
+                        "ndown":ndown,"nup":nup}, None))
             time.sleep(1.4)
 
     def _animate(self):
@@ -1500,6 +1550,8 @@ class CleanMac(tk.Tk):
                     self.swap_mb=a["swap_mb"]; self.batt=a["batt"]; self.procs=a["procs"]; self.vm=a["vm"]
                     self.disk_free=a["dfree"]; self.disk_total=a["dtot"]
                     self.cpu_hist.append(a["cpu"]); self.ram_hist.append(a["ram"])
+                    self.net_down=a.get("ndown",0); self.net_up=a.get("nup",0)
+                    self.net_down_hist.append(self.net_down); self.net_up_hist.append(self.net_up)
                     self.status(f'Здоровье {int(a["health"])} · CPU {int(a["cpu"])}% · ОЗУ {int(a["ram"])}% · бат {a["batt"]["pct"]}%')
                     self._maybe_alert(a["disk"], a["batt"].get("health", 100))
                 elif kind=="catsize":
