@@ -7,7 +7,7 @@ KRYLAN · CleanMac — оптимизатор для macOS со «стеклян
 Дашборд с диаграммами, автопилот, очистка в Корзину, инструменты,
 проверка обновлений (GitHub) и Pro-каркас. Запуск: framework-python 3.12.
 """
-import os, time, shutil, hashlib, threading, queue, subprocess, collections, math, re, json
+import os, time, shutil, hashlib, threading, queue, subprocess, collections, math, re, json, random
 import sys
 import urllib.request
 try:
@@ -39,7 +39,7 @@ from tkinter import messagebox, filedialog
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from krylan_core import human  # noqa: E402
 
-VERSION = "2.26.0"
+VERSION = "2.27.0"
 BRAND   = "KRYLAN"
 SLOGAN  = "Дай устройству крылья"
 AUTHOR  = "Кырлан Александр Сергеевич"
@@ -544,12 +544,35 @@ class CleanMac(tk.Tk):
         return c.create_polygon(pts, smooth=True, **kw)
 
     def _grad(self, c, w, h):
-        # вертикальный градиент фона (имитация стекла)
+        # вертикальный градиент фона (имитация стекла) + звёздное небо + порхающие крылья
         steps=40
         for i in range(steps):
             t=i/steps
             col="#%02x%02x%02x"%tuple(int(int(BG0[j:j+2],16)+(int(BG1[j:j+2],16)-int(BG0[j:j+2],16))*t) for j in (1,3,5))
             c.create_rectangle(0, h*i/steps, w, h*(i+1)/steps+1, fill=col, outline=col)
+        self._starfield(c, w, h)
+
+    def _starfield(self, c, w, h):
+        """Звёздное небо (мерцающие точки) + мягко порхающие крылья — фон в духе KRYLAN."""
+        # звёзды генерируются один раз с фиксированным сидом, чтобы не «прыгали» между кадрами
+        if not hasattr(self, "_stars"):
+            rnd = random.Random(42)
+            self._stars = [(rnd.random(), rnd.random(), rnd.uniform(0.6,1.8), rnd.uniform(0,6.28),
+                            rnd.choice(["#cdd6e6","#aab6cf","#8fa0c8","#dfe6f2"])) for _ in range(70)]
+        fr = getattr(self, "_frame", 0)
+        for fx, fy, sz, ph, scol in self._stars:
+            x, y = fx*w, fy*h
+            tw = 0.55 + 0.45*math.sin(fr*0.06 + ph)        # мерцание
+            r = sz*(0.7+0.5*tw)
+            # затемняем цвет по мерцанию
+            base=[int(scol[1:3],16),int(scol[3:5],16),int(scol[5:7],16)]
+            col="#%02x%02x%02x"%tuple(int(ch*tw) for ch in base)
+            c.create_oval(x-r,y-r,x+r,y+r, fill=col, outline=col)
+        # порхающие крылья: пара символов 🪽, мягко поднимаются/опускаются
+        for i,(wx,amp,spd) in enumerate([(0.10,10,0.05),(0.90,13,0.045),(0.5,8,0.06)]):
+            wy = 0.14 + 0.04*i + (amp*math.sin(fr*spd + i))/h
+            c.create_text(wx*w, wy*h, text="🪽", font=("SF Pro Display", 24),
+                          fill="#3f5180")  # мягкий сине-стальной акцент бренда
 
     def _ring(self, c, cx,cy,r,frac,color,w,big,small,val):
         c.create_oval(cx-r,cy-r,cx+r,cy+r, outline=TRACK, width=w)
@@ -1784,6 +1807,7 @@ class CleanMac(tk.Tk):
         # КРИТИЧНО: любое исключение в отрисовке НЕ должно обрывать цикл —
         # иначе дашборд «замерзает» (перестаёт обновляться интернет и метрики).
         try:
+            self._frame = getattr(self, "_frame", 0) + 1
             if self.page=="dash" and hasattr(self,"cv") and self.cv.winfo_exists():
                 for k in self.disp: self.disp[k]+=(self.tgt[k]-self.disp[k])*0.22
                 self._draw_dash()
