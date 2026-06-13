@@ -39,7 +39,7 @@ from tkinter import messagebox, filedialog
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from krylan_core import human  # noqa: E402
 
-VERSION = "2.23.0"
+VERSION = "2.24.0"
 BRAND   = "KRYLAN"
 SLOGAN  = "Дай устройству крылья"
 AUTHOR  = "Кырлан Александр Сергеевич"
@@ -463,6 +463,7 @@ class CleanMac(tk.Tk):
         self._build()
         self.nav("dash")
         threading.Thread(target=self._sampler, daemon=True).start()
+        threading.Thread(target=self._net_sampler, daemon=True).start()
         threading.Thread(target=self._check_update, daemon=True).start()
         self.after(80, self._poll); self.after(33, self._animate)
 
@@ -1753,13 +1754,21 @@ class CleanMac(tk.Tk):
         while True:
             cpu=stat_cpu(); ram=stat_mem(); sused,_=stat_swap()
             disk,dfree,dtot=stat_disk(); vm=stat_vm(); batt=stat_batt(); procs=stat_procs()
-            ndown,nup=stat_net()
             swap_sev=min(100, sused/8192*100)
             health=(0.30*(100-ram)+0.20*(100-swap_sev)+0.20*(100-disk)+0.15*(100-cpu)+0.15*(batt["health"] or 100))
             self.q.put(("stats", {"cpu":cpu,"ram":ram,"swap":swap_sev,"swap_mb":sused,"disk":disk,
-                        "health":health,"batt":batt,"procs":procs,"vm":vm,"dfree":dfree,"dtot":dtot,
-                        "ndown":ndown,"nup":nup}, None))
+                        "health":health,"batt":batt,"procs":procs,"vm":vm,"dfree":dfree,"dtot":dtot}, None))
             time.sleep(1.4)
+
+    def _net_sampler(self):
+        """Лёгкий поток сети: обновляет скорость раз в секунду независимо от тяжёлого сэмплера.
+        Так интернет на дашборде идёт по-настоящему в реальном времени."""
+        stat_net()  # инициализация prev
+        while True:
+            time.sleep(1.0)
+            d,u = stat_net()
+            self.net_down, self.net_up = d, u
+            self.net_down_hist.append(d); self.net_up_hist.append(u)
 
     def _animate(self):
         if self.page=="dash" and hasattr(self,"cv") and self.cv.winfo_exists():
@@ -1779,8 +1788,7 @@ class CleanMac(tk.Tk):
                     self.disk_free=a["dfree"]; self.disk_total=a["dtot"]
                     self.cpu_hist.append(a["cpu"]); self.ram_hist.append(a["ram"])
                     self.health_hist.append(a["health"]); self.disk_hist.append(a["disk"])
-                    self.net_down=a.get("ndown",0); self.net_up=a.get("nup",0)
-                    self.net_down_hist.append(self.net_down); self.net_up_hist.append(self.net_up)
+                    # сеть обновляется отдельным _net_sampler (раз в секунду, реальное время)
                     self.status(f'Здоровье {int(a["health"])} · CPU {int(a["cpu"])}% · ОЗУ {int(a["ram"])}% · бат {a["batt"]["pct"]}%')
                     self._maybe_alert(a["disk"], a["batt"].get("health", 100))
                 elif kind=="catsize":
