@@ -18,3 +18,4 @@ dist/
 # XcodeGen генерирует проект
 krylan-swift/KRYLAN.xcodeproj/
 *.xcuserstate
+autopilot/autoupdate.log
