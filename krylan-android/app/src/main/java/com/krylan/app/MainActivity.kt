@@ -40,6 +40,18 @@ private enum class Tab(val title: String, val icon: ImageVector) {
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (android.os.Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 1)
+        }
+        androidx.work.WorkManager.getInstance(this).enqueueUniquePeriodicWork(
+            "storage_check",
+            androidx.work.ExistingPeriodicWorkPolicy.KEEP,
+            androidx.work.PeriodicWorkRequestBuilder<StorageCheckWorker>(
+                12, java.util.concurrent.TimeUnit.HOURS).build()
+        )
         setContent { KrylanTheme { Root() } }
     }
 }
