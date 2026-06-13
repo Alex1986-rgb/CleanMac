@@ -39,7 +39,7 @@ from tkinter import messagebox, filedialog
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from krylan_core import human  # noqa: E402
 
-VERSION = "2.21.0"
+VERSION = "2.22.0"
 BRAND   = "KRYLAN"
 SLOGAN  = "Дай устройству крылья"
 AUTHOR  = "Кырлан Александр Сергеевич"
@@ -646,9 +646,18 @@ class CleanMac(tk.Tk):
                    "ЗДОРОВЬЕ · "+lab, str(int(self.disp["health"])))
         rings=[("cpu","CPU",f'{int(self.disp["cpu"])}%'),("ram","ОЗУ",f'{int(self.disp["ram"])}%'),
                ("swap","SWAP",human(self.swap_mb*1024*1024).replace(" ","")),("disk","ДИСК",f'{int(self.disp["disk"])}%')]
-        gx=x+200; gap=(w-220)/4
+        gx=x+196; gap=(w-356)/4   # ужали кольца, оставив справа место под «Интернет»
         for i,(k,l,v) in enumerate(rings):
-            self._ring(c, int(gx+gap*i+gap/2), y+72, 40, min(1,self.disp[k]/100), col_for(self.disp[k],inv=True),10,15,l,v)
+            self._ring(c, int(gx+gap*i+gap/2), y+72, 38, min(1,self.disp[k]/100), col_for(self.disp[k],inv=True),10,15,l,v)
+        # --- живой блок «Интернет» в герое (всегда виден) ---
+        ix=x+w-18
+        c.create_text(ix, y+20, anchor="e", fill=MUTED, font=("SF Pro Text",10,"bold"), text="🌐 ИНТЕРНЕТ")
+        c.create_text(ix, y+48, anchor="e", fill=GREEN, font=("SF Pro Display",15,"bold"),
+                      text=f"↓ {human(self.net_down)}/с")
+        c.create_text(ix, y+74, anchor="e", fill=BLUE, font=("SF Pro Display",15,"bold"),
+                      text=f"↑ {human(self.net_up)}/с")
+        c.create_text(ix, y+100, anchor="e", fill=MUTED, font=("SF Pro Text",9),
+                      text="скорость сети")
         # --- Карта 2: история CPU/RAM ---
         y2=y+h+m; x,w,h=m,colw,160; self._card(c,x,y2,w,h,"Тренды за минуту")
         self._spark(c, x+16,y2+34,w-32,h-58,
