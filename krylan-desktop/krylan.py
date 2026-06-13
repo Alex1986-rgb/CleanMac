@@ -11,7 +11,7 @@ from tkinter import messagebox
 import psutil
 from send2trash import send2trash
 
-VERSION = "1.4.0"
+VERSION = "1.5.0"
 SYSTEM = platform.system()           # Windows / Darwin / Linux
 HOME = os.path.expanduser("~")
 
@@ -81,6 +81,34 @@ def old_downloads(days=180):
             except Exception: pass
     out.sort(reverse=True)
     return out
+
+def find_empty_dirs(bases=None):
+    """Пустые папки в пользовательских каталогах. Папка считается пустой,
+    если не содержит файлов ни на одном уровне (только пустые подпапки).
+    Пропускаем скрытые и системные служебные каталоги."""
+    bases = bases or [os.path.join(HOME, d) for d in
+                      ("Downloads", "Desktop", "Documents", "Pictures", "Movies", "Music")]
+    skip = {".git", "node_modules", ".Trash", "Library"}
+    empties = []
+    for base in bases:
+        if not os.path.isdir(base): continue
+        # снизу вверх: к моменту проверки родителя его пустые дети уже учтены
+        for root, dirs, files in os.walk(base, topdown=False):
+            name = os.path.basename(root)
+            if name in skip or name.startswith("."):
+                continue
+            if root == base:
+                continue
+            try:
+                entries = [e for e in os.listdir(root) if not e.startswith(".DS_Store")]
+            except OSError:
+                continue
+            # пусто, если нет файлов и все подпапки уже признаны пустыми
+            has_file = any(os.path.isfile(os.path.join(root, e)) for e in entries)
+            subdirs = [os.path.join(root, e) for e in entries if os.path.isdir(os.path.join(root, e))]
+            if not has_file and all(d in empties for d in subdirs):
+                empties.append(root)
+    return empties
 
 def find_duplicates(bases=None):
     """Точные дубликаты (размер → md5) в пользовательских папках.
@@ -519,6 +547,7 @@ class Krylan(tk.Tk):
         bar = tk.Frame(self.main, bg=BG0); bar.pack(fill="x", padx=22)
         for lbl, cmd in [("⚙️ Автозагрузка", self.t_startup), ("👯 Дубликаты", self.t_dupes), ("📦 Крупные файлы", self.t_large),
                          ("🗺 Карта диска", self.t_diskmap), ("🧳 Деинсталлятор", self.t_uninstall),
+                         ("📂 Пустые папки", self.t_empty),
                          ("🔒 Приватность", self.t_privacy), ("🩺 Диск", self.t_smart)]:
             self._btn(bar, lbl, GLASS, cmd).pack(side="left", padx=4)
         self._dupe_extras = []
@@ -703,6 +732,30 @@ class Krylan(tk.Tk):
             except Exception: pass
         messagebox.showinfo("KRYLAN", f"В Корзину: {ok} файлов."); self.t_privacy()
 
+    def t_empty(self):
+        self._out("📂 Ищу пустые папки…"); threading.Thread(target=self._empty_w, daemon=True).start()
+
+    def _empty_w(self):
+        empties = find_empty_dirs()
+        lines = [f"📂  Пустые папки: {len(empties)}\n\n"]
+        for p in empties[:40]:
+            lines.append(f"  {p.replace(HOME,'~')}\n")
+        if len(empties) > 40:
+            lines.append(f"  …и ещё {len(empties)-40}\n")
+        if not empties:
+            lines.append("  пустых папок не найдено.\n")
+        lines.append("\nПустые папки остаются после удаления программ и распаковки архивов. Уйдут в Корзину.\n")
+        self.q.put(("empty", "".join(lines), empties))
+
+    def _empty_clean(self, dirs):
+        if not dirs or not messagebox.askyesno("KRYLAN", f"Переместить {len(dirs)} пустых папок в Корзину?"): return
+        ok = 0
+        # от глубоких к верхним, чтобы вложенные пустые тоже ушли
+        for p in sorted(dirs, key=lambda x: x.count(os.sep), reverse=True):
+            try: send2trash(p); ok += 1
+            except Exception: pass
+        messagebox.showinfo("KRYLAN", f"В Корзину: {ok} папок."); self.t_empty()
+
     def t_smart(self):
         self._out("🩺 Читаю состояние диска…")
         threading.Thread(target=lambda: self.q.put(("tout", disk_health_report(), None)), daemon=True).start()
@@ -784,6 +837,12 @@ class Krylan(tk.Tk):
                         if b:
                             self._btn(self.t_action, f"🔒 Очистить следы ({len(b)})", RED,
                                       lambda fs=b: self._privacy_clean(fs)).pack(side="left", pady=4)
+                elif kind == "empty":
+                    if self.page == "tools":
+                        self._out(a)
+                        if b:
+                            self._btn(self.t_action, f"📂 Удалить пустые папки ({len(b)})", RED,
+                                      lambda ds=b: self._empty_clean(ds)).pack(side="left", pady=4)
         except queue.Empty: pass
         except Exception: pass
         self.after(120, self._poll)
