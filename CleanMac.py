@@ -39,7 +39,7 @@ from tkinter import messagebox, filedialog
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from krylan_core import human  # noqa: E402
 
-VERSION = "2.22.0"
+VERSION = "2.23.0"
 BRAND   = "KRYLAN"
 SLOGAN  = "Дай устройству крылья"
 AUTHOR  = "Кырлан Александр Сергеевич"
@@ -629,9 +629,15 @@ class CleanMac(tk.Tk):
         try: self.bri_pct.configure(text=f"{int(val)}%")
         except Exception: pass
 
-    def _card(self, c, x,y,w,h, title=None):
+    def _card(self, c, x,y,w,h, title=None, accent=None, icon=None):
         self._round(c, x,y,x+w,y+h, 16, fill=GLASS, outline=GLASS_HI)
-        if title: c.create_text(x+16,y+16, text=title, anchor="w", fill=MUTED, font=("SF Pro Text", 11, "bold"))
+        if title:
+            tx = x+16
+            if accent:
+                self._round(c, x+14, y+11, x+19, y+22, 2, fill=accent, outline=accent)
+                tx = x+28
+            label = (icon+"  " if icon else "") + title
+            c.create_text(tx, y+16, text=label, anchor="w", fill=MUTED, font=("SF Pro Text", 11, "bold"))
 
     def _draw_dash(self):
         if not (self.page=="dash" and self.cv.winfo_exists()): return
@@ -659,13 +665,13 @@ class CleanMac(tk.Tk):
         c.create_text(ix, y+100, anchor="e", fill=MUTED, font=("SF Pro Text",9),
                       text="скорость сети")
         # --- Карта 2: история CPU/RAM ---
-        y2=y+h+m; x,w,h=m,colw,160; self._card(c,x,y2,w,h,"Тренды за минуту")
+        y2=y+h+m; x,w,h=m,colw,160; self._card(c,x,y2,w,h,"Тренды за минуту", accent=BLUE, icon="📈")
         self._spark(c, x+16,y2+34,w-32,h-58,
                     [(self.cpu_hist,BLUE),(self.ram_hist,PURPLE),(self.health_hist,GREEN),(self.disk_hist,YELLOW)])
         for i,(lbl,col) in enumerate([("CPU",BLUE),("ОЗУ",PURPLE),("Здор.",GREEN),("Диск",YELLOW)]):
             c.create_text(x+16+i*62,y2+h-14, text="● "+lbl, anchor="w", fill=col, font=("SF Pro Text",10))
         # --- Карта 3: состав памяти (пончик) ---
-        x3=m+colw+m; self._card(c,x3,y2,colw,h,"Память")
+        x3=m+colw+m; self._card(c,x3,y2,colw,h,"Память", accent=PURPLE, icon="🧠")
         total=sum(self.vm.values()) or 1
         palette=[GREEN,BLUE,PURPLE,YELLOW,TRACK]
         segs=[(v/total,palette[i%5]) for i,(k,v) in enumerate(self.vm.items())]
@@ -677,7 +683,7 @@ class CleanMac(tk.Tk):
             c.create_text(x3+colw-16,ly+7, anchor="e", fill=MUTED, font=("SF Pro Text",10), text=human(v))
             ly+=22
         # --- Карта 4: диск (пончик) ---
-        y3=y2+h+m; x,w,h=m,colw,150; self._card(c,x,y3,w,h,"Диск")
+        y3=y2+h+m; x,w,h=m,colw,150; self._card(c,x,y3,w,h,"Диск", accent=BLUE, icon="💽")
         used=self.disk_total-self.disk_free
         self._donut(c, x+70,y3+82,46,14, [(used/max(1,self.disk_total),col_for(self.disp["disk"],inv=True)),
                     (self.disk_free/max(1,self.disk_total),TRACK)], f'{int(self.disp["disk"])}%', "занято")
@@ -686,7 +692,7 @@ class CleanMac(tk.Tk):
         c.create_text(x+150,y3+84, anchor="w", fill=MUTED, font=("SF Pro Text",11),
                       text=f"Всего: {human(self.disk_total)}")
         # --- Карта 5: батарея ---
-        x5=m+colw+m; self._card(c,x5,y3,colw,h,"Батарея")
+        x5=m+colw+m; self._card(c,x5,y3,colw,h,"Батарея", accent=GREEN, icon="🔋")
         self._battery(c, x5+24,y3+44,86,38, min(1,self.disp["batt"]/100), self.batt["charging"])
         st="заряжается" if self.batt["charging"] else "разряжается"
         c.create_text(x5+128,y3+50, anchor="w", fill=TEXT, font=("SF Pro Display",20,"bold"), text=f'{self.batt["pct"]}%')
@@ -698,7 +704,7 @@ class CleanMac(tk.Tk):
         c.create_text(x5+colw-16,y3+74, anchor="e", fill=MUTED, font=("SF Pro Text",10),
                       text=f"циклов {self.batt['cycles']} · {self.batt['cond']}")
         # --- Карта 6: процессы ---
-        y4=y3+h+m; x,w,h=m,W-2*m,150; self._card(c,x,y4,w,h,"Активные процессы")
+        y4=y3+h+m; x,w,h=m,W-2*m,150; self._card(c,x,y4,w,h,"Активные процессы", accent=YELLOW, icon="⚙️")
         py=y4+40
         for cpu,mem,name in self.procs:
             c.create_text(x+16,py, anchor="w", fill=TEXT, font=("SF Pro Text",12), text=name)
@@ -710,7 +716,7 @@ class CleanMac(tk.Tk):
             c.create_text(x+w-16,py, anchor="e", fill=MUTED, font=("SF Pro Text",11), text=human(mem))
             py+=21
         # --- Карта 7: Интернет (сеть) с графиком ---
-        yN=y4+h+m; x,w,h=m,W-2*m,150; self._card(c,x,yN,w,h,"Интернет")
+        yN=y4+h+m; x,w,h=m,W-2*m,150; self._card(c,x,yN,w,h,"Интернет", accent=CYAN, icon="🌐")
         peak=max(list(self.net_down_hist)+list(self.net_up_hist)+[1])
         self._spark_auto(c, x+16,yN+34,w-32,h-58, [(self.net_down_hist,GREEN),(self.net_up_hist,BLUE)], peak)
         c.create_text(x+16,yN+h-14, anchor="w", fill=GREEN, font=("SF Pro Text",10),
@@ -721,7 +727,7 @@ class CleanMac(tk.Tk):
                       text=f"пик ↓ {human(peak)}/с")
         # --- Карта 8: рекомендации ---
         adv=disk_advice(self.disp["disk"], self.disp["ram"], self.batt.get("pct"))
-        y5=yN+h+m; ah=28+len(adv)*22; x,w=m,W-2*m; self._card(c,x,y5,w,ah,"Рекомендации")
+        y5=yN+h+m; ah=28+len(adv)*22; x,w=m,W-2*m; self._card(c,x,y5,w,ah,"Рекомендации", accent=GREEN, icon="💡")
         ay=y5+38
         for icon,text in adv:
             c.create_text(x+16,ay, anchor="w", fill=TEXT, font=("SF Pro Text",11), text=f"{icon}  {text}")
