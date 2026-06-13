@@ -130,7 +130,8 @@ def find_duplicates(bases=None):
         bh = {}
         for fp in paths:
             try:
-                h = hashlib.md5(open(fp, "rb").read()).hexdigest()
+                with open(fp, "rb") as fh:
+                    h = hashlib.md5(fh.read()).hexdigest()
                 bh.setdefault(h, []).append(fp)
             except Exception: pass
         for same in bh.values():
