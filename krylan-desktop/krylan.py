@@ -11,6 +11,11 @@ from tkinter import messagebox
 import psutil
 from send2trash import send2trash
 
+# Общий модуль экосистемы (единый источник истины для human/load_color).
+# Лежит в корне репозитория — добавляем родительский каталог в путь.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import krylan_core
+
 VERSION = "1.5.0"
 SYSTEM = platform.system()           # Windows / Darwin / Linux
 HOME = os.path.expanduser("~")
@@ -19,14 +24,9 @@ HOME = os.path.expanduser("~")
 BG0, SIDEBAR, GLASS, TRACK, TEXT, MUTED = "#11151d", "#0e1219", "#222b3a", "#333d4e", "#eef2f8", "#8a94a6"
 GREEN, BLUE, YELLOW, RED, PURPLE = "#37d39a", "#4b8cf9", "#f6bb45", "#f2685f", "#a78bfa"
 
-def load_color(p): return GREEN if p < 60 else (YELLOW if p < 85 else RED)
+def load_color(p): return krylan_core.load_color(p, GREEN, YELLOW, RED)
 
-def human(n):
-    n = float(n)
-    for u in ("Б","КБ","МБ","ГБ","ТБ"):
-        if n < 1024 or u == "ТБ":
-            return f"{n:.0f} {u}" if u == "Б" else f"{n:.1f} {u}"
-        n /= 1024
+human = krylan_core.human
 
 def os_label():
     return {"Windows":"Windows","Darwin":"macOS","Linux":"Linux"}.get(SYSTEM, SYSTEM)
