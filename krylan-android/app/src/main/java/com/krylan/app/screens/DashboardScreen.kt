@@ -3,10 +3,13 @@ package com.krylan.app.screens
 
 import android.content.Context
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -47,6 +50,32 @@ fun DashboardScreen(ctx: Context) {
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Text("Состояние в реальном времени", color = Brand.muted, fontSize = 14.sp)
+
+        // Флагманская кнопка «Ускорить» (очистка своего кэша — единственное безопасное на Android)
+        var boosting by remember { mutableStateOf(false) }
+        var boostFreed by remember { mutableLongStateOf(-1L) }
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(50))
+                .background(Brush.horizontalGradient(listOf(Brand.green, Brand.cyan)))
+                .clickable(enabled = !boosting) {
+                    boosting = true
+                    boostFreed = SystemInfo.clearCache(ctx)
+                    boosting = false
+                }
+                .padding(vertical = 15.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                when {
+                    boostFreed >= 0 -> "✓ Готово — освобождено ${SystemInfo.fmtSize(boostFreed)}"
+                    boosting -> "Ускоряю…"
+                    else -> "⚡  Ускорить — как новый"
+                },
+                color = Color(0xFF0B1410), fontSize = 16.sp, fontWeight = FontWeight.Bold
+            )
+        }
 
         // Health-герой
         Card(
