@@ -16,7 +16,7 @@ from send2trash import send2trash
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import krylan_core
 
-VERSION = "1.8.0"
+VERSION = "1.9.0"
 SYSTEM = platform.system()           # Windows / Darwin / Linux
 HOME = os.path.expanduser("~")
 
@@ -27,6 +27,34 @@ GREEN, BLUE, YELLOW, RED, PURPLE = "#37d39a", "#4b8cf9", "#f6bb45", "#f2685f", "
 def load_color(p): return krylan_core.load_color(p, GREEN, YELLOW, RED)
 
 human = krylan_core.human
+
+# ---------- локализация RU/EN ----------
+LANG_FILE = os.path.join(HOME, ".krylan_lang")
+def _load_lang():
+    try:
+        v = open(LANG_FILE).read().strip()
+        return v if v in ("ru", "en") else "ru"
+    except Exception:
+        return "ru"
+LANG = _load_lang()
+
+I18N = {
+    "Дай устройству крылья": "Give your device wings",
+    "Дашборд": "Dashboard", "Сканер": "Scanner", "Процессы": "Processes",
+    "Очистка": "Cleanup", "Инструменты": "Tools", "О программе": "About",
+    "🚀 Ускорить — как новый": "🚀 Boost — like new", "🔍 Сканировать": "🔍 Scan",
+    "🚀 Сканировать всё": "🚀 Scan everything", "Анализ": "Analyze", "Очистить": "Clean",
+    "Система: {os} · в реальном времени": "System: {os} · real-time",
+    "⚙️ Автозагрузка": "⚙️ Startup", "👯 Дубликаты": "👯 Duplicates",
+    "📦 Крупные файлы": "📦 Large files", "🗺 Карта диска": "🗺 Disk map",
+    "🧳 Деинсталлятор": "🧳 Uninstaller", "📂 Пустые папки": "📂 Empty folders",
+    "📈 Что выросло": "📈 What grew", "🔒 Приватность": "🔒 Privacy", "🩺 Диск": "🩺 Disk",
+    "РЕКОМЕНДАЦИИ": "RECOMMENDATIONS",
+}
+def L(s):
+    if LANG == "en":
+        return I18N.get(s, s)
+    return s
 
 def os_label():
     return {"Windows":"Windows","Darwin":"macOS","Linux":"Linux"}.get(SYSTEM, SYSTEM)
@@ -367,13 +395,27 @@ class Krylan(tk.Tk):
     def _build(self):
         side = tk.Frame(self, bg=SIDEBAR, width=200); side.pack(side="left", fill="y"); side.pack_propagate(False)
         tk.Label(side, text="  🪽 KRYLAN", bg=SIDEBAR, fg=TEXT, font=("Segoe UI", 18, "bold")).pack(anchor="w", pady=(20,0), padx=12)
-        tk.Label(side, text="  Дай устройству крылья", bg=SIDEBAR, fg=GREEN, font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=12)
+        tk.Label(side, text="  "+L("Дай устройству крылья"), bg=SIDEBAR, fg=GREEN, font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=12)
         tk.Label(side, text=f"  {os_label()} · v{VERSION}", bg=SIDEBAR, fg=MUTED, font=("Segoe UI", 9)).pack(anchor="w", padx=12, pady=(0,16))
         self.nav_btns = {}
-        for key, label in [("dash","📊  Дашборд"),("scan","🚀  Сканер"),("procs","🧠  Процессы"),("clean","🧽  Очистка"),("tools","🛠  Инструменты"),("about","ℹ️  О программе")]:
-            b = tk.Label(side, text="   "+label, bg=SIDEBAR, fg=TEXT, font=("Segoe UI", 12), anchor="w", padx=10, pady=11, cursor="hand2")
+        for key, base in [("dash","📊  Дашборд"),("scan","🚀  Сканер"),("procs","🧠  Процессы"),("clean","🧽  Очистка"),("tools","🛠  Инструменты"),("about","ℹ️  О программе")]:
+            icon, name = base.split("  ", 1)
+            b = tk.Label(side, text=f"   {icon}  "+L(name), bg=SIDEBAR, fg=TEXT, font=("Segoe UI", 12), anchor="w", padx=10, pady=11, cursor="hand2")
             b.pack(fill="x"); b.bind("<Button-1>", lambda e,k=key: self.nav(k)); self.nav_btns[key] = b
+        # переключатель языка
+        lng = tk.Label(side, text=("🌐 EN" if LANG=="ru" else "🌐 RU"), bg=SIDEBAR, fg=GREEN,
+                       font=("Segoe UI", 11, "bold"), cursor="hand2", padx=12, pady=10)
+        lng.pack(side="bottom", anchor="w"); lng.bind("<Button-1>", lambda e: self._toggle_lang())
         self.main = tk.Frame(self, bg=BG0); self.main.pack(side="left", fill="both", expand=True)
+
+    def _toggle_lang(self):
+        global LANG
+        LANG = "en" if LANG == "ru" else "ru"
+        try: open(LANG_FILE, "w").write(LANG)
+        except Exception: pass
+        cur = getattr(self, "page", "dash")
+        for w in self.winfo_children(): w.destroy()
+        self._build(); self.nav(cur)
 
     def nav(self, key):
         self.page = key
@@ -390,8 +432,8 @@ class Krylan(tk.Tk):
         c.create_text(cx,cy+r+14, text=label, fill=MUTED, font=("Segoe UI", 10))
 
     def show_dash(self):
-        tk.Label(self.main, text="Дашборд", bg=BG0, fg=TEXT, font=("Segoe UI", 20, "bold")).pack(anchor="w", padx=24, pady=(18,0))
-        tk.Label(self.main, text=f"Система: {os_label()} · в реальном времени", bg=BG0, fg=MUTED, font=("Segoe UI", 10)).pack(anchor="w", padx=24, pady=(0,8))
+        tk.Label(self.main, text=L("Дашборд"), bg=BG0, fg=TEXT, font=("Segoe UI", 20, "bold")).pack(anchor="w", padx=24, pady=(18,0))
+        tk.Label(self.main, text=L("Система: {os} · в реальном времени").format(os=os_label()), bg=BG0, fg=MUTED, font=("Segoe UI", 10)).pack(anchor="w", padx=24, pady=(0,8))
         self.cv = tk.Canvas(self.main, bg=BG0, highlightthickness=0); self.cv.pack(fill="both", expand=True, padx=20, pady=10)
 
     def _draw_dash(self):
@@ -478,7 +520,7 @@ class Krylan(tk.Tk):
 
     # ---------- сканер (one-click, в духе BoostSpeed My Scanner) ----------
     def show_scan(self):
-        tk.Label(self.main, text="Сканер", bg=BG0, fg=TEXT, font=("Segoe UI", 20, "bold")).pack(anchor="w", padx=24, pady=(18,2))
+        tk.Label(self.main, text=L("Сканер"), bg=BG0, fg=TEXT, font=("Segoe UI", 20, "bold")).pack(anchor="w", padx=24, pady=(18,2))
         tk.Label(self.main, text="Полная проверка одним кликом: кэши · корзина · старые загрузки · дубликаты.",
                  bg=BG0, fg=MUTED, font=("Segoe UI", 10)).pack(anchor="w", padx=24, pady=(0,10))
         bar = tk.Frame(self.main, bg=BG0); bar.pack(fill="x", padx=24)
@@ -638,7 +680,7 @@ class Krylan(tk.Tk):
 
     # ---------- инструменты (в духе BoostSpeed) ----------
     def show_tools(self):
-        tk.Label(self.main, text="Инструменты", bg=BG0, fg=TEXT, font=("Segoe UI", 20, "bold")).pack(anchor="w", padx=24, pady=(18,8))
+        tk.Label(self.main, text=L("Инструменты"), bg=BG0, fg=TEXT, font=("Segoe UI", 20, "bold")).pack(anchor="w", padx=24, pady=(18,8))
         bar = tk.Frame(self.main, bg=BG0); bar.pack(fill="x", padx=22)
         for lbl, cmd in [("⚙️ Автозагрузка", self.t_startup), ("👯 Дубликаты", self.t_dupes), ("📦 Крупные файлы", self.t_large),
                          ("🗺 Карта диска", self.t_diskmap), ("🧳 Деинсталлятор", self.t_uninstall),
