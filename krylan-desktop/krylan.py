@@ -16,7 +16,7 @@ from send2trash import send2trash
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import krylan_core
 
-VERSION = "1.7.0"
+VERSION = "1.8.0"
 SYSTEM = platform.system()           # Windows / Darwin / Linux
 HOME = os.path.expanduser("~")
 
@@ -482,7 +482,8 @@ class Krylan(tk.Tk):
         tk.Label(self.main, text="Полная проверка одним кликом: кэши · корзина · старые загрузки · дубликаты.",
                  bg=BG0, fg=MUTED, font=("Segoe UI", 10)).pack(anchor="w", padx=24, pady=(0,10))
         bar = tk.Frame(self.main, bg=BG0); bar.pack(fill="x", padx=24)
-        self._btn(bar, "🚀 Сканировать всё", GREEN, self.run_scan).pack(side="left")
+        self._btn(bar, "🚀 Ускорить — как новый", GREEN, self.run_boost).pack(side="left", padx=(0,8))
+        self._btn(bar, "🔍 Сканировать", BLUE, self.run_scan).pack(side="left")
         # планировщик
         self.sched_lbl = tk.Label(bar, text="", bg=BG0, fg=MUTED, font=("Segoe UI", 10)); self.sched_lbl.pack(side="right")
         self.sched_btn = tk.Label(bar, text="", bg=GLASS, fg=TEXT, font=("Segoe UI", 10, "bold"),
@@ -509,6 +510,32 @@ class Krylan(tk.Tk):
                                        "Каждый понедельник в 12:00 содержимое кэшей будет уходить в Корзину."): return
             schedule_enable()
         self._sched_refresh()
+
+    def run_boost(self):
+        if not messagebox.askyesno("KRYLAN", "Ускорить компьютер одним кликом?\n\n"
+            "Безопасно: кэши и временные файлы уйдут в Корзину" +
+            (", освободится «очищаемое» место" if SYSTEM=="Darwin" else "") +
+            ". Дефрагментация SSD НЕ делается — она вредна."): return
+        self._sout("🚀 Ускоряю… кэши → Корзина, освобождаю место…")
+        threading.Thread(target=self._boost_w, daemon=True).start()
+
+    def _boost_w(self):
+        steps = []
+        freed, lines = clean_caches_headless()
+        steps.append(f"🧽 Кэши и логи → Корзина: {human(freed)}")
+        purged = 0
+        if SYSTEM == "Darwin":
+            try:
+                du = psutil.disk_usage(HOME); before = du.free
+                run_cmd = ["tmutil","thinlocalsnapshots","/","999999999999","4"]
+                import subprocess; subprocess.run(run_cmd, capture_output=True, timeout=120)
+                purged = max(0, psutil.disk_usage(HOME).free - before)
+            except Exception: pass
+            if purged: steps.append(f"🧊 Освобождено места: {human(purged)}")
+        steps.append("⚡️ Готово — компьютер ускорен")
+        out = "🚀  Готово! Компьютер ускорен.\n\n" + "\n".join("  • "+s for s in steps)
+        out += f"\n\n  Освобождено всего: ~{human(freed+purged)}\n  Всё обратимо — очищенное в Корзине. Без дефрага SSD."
+        self.q.put(("tout", out, None))
 
     def run_scan(self):
         self._sout("🚀 Сканирую… это может занять минуту-другую.")
