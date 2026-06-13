@@ -17,7 +17,7 @@ from tkinter import messagebox, filedialog
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from krylan_core import human  # noqa: E402
 
-VERSION = "2.11.0"
+VERSION = "2.12.0"
 BRAND   = "KRYLAN"
 SLOGAN  = "Дай устройству крылья"
 AUTHOR  = "Кырлан Александр Сергеевич"
@@ -150,6 +150,34 @@ def to_trash(path):
     if os.path.exists(dest): dest = os.path.join(TRASH, f"{base}-{int(time.time()*1000)}")
     try: shutil.move(path, dest); return True
     except Exception: return False
+
+def _history_path():
+    return os.path.join(OPT, "cleanup_history.json")
+
+def record_cleanup(freed_bytes, kind="clean"):
+    """Записывает факт очистки в историю: {ts, freed, kind}. Игнорирует нулевые."""
+    if not freed_bytes or freed_bytes <= 0: return
+    hist = cleanup_history()
+    hist.append({"ts": int(time.time()), "freed": int(freed_bytes), "kind": kind})
+    hist = hist[-200:]   # держим последние 200 записей
+    try:
+        os.makedirs(OPT, exist_ok=True)
+        with open(_history_path(), "w", encoding="utf-8") as f:
+            json.dump(hist, f)
+    except Exception: pass
+
+def cleanup_history():
+    """Список записей истории очисток (старые→новые)."""
+    try:
+        with open(_history_path(), encoding="utf-8") as f:
+            data = json.load(f)
+            return data if isinstance(data, list) else []
+    except Exception:
+        return []
+
+def total_freed():
+    """Суммарно освобождено за всё время (байт)."""
+    return sum(int(e.get("freed", 0)) for e in cleanup_history())
 
 def shred_file(path):
     """Безвозвратное удаление файла: перезапись случайными данными → усечение → удаление.
@@ -773,6 +801,7 @@ class CleanMac(tk.Tk):
                         ("dupes","👯 Дубликаты"),("uninstall","🧩 Деинсталлятор"),
                         ("disk","🗺 Карта диска"),("maintain","🩺 Обслуживание"),
                         ("shots","📸 Скриншоты"),("shred","🔥 Шредер"),
+                        ("history","📜 История"),
                         ("browsers","🌐 Браузеры"),("trash","♻️ Корзина")]:
             b=tk.Label(bar, text=lbl, bg=GLASS, fg=TEXT, font=("SF Pro Text",12), padx=11, pady=8, cursor="pointinghand")
             b.pack(side="left", padx=4); b.bind("<Button-1>", lambda e,k=key:self._tool(k)); self.tool_chips[key]=b
@@ -785,7 +814,7 @@ class CleanMac(tk.Tk):
         self._lv=[]
         {"startup":self._t_startup,"large":self._t_large,"dupes":self._t_dupes,
          "uninstall":self._t_uninstall,"disk":self._t_disk,"maintain":self._t_maintain,
-         "shots":self._t_shots,"shred":self._t_shred,
+         "shots":self._t_shots,"shred":self._t_shred,"history":self._t_history,
          "browsers":self._t_browsers,"trash":self._t_trash}[key]()
 
     def _ptitle(self, text, sub=""):
@@ -1129,6 +1158,29 @@ class CleanMac(tk.Tk):
         self._shred_files = []
         self._tool("shred")
 
+    # --- История очисток ---
+    def _t_history(self):
+        hist = cleanup_history()
+        total = total_freed()
+        self._ptitle("История очисток", f"Освобождено за всё время: ~{human(total)} · записей: {len(hist)}")
+        if not hist:
+            tk.Label(self.tpanel, text="Пока пусто. После первой очистки здесь появится журнал.",
+                     bg=BG0, fg=MUTED, font=("SF Pro Text",12)).pack(anchor="w", pady=8)
+            return
+        names={"clean":"Очистка","smart":"Умная очистка","autopilot":"Автопилот","purge":"Освобождение места"}
+        inner=self._scrollarea()
+        for e in reversed(hist):   # новые сверху
+            try:
+                ts=time.strftime("%d.%m.%Y %H:%M", time.localtime(int(e.get("ts",0))))
+            except Exception:
+                ts="—"
+            kind=names.get(e.get("kind","clean"),"Очистка")
+            r=tk.Frame(inner, bg=GLASS); r.pack(fill="x", padx=8, pady=1)
+            tk.Label(r, text=human(e.get("freed",0)), bg=GLASS, fg=GREEN, font=("SF Pro Text",11,"bold"),
+                     width=10, anchor="e").pack(side="right", padx=(6,4))
+            tk.Label(r, text=f"{ts}   ·   {kind}", bg=GLASS, fg=TEXT, font=("SF Pro Text",11),
+                     anchor="w").pack(side="left", fill="x", expand=True)
+
     # --- Браузеры / Корзина ---
     def _t_browsers(self):
         self._ptitle("Браузеры", "Закрыть фоновые браузеры для разгрузки памяти (активное окно не трогается).")
@@ -1357,12 +1409,15 @@ class CleanMac(tk.Tk):
                     if lbl: lbl.configure(text=("—" if a is None else "пропуск" if b=="skip" else ("—" if b is None else human(b))))
                 elif kind=="total": self.total_lbl.configure(text=f"Найдено: {human(a)}")
                 elif kind=="cleaned":
+                    record_cleanup(a, "clean")
                     self.total_lbl.configure(text=f"Очищено: {human(a)} ({b}) → Корзина")
                     messagebox.showinfo("CleanMac", f"В Корзину: {human(a)} ({b} объектов)."); self.found={}
                 elif kind=="optimized":
+                    record_cleanup(a, "autopilot")
                     messagebox.showinfo("CleanMac", f"Оптимизация выполнена.\nОсвобождено кэша: {human(a)}.")
                     if self.page=="autopilot": self._ap_refresh()
                 elif kind=="purged":
+                    record_cleanup(a, "purge")
                     self.status("Готово")
                     messagebox.showinfo("CleanMac",
                         f"Очищаемое место освобождено: ~{human(a)}.\n"
@@ -1379,6 +1434,7 @@ class CleanMac(tk.Tk):
                 elif kind=="threats" and self.page=="threats": self._render_threats(a)
                 elif kind=="smart" and self.page=="smart": self._render_smart(*a)
                 elif kind=="smartdone":
+                    record_cleanup(a, "smart")
                     messagebox.showinfo("CleanMac", f"Освобождено: {human(a)} → Корзина.")
                     if self.page=="smart": self.nav("smart")
                 elif kind=="update":

@@ -49,5 +49,33 @@ class TestLocalization(unittest.TestCase):
         self.assertEqual(cm.TR.get("Защита"), "Protection")
 
 
+class TestCleanupHistory(unittest.TestCase):
+    def setUp(self):
+        self._orig = cm._history_path
+        self._tmp = tempfile.mkdtemp()
+        cm._history_path = lambda: os.path.join(self._tmp, "hist.json")
+
+    def tearDown(self):
+        cm._history_path = self._orig
+
+    def test_record_and_total(self):
+        self.assertEqual(cm.cleanup_history(), [])
+        self.assertEqual(cm.total_freed(), 0)
+        cm.record_cleanup(1000, "clean")
+        cm.record_cleanup(500, "smart")
+        cm.record_cleanup(0, "clean")        # нули игнорируются
+        cm.record_cleanup(-5, "clean")       # отрицательные игнорируются
+        hist = cm.cleanup_history()
+        self.assertEqual(len(hist), 2)
+        self.assertEqual(cm.total_freed(), 1500)
+        self.assertEqual(hist[0]["kind"], "clean")
+        self.assertIn("ts", hist[0])
+
+    def test_corrupt_file_safe(self):
+        with open(cm._history_path(), "w") as f:
+            f.write("{не json")
+        self.assertEqual(cm.cleanup_history(), [])   # не падает
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
