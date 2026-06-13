@@ -16,7 +16,7 @@ from send2trash import send2trash
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import krylan_core
 
-VERSION = "1.6.0"
+VERSION = "1.7.0"
 SYSTEM = platform.system()           # Windows / Darwin / Linux
 HOME = os.path.expanduser("~")
 
@@ -222,6 +222,23 @@ def privacy_targets():
     return [(b, i, p) for b, i, p in t if os.path.isfile(p)]
 
 # ---------- здоровье диска ----------
+def disk_advice(disk_pct, ram_pct, batt_pct=None):
+    """Безопасные советы по метрикам. Возвращает [(цвет, текст)]."""
+    out = []
+    if disk_pct >= 90:
+        out.append((RED, f"Диск заполнен на {int(disk_pct)}% — запустите Сканер и удалите дубликаты/крупные файлы."))
+    elif disk_pct >= 80:
+        out.append((YELLOW, f"Диск на {int(disk_pct)}% — очистите кэши и старые загрузки."))
+    if ram_pct >= 85:
+        out.append((RED, f"Память на {int(ram_pct)}% — завершите тяжёлые процессы."))
+    elif ram_pct >= 70:
+        out.append((YELLOW, f"Память на {int(ram_pct)}% — близко к пределу."))
+    if batt_pct is not None and 0 < batt_pct <= 20:
+        out.append((YELLOW, f"Низкий заряд ({int(batt_pct)}%) — подключите зарядку."))
+    if not out:
+        out.append((GREEN, "Система в порядке — критичных проблем нет."))
+    return out
+
 def disk_health_report():
     import subprocess
     lines = ["🩺  Здоровье диска\n\n"]
@@ -397,7 +414,16 @@ class Krylan(tk.Tk):
                 f"Сеть: ↓ {human(self.info.get('net_down',0))}/с   ↑ {human(self.info.get('net_up',0))}/с"]
         for i,line in enumerate(info):
             c.create_text(40,173+i*22, anchor="w", fill=TEXT, font=("Segoe UI", 11), text=line)
-        c.configure(scrollregion=(0,0,W,300))
+        # карточка рекомендаций
+        adv = disk_advice(self.disp["disk"], self.disp["ram"],
+                          self.info.get("batt") if self.info.get("batt") is not None else None)
+        ay0 = 296; ah = 20 + len(adv)*22
+        c.create_rectangle(20, ay0, W-20, ay0+ah, fill=GLASS, outline=GLASS)
+        c.create_text(40, ay0+14, anchor="w", fill=MUTED, font=("Segoe UI", 10, "bold"), text="РЕКОМЕНДАЦИИ")
+        for i,(col,text) in enumerate(adv):
+            c.create_oval(40, ay0+30+i*22, 50, ay0+40+i*22, fill=col, outline=col)
+            c.create_text(60, ay0+35+i*22, anchor="w", fill=TEXT, font=("Segoe UI", 11), text=text)
+        c.configure(scrollregion=(0,0,W,ay0+ah+16))
 
     # ---------- очистка ----------
     def show_clean(self):

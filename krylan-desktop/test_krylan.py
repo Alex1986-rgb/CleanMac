@@ -142,6 +142,15 @@ class TestGrowthReport(unittest.TestCase):
             krylan.take_snapshot = orig
 
 
+class TestDiskAdvice(unittest.TestCase):
+    def test_levels(self):
+        self.assertEqual(krylan.disk_advice(30, 30)[0][0], krylan.GREEN)
+        self.assertEqual(krylan.disk_advice(95, 40)[0][0], krylan.RED)
+        self.assertTrue(any("Память" in t for _, t in krylan.disk_advice(50, 88)))
+        self.assertTrue(any("заряд" in t.lower() for _, t in krylan.disk_advice(50, 50, 15)))
+        self.assertEqual(krylan.disk_advice(50, 50, None)[0][0], krylan.GREEN)
+
+
 class TestCleanupTargets(unittest.TestCase):
     def test_returns_existing_dirs(self):
         for name, path in krylan.cleanup_targets():
