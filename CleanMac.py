@@ -39,7 +39,7 @@ from tkinter import messagebox, filedialog
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from krylan_core import human  # noqa: E402
 
-VERSION = "2.16.0"
+VERSION = "2.17.0"
 BRAND   = "KRYLAN"
 SLOGAN  = "Дай устройству крылья"
 AUTHOR  = "Кырлан Александр Сергеевич"
@@ -378,6 +378,8 @@ class CleanMac(tk.Tk):
         self.net_down_hist = collections.deque([0]*70, maxlen=70)
         self.net_up_hist = collections.deque([0]*70, maxlen=70)
         self.net_down = 0.0; self.net_up = 0.0
+        self.health_hist = collections.deque([0]*70, maxlen=70)
+        self.disk_hist = collections.deque([0]*70, maxlen=70)
         self.cat_vars={}; self.cat_size_lbl={}; self.found={}; self._alert_t={}
         self.is_pro = os.path.exists(LIC)
         self.update_note = ""
@@ -571,10 +573,11 @@ class CleanMac(tk.Tk):
         for i,(k,l,v) in enumerate(rings):
             self._ring(c, int(gx+gap*i+gap/2), y+72, 40, min(1,self.disp[k]/100), col_for(self.disp[k],inv=True),10,15,l,v)
         # --- Карта 2: история CPU/RAM ---
-        y2=y+h+m; x,w,h=m,colw,160; self._card(c,x,y2,w,h,"Нагрузка за минуту")
-        self._spark(c, x+16,y2+34,w-32,h-58, [(self.cpu_hist,BLUE),(self.ram_hist,PURPLE)])
-        c.create_text(x+16,y2+h-14, text="● CPU", anchor="w", fill=BLUE, font=("SF Pro Text",10))
-        c.create_text(x+76,y2+h-14, text="● ОЗУ", anchor="w", fill=PURPLE, font=("SF Pro Text",10))
+        y2=y+h+m; x,w,h=m,colw,160; self._card(c,x,y2,w,h,"Тренды за минуту")
+        self._spark(c, x+16,y2+34,w-32,h-58,
+                    [(self.cpu_hist,BLUE),(self.ram_hist,PURPLE),(self.health_hist,GREEN),(self.disk_hist,YELLOW)])
+        for i,(lbl,col) in enumerate([("CPU",BLUE),("ОЗУ",PURPLE),("Здор.",GREEN),("Диск",YELLOW)]):
+            c.create_text(x+16+i*62,y2+h-14, text="● "+lbl, anchor="w", fill=col, font=("SF Pro Text",10))
         # --- Карта 3: состав памяти (пончик) ---
         x3=m+colw+m; self._card(c,x3,y2,colw,h,"Память")
         total=sum(self.vm.values()) or 1
@@ -1550,6 +1553,7 @@ class CleanMac(tk.Tk):
                     self.swap_mb=a["swap_mb"]; self.batt=a["batt"]; self.procs=a["procs"]; self.vm=a["vm"]
                     self.disk_free=a["dfree"]; self.disk_total=a["dtot"]
                     self.cpu_hist.append(a["cpu"]); self.ram_hist.append(a["ram"])
+                    self.health_hist.append(a["health"]); self.disk_hist.append(a["disk"])
                     self.net_down=a.get("ndown",0); self.net_up=a.get("nup",0)
                     self.net_down_hist.append(self.net_down); self.net_up_hist.append(self.net_up)
                     self.status(f'Здоровье {int(a["health"])} · CPU {int(a["cpu"])}% · ОЗУ {int(a["ram"])}% · бат {a["batt"]["pct"]}%')
