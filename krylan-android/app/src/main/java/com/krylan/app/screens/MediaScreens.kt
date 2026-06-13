@@ -11,8 +11,10 @@ import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
@@ -92,10 +94,11 @@ private fun rememberDeleter(ctx: Context, onDone: () -> Unit): (List<MediaFile>)
 @Composable
 fun MediaHubScreen(ctx: Context) {
     var tab by remember { mutableIntStateOf(0) }
-    val titles = listOf("Крупные", "Дубли", "Скриншоты", "Загрузки")
+    val titles = listOf("Крупные", "Дубли", "Скриншоты", "Загрузки", "Мессенджеры")
     Column(Modifier.fillMaxSize().background(Brand.bg0)) {
         Row(
-            Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp),
+            Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp)
+                .horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             titles.forEachIndexed { i, t ->
@@ -115,7 +118,8 @@ fun MediaHubScreen(ctx: Context) {
             0 -> GenericMediaScreen(ctx, "Крупные медиа-файлы") { MediaStoreUtils.largeFiles(it) }
             1 -> DuplicatesScreen(ctx)
             2 -> GenericMediaScreen(ctx, "Скриншоты") { MediaStoreUtils.screenshots(it) }
-            else -> GenericMediaScreen(ctx, "Загрузки") { MediaStoreUtils.downloads(it) }
+            3 -> GenericMediaScreen(ctx, "Загрузки") { MediaStoreUtils.downloads(it) }
+            else -> GenericMediaScreen(ctx, "Медиа мессенджеров") { MediaStoreUtils.messengerMedia(it) }
         }
     }
 }

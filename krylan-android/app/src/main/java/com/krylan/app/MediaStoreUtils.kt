@@ -66,6 +66,16 @@ object MediaStoreUtils {
                      selection = sel, selectionArgs = args)
     }
 
+    /** Медиа мессенджеров (WhatsApp/Telegram) — частый «пожиратель» места. */
+    fun messengerMedia(ctx: Context, limit: Int = 500): List<MediaFile> {
+        val col = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
+            MediaStore.Files.FileColumns.RELATIVE_PATH else MediaStore.Files.FileColumns.DATA
+        val sel = "($col LIKE ? OR $col LIKE ? OR $col LIKE ?)"
+        val args = arrayOf("%WhatsApp%", "%Telegram%", "%WhatsApp Business%")
+        return query(ctx, sort = "${MediaStore.Files.FileColumns.SIZE} DESC", limit = limit,
+                     selection = sel, selectionArgs = args)
+    }
+
     /** Содержимое папки Загрузки (API 29+: коллекция Downloads). */
     fun downloads(ctx: Context, limit: Int = 300): List<MediaFile> =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
