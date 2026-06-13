@@ -56,11 +56,47 @@ struct DashboardView: View {
                          "\(monitor.diskFreeGB) ГБ свободно", "из \(monitor.diskTotalGB) ГБ", Brand.blue)
                 infoCard("memorychip.fill", "Оперативная память",
                          "\(Int(monitor.memoryUsedPercent))% занято", "всего \(monitor.ramTotalGB) ГБ", Brand.purple)
+
+                // Рекомендации
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("РЕКОМЕНДАЦИИ").font(.caption.bold()).foregroundStyle(Brand.muted)
+                    ForEach(Array(advice.enumerated()), id: \.offset) { _, a in
+                        HStack(alignment: .top, spacing: 10) {
+                            Circle().fill(a.0).frame(width: 10, height: 10).padding(.top, 5)
+                            Text(a.1).font(.subheadline).foregroundStyle(Brand.text)
+                            Spacer(minLength: 0)
+                        }
+                    }
+                }
+                .padding(16)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(RoundedRectangle(cornerRadius: 16).fill(Brand.glass))
             }
             .padding(16)
             .frame(maxWidth: .infinity)
         }
         .background(Brand.bg0)
+    }
+
+    /// Безопасные советы по метрикам устройства (семафор по DESIGN.md).
+    private var advice: [(Color, String)] {
+        var out: [(Color, String)] = []
+        let disk = monitor.diskUsedPercent, ram = monitor.memoryUsedPercent, batt = monitor.batteryPercent
+        if disk >= 90 {
+            out.append((Brand.red, "Хранилище заполнено на \(Int(disk))% — удалите дубли фото, крупные видео и скриншоты."))
+        } else if disk >= 80 {
+            out.append((Brand.yellow, "Хранилище на \(Int(disk))% — проверьте «Видео» и «Скриншоты»."))
+        }
+        if ram >= 85 {
+            out.append((Brand.red, "Память на \(Int(ram))% — закройте фоновые приложения."))
+        }
+        if batt > 0 && batt <= 20 {
+            out.append((Brand.yellow, "Низкий заряд (\(batt)%) — подключите зарядку."))
+        }
+        if out.isEmpty {
+            out.append((Brand.green, "Всё в порядке — устройство работает оптимально."))
+        }
+        return out
     }
 
     private func ring(_ value: Double, _ label: String, invert: Bool = false) -> some View {
