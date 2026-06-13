@@ -39,7 +39,7 @@ from tkinter import messagebox, filedialog
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from krylan_core import human  # noqa: E402
 
-VERSION = "2.20.0"
+VERSION = "2.21.0"
 BRAND   = "KRYLAN"
 SLOGAN  = "Дай устройству крылья"
 AUTHOR  = "Кырлан Александр Сергеевич"
@@ -1106,24 +1106,38 @@ class CleanMac(tk.Tk):
 
     def _large_w(self):
         big,skip=[],{".Trash","Library"}
+        now=time.time()
         for root,dirs,files in os.walk(HOME):
             parts=root.replace(HOME,"").strip("/").split("/")
             if parts and parts[0] in skip: dirs[:]=[]; continue
             for fn in files:
+                fp=os.path.join(root,fn)
                 try:
-                    s=os.path.getsize(os.path.join(root,fn))
-                    if s>100*1024*1024: big.append((s,os.path.join(root,fn)))
+                    s=os.path.getsize(fp)
+                    if s>100*1024*1024:
+                        age=int((now-os.path.getmtime(fp))/86400)
+                        big.append((s,fp,age))
                 except Exception: pass
         big.sort(reverse=True); self.q.put(("tool",("large",big[:60]),None))
 
     def _render_large(self, rows):
         for w in self.tpanel.winfo_children(): w.destroy()
         self._lv=[]
-        self._ptitle("Крупные файлы", "Файлы крупнее 100 МБ. Отметьте лишние → в Корзину.")
+        # нормализуем к (size, path, age) — совместимость со старым форматом
+        rows=[(r if len(r)==3 else (r[0],r[1],0)) for r in rows]
+        if not hasattr(self,"_large_oldonly"): self._large_oldonly=False
+        shown=[r for r in rows if (r[2]>=180)] if self._large_oldonly else rows
+        self._ptitle("Крупные и старые файлы", "Файлы крупнее 100 МБ. Возраст — по дате изменения. Отметьте лишние → в Корзину.")
+        bar=tk.Frame(self.tpanel, bg=BG0); bar.pack(fill="x")
+        lbl="☑ Только старые (>6 мес)" if self._large_oldonly else "☐ Только старые (>6 мес)"
+        tg=tk.Label(bar, text=lbl, bg=GLASS_HI, fg=TEXT, font=("SF Pro Text",11,"bold"), padx=10, pady=5, cursor="pointinghand")
+        tg.pack(side="left"); tg.bind("<Button-1>", lambda e: (setattr(self,"_large_oldonly",not self._large_oldonly), self._render_large(rows)))
         inner=self._scrollarea()
-        for s,fp in rows: self._checkrow(inner, fp, fp.replace(HOME,"~"), s)
-        if not rows: tk.Label(inner, text="  Ничего крупного не найдено.", bg=GLASS, fg=MUTED).pack(anchor="w", padx=8, pady=8)
-        self._actionbar(f"Найдено: {len(rows)} (~{human(sum(s for s,_ in rows))})",
+        for s,fp,age in shown:
+            agetxt = f"{age//365} г" if age>=365 else (f"{age} дн" if age>0 else "сегодня")
+            self._checkrow(inner, fp, f"{fp.replace(HOME,'~')}   ·   {agetxt}", s, preselect=(age>=180))
+        if not shown: tk.Label(inner, text="  Ничего не найдено.", bg=GLASS, fg=MUTED).pack(anchor="w", padx=8, pady=8)
+        self._actionbar(f"Показано: {len(shown)} (~{human(sum(s for s,_,_ in shown))}) · старые отмечены",
                         lambda: self._trash_sel(lambda: self._tool('large')))
 
     # --- Дубликаты ---
