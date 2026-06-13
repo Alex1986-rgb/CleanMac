@@ -17,7 +17,7 @@ from tkinter import messagebox, filedialog
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from krylan_core import human  # noqa: E402
 
-VERSION = "2.12.0"
+VERSION = "2.13.0"
 BRAND   = "KRYLAN"
 SLOGAN  = "Дай устройству крылья"
 AUTHOR  = "Кырлан Александр Сергеевич"
@@ -150,6 +150,24 @@ def to_trash(path):
     if os.path.exists(dest): dest = os.path.join(TRASH, f"{base}-{int(time.time()*1000)}")
     try: shutil.move(path, dest); return True
     except Exception: return False
+
+def disk_advice(disk_pct, ram_pct, batt_pct=None):
+    """Краткие безопасные рекомендации по метрикам. Возвращает [(иконка, текст)].
+    Чистая функция — без побочных эффектов, удобно тестировать."""
+    advice = []
+    if disk_pct >= 90:
+        advice.append(("🔴", f"Диск заполнен на {int(disk_pct)}% — запустите Умную очистку и проверьте «Крупные файлы»."))
+    elif disk_pct >= 80:
+        advice.append(("🟡", f"Диск на {int(disk_pct)}% — стоит очистить кэши и старые загрузки."))
+    if ram_pct >= 85:
+        advice.append(("🔴", f"Память загружена на {int(ram_pct)}% — закройте лишние приложения или разгрузите автопилотом."))
+    elif ram_pct >= 70:
+        advice.append(("🟡", f"Память на {int(ram_pct)}% — близко к пределу."))
+    if batt_pct is not None and 0 < batt_pct <= 20:
+        advice.append(("🟡", f"Низкий заряд ({int(batt_pct)}%) — подключите зарядку."))
+    if not advice:
+        advice.append(("🟢", "Система в порядке — критичных проблем нет."))
+    return advice
 
 def _history_path():
     return os.path.join(OPT, "cleanup_history.json")
@@ -558,7 +576,14 @@ class CleanMac(tk.Tk):
             c.create_text(bx+bw+40,py, anchor="e", fill=MUTED, font=("SF Pro Text",11), text=f"{cpu:.0f}%")
             c.create_text(x+w-16,py, anchor="e", fill=MUTED, font=("SF Pro Text",11), text=human(mem))
             py+=21
-        c.configure(scrollregion=(0,0,W,y4+h+m))
+        # --- Карта 7: рекомендации ---
+        adv=disk_advice(self.disp["disk"], self.disp["ram"], self.batt.get("pct"))
+        y5=y4+h+m; ah=28+len(adv)*22; x,w=m,W-2*m; self._card(c,x,y5,w,ah,"Рекомендации")
+        ay=y5+38
+        for icon,text in adv:
+            c.create_text(x+16,ay, anchor="w", fill=TEXT, font=("SF Pro Text",11), text=f"{icon}  {text}")
+            ay+=22
+        c.configure(scrollregion=(0,0,W,y5+ah+m))
 
     def _battery(self, c, x,y,w,h,frac,charging):
         col = GREEN if charging or frac>.4 else (YELLOW if frac>.2 else RED)

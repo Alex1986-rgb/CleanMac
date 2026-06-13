@@ -77,5 +77,27 @@ class TestCleanupHistory(unittest.TestCase):
         self.assertEqual(cm.cleanup_history(), [])   # не падает
 
 
+class TestDiskAdvice(unittest.TestCase):
+    def test_healthy(self):
+        adv = cm.disk_advice(30, 40, 90)
+        self.assertEqual(len(adv), 1)
+        self.assertEqual(adv[0][0], "🟢")
+
+    def test_disk_critical(self):
+        adv = cm.disk_advice(95, 40, 90)
+        self.assertTrue(any("Диск заполнен" in t for _, t in adv))
+        self.assertEqual(adv[0][0], "🔴")
+
+    def test_ram_and_battery(self):
+        adv = cm.disk_advice(50, 88, 15)
+        texts = " ".join(t for _, t in adv)
+        self.assertIn("Память", texts)
+        self.assertIn("заряд", texts.lower())
+
+    def test_no_battery(self):
+        adv = cm.disk_advice(50, 50, None)   # десктоп без батареи
+        self.assertEqual(adv[0][0], "🟢")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
