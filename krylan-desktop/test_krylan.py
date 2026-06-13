@@ -117,6 +117,31 @@ class TestOldDownloads(unittest.TestCase):
         self.assertNotIn("new.txt", names)
 
 
+class TestGrowthReport(unittest.TestCase):
+    def test_first_then_diff(self):
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        snap = os.path.join(d, "snap.json")
+        sub = os.path.join(d, "data")
+        os.makedirs(sub)
+        with open(os.path.join(sub, "a"), "wb") as f:
+            f.write(b"x" * 1000)
+        orig = krylan.take_snapshot
+        krylan.take_snapshot = lambda bases=None: {sub: krylan.dir_size(sub)}
+        try:
+            changes, is_first = krylan.growth_report(snapshot_file=snap)
+            self.assertTrue(is_first)
+            # дописываем данные → второй прогон видит рост
+            with open(os.path.join(sub, "b"), "wb") as f:
+                f.write(b"y" * 500)
+            changes, is_first = krylan.growth_report(snapshot_file=snap)
+            self.assertFalse(is_first)
+            delta = dict((p, dl) for dl, p, _, _ in changes)[sub]
+            self.assertEqual(delta, 500)
+        finally:
+            krylan.take_snapshot = orig
+
+
 class TestCleanupTargets(unittest.TestCase):
     def test_returns_existing_dirs(self):
         for name, path in krylan.cleanup_targets():

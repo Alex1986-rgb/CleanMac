@@ -16,7 +16,7 @@ from send2trash import send2trash
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import krylan_core
 
-VERSION = "1.5.0"
+VERSION = "1.6.0"
 SYSTEM = platform.system()           # Windows / Darwin / Linux
 HOME = os.path.expanduser("~")
 
@@ -65,6 +65,47 @@ def trash_dir():
     if SYSTEM == "Darwin": return os.path.join(HOME, ".Trash")
     if SYSTEM == "Linux":  return os.path.join(HOME, ".local/share/Trash/files")
     return None   # Windows: корзина доступна только через WinAPI
+
+# ---------- отчёт «что выросло с прошлой проверки» (BoostSpeed-style) ----------
+def _snapshot_path():
+    return os.path.join(HOME, ".krylan_snapshot.json")
+
+def take_snapshot(bases=None):
+    """Снимок размеров папок домашнего каталога: {путь: размер_в_байтах}."""
+    # Library намеренно исключён: 60+ ГБ кэшей сканируются слишком долго
+    # и не относятся к пользовательским папкам, чей рост интересен.
+    bases = bases or [os.path.join(HOME, d) for d in
+                      ("Downloads", "Desktop", "Documents", "Pictures", "Movies", "Music")]
+    return {p: dir_size(p) for p in bases if os.path.isdir(p)}
+
+def growth_report(snapshot_file=None, save=True):
+    """Сравнивает текущие размеры с прошлым снимком.
+    Возвращает (changes, is_first) где changes = [(delta, path, old, new)] по убыванию |delta|.
+    Сохраняет новый снимок (если save)."""
+    import json
+    sf = snapshot_file or _snapshot_path()
+    prev = {}
+    if os.path.isfile(sf):
+        try:
+            with open(sf, encoding="utf-8") as f:
+                prev = json.load(f)
+        except Exception:
+            prev = {}
+    cur = take_snapshot()
+    is_first = not prev
+    changes = []
+    for path, new in cur.items():
+        old = prev.get(path, new if is_first else 0)
+        delta = new - old
+        changes.append((delta, path, old, new))
+    changes.sort(key=lambda x: abs(x[0]), reverse=True)
+    if save:
+        try:
+            with open(sf, "w", encoding="utf-8") as f:
+                json.dump(cur, f)
+        except Exception:
+            pass
+    return changes, is_first
 
 def old_downloads(days=180):
     """Файлы и папки в Загрузках старше N дней: [(size, path)]."""
@@ -548,7 +589,7 @@ class Krylan(tk.Tk):
         bar = tk.Frame(self.main, bg=BG0); bar.pack(fill="x", padx=22)
         for lbl, cmd in [("⚙️ Автозагрузка", self.t_startup), ("👯 Дубликаты", self.t_dupes), ("📦 Крупные файлы", self.t_large),
                          ("🗺 Карта диска", self.t_diskmap), ("🧳 Деинсталлятор", self.t_uninstall),
-                         ("📂 Пустые папки", self.t_empty),
+                         ("📂 Пустые папки", self.t_empty), ("📈 Что выросло", self.t_growth),
                          ("🔒 Приватность", self.t_privacy), ("🩺 Диск", self.t_smart)]:
             self._btn(bar, lbl, GLASS, cmd).pack(side="left", padx=4)
         self._dupe_extras = []
@@ -732,6 +773,30 @@ class Krylan(tk.Tk):
             try: send2trash(p); ok += 1
             except Exception: pass
         messagebox.showinfo("KRYLAN", f"В Корзину: {ok} файлов."); self.t_privacy()
+
+    def t_growth(self):
+        self._out("📈 Сравниваю с прошлой проверкой…"); threading.Thread(target=self._growth_w, daemon=True).start()
+
+    def _growth_w(self):
+        changes, is_first = growth_report()
+        if is_first:
+            lines = ["📈  Что выросло\n\n", "Первый снимок сохранён. Запустите ещё раз позже —\n"
+                     "и KRYLAN покажет, какие папки выросли или уменьшились.\n\n",
+                     "Текущие размеры:\n"]
+            for delta, path, old, new in changes:
+                lines.append(f"  {human(new):>9}  {path.replace(HOME,'~')}\n")
+        else:
+            lines = ["📈  Изменения с прошлой проверки\n\n"]
+            shown = False
+            for delta, path, old, new in changes:
+                if delta == 0: continue
+                shown = True
+                sign = "▲" if delta > 0 else "▼"
+                lines.append(f"  {sign} {human(abs(delta)):>9}   {human(new):>9}  {path.replace(HOME,'~')}\n")
+            if not shown:
+                lines.append("  Изменений нет — размеры папок не поменялись.\n")
+            lines.append("\n▲ выросло · ▼ уменьшилось. Растущие папки — кандидаты на разбор.\n")
+        self.q.put(("tout", "".join(lines), None))
 
     def t_empty(self):
         self._out("📂 Ищу пустые папки…"); threading.Thread(target=self._empty_w, daemon=True).start()
