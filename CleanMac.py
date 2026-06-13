@@ -8,11 +8,16 @@ KRYLAN · CleanMac — оптимизатор для macOS со «стеклян
 проверка обновлений (GitHub) и Pro-каркас. Запуск: framework-python 3.12.
 """
 import os, time, shutil, hashlib, threading, queue, subprocess, collections, math, re, json
+import sys
 import urllib.request
 import tkinter as tk
 from tkinter import messagebox, filedialog
 
-VERSION = "2.10.0"
+# Общий модуль экосистемы (рядом с этим файлом; в т.ч. внутри .app-бандла).
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from krylan_core import human  # noqa: E402
+
+VERSION = "2.11.0"
 BRAND   = "KRYLAN"
 SLOGAN  = "Дай устройству крылья"
 AUTHOR  = "Кырлан Александр Сергеевич"
@@ -78,13 +83,6 @@ def col_for(p, inv=False):
     return GREEN if v >= 50 else YELLOW if v >= 25 else RED
 
 # ---------- helpers ----------
-def human(n):
-    n = float(n)
-    for u in ("Б", "КБ", "МБ", "ГБ", "ТБ"):
-        if n < 1024 or u == "ТБ":
-            return f"{n:.0f} {u}" if u == "Б" else f"{n:.1f} {u}"
-        n /= 1024
-
 def run(cmd, t=8):
     try:
         return subprocess.run(cmd, capture_output=True, text=True, timeout=t).stdout
@@ -613,6 +611,20 @@ class CleanMac(tk.Tk):
         self._btn(card, "Выключить", RED, lambda: self._ap("stop")).pack(side="right", pady=14)
         row=tk.Frame(self.main, bg=BG0); row.pack(fill="x", padx=24, pady=8)
         self._btn(row, "⚡️ Оптимизировать сейчас", BLUE, self._optimize_now).pack(side="left")
+        self._btn(row, "🧊 Освободить место на диске", GREEN, self._free_purgeable).pack(side="left", padx=8)
+
+        # Переключатель закрытия браузеров (по умолчанию ВЫКЛ)
+        opt=tk.Frame(self.main, bg=BG0); opt.pack(fill="x", padx=24, pady=(2,4))
+        self.ap_close_var=tk.BooleanVar(value=os.path.exists(os.path.join(OPT,"close_browsers.on")))
+        tk.Checkbutton(opt, text="  Разрешить автопилоту закрывать фоновые браузеры при пике памяти",
+                       variable=self.ap_close_var, command=self._toggle_close_browsers,
+                       bg=BG0, fg=TEXT, selectcolor=GLASS, activebackground=BG0, activeforeground=TEXT,
+                       font=("SF Pro Text",11), anchor="w").pack(side="left")
+        tk.Label(self.main, text="По умолчанию выключено: автопилот чистит кэши и разгружает память, "
+                 "не трогая ваши вкладки. Дефрагментация SSD не нужна и вредна — поэтому её нет.",
+                 bg=BG0, fg=MUTED, font=("SF Pro Text",10), wraplength=600, justify="left"
+                 ).pack(anchor="w", padx=24, pady=(0,6))
+
         tk.Label(self.main, text="Журнал автопилота:", bg=BG0, fg=MUTED, font=("SF Pro Text",11)
                  ).pack(anchor="w", padx=24, pady=(10,2))
         self.ap_log=tk.Text(self.main, bg="#0f1218", fg=TEXT, font=("SF Mono",11), relief="flat",
@@ -649,10 +661,46 @@ class CleanMac(tk.Tk):
                 elif os.path.exists(p):
                     s=path_size(p)
                     if to_trash(p): freed+=s
-        front=run(["osascript","-e",'tell application "System Events" to name of first process whose frontmost is true']).strip()
-        for app in ("Microsoft Edge","Google Chrome","Safari","Yandex"):
-            if app_running(app) and app!=front: run(["osascript","-e",f'quit app "{app}"'])
+        # Браузеры закрываем ТОЛЬКО если пользователь явно включил это в настройках.
+        # По умолчанию — НЕ трогаем (чтобы не терять открытые вкладки).
+        if os.path.exists(os.path.join(OPT, "close_browsers.on")):
+            front=run(["osascript","-e",'tell application "System Events" to name of first process whose frontmost is true']).strip()
+            for app in ("Microsoft Edge","Google Chrome","Safari","Yandex"):
+                if app_running(app) and app!=front: run(["osascript","-e",f'quit app "{app}"'])
         self.q.put(("optimized", freed, None))
+
+    def _toggle_close_browsers(self):
+        flag=os.path.join(OPT,"close_browsers.on")
+        try:
+            if self.ap_close_var.get():
+                os.makedirs(OPT, exist_ok=True); open(flag,"w").write("on")
+            elif os.path.exists(flag):
+                os.remove(flag)
+        except Exception as e:
+            messagebox.showwarning("CleanMac", f"Не удалось сохранить настройку: {e}")
+
+    def _free_purgeable(self):
+        """Безопасное освобождение места: удаление локальных снимков Time Machine (APFS).
+        Это реальный аналог 'очистки' без вреда — в отличие от дефрагментации SSD."""
+        if not messagebox.askyesno("Освободить место",
+            "Удалить локальные снимки Time Machine (APFS) и освободить «очищаемое» место?\n\n"
+            "Это безопасно: облачные/внешние резервные копии не затрагиваются. "
+            "Дефрагментация SSD не выполняется — она бесполезна и вредна для SSD."):
+            return
+        self.status("🧊 Освобождаю место…")
+        threading.Thread(target=self._free_purgeable_w, daemon=True).start()
+
+    def _free_purgeable_w(self):
+        before=0
+        try: before=shutil.disk_usage(HOME).free
+        except Exception: pass
+        # thinlocalsnapshots просит до ~999 ГБ освободить, срочность 4 (максимум)
+        run(["tmutil","thinlocalsnapshots","/","999999999999","4"], 120)
+        after=before
+        try: after=shutil.disk_usage(HOME).free
+        except Exception: pass
+        freed=max(0, after-before)
+        self.q.put(("purged", freed, None))
 
     # ================= ОЧИСТКА =================
     def show_cleaner(self):
@@ -1314,6 +1362,11 @@ class CleanMac(tk.Tk):
                 elif kind=="optimized":
                     messagebox.showinfo("CleanMac", f"Оптимизация выполнена.\nОсвобождено кэша: {human(a)}.")
                     if self.page=="autopilot": self._ap_refresh()
+                elif kind=="purged":
+                    self.status("Готово")
+                    messagebox.showinfo("CleanMac",
+                        f"Очищаемое место освобождено: ~{human(a)}.\n"
+                        "Снимки APFS удалены. Это безопасный аналог «очистки диска» без дефрагментации.")
                 elif kind=="tool" and self.page=="tools":
                     sub,data=a
                     if sub=="large": self._render_large(data)
