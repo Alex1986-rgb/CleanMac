@@ -99,5 +99,25 @@ class TestDiskAdvice(unittest.TestCase):
         self.assertEqual(adv[0][0], "🟢")
 
 
+class TestBrewParser(unittest.TestCase):
+    def test_formula_lines(self):
+        text = "ack (3.9.0) < 3.10.0\naircrack-ng (1.7_1) < 1.7_2"
+        r = cm.parse_brew_outdated(text, "формула")
+        self.assertEqual(len(r), 2)
+        self.assertEqual(r[0], ("ack", "3.9.0", "3.10.0", "формула"))
+
+    def test_cask_neq(self):
+        r = cm.parse_brew_outdated("chrome (1.0) != 2.0", "приложение")
+        self.assertEqual(r[0], ("chrome", "1.0", "2.0", "приложение"))
+
+    def test_name_only(self):
+        r = cm.parse_brew_outdated("blender", "приложение")
+        self.assertEqual(r[0][0], "blender")
+        self.assertEqual(r[0][3], "приложение")
+
+    def test_empty(self):
+        self.assertEqual(cm.parse_brew_outdated("", "формула"), [])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

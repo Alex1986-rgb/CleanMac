@@ -39,7 +39,7 @@ from tkinter import messagebox, filedialog
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from krylan_core import human  # noqa: E402
 
-VERSION = "2.17.0"
+VERSION = "2.18.0"
 BRAND   = "KRYLAN"
 SLOGAN  = "Дай устройству крылья"
 AUTHOR  = "Кырлан Александр Сергеевич"
@@ -190,6 +190,33 @@ def disk_advice(disk_pct, ram_pct, batt_pct=None):
     if not advice:
         advice.append(("🟢", "Система в порядке — критичных проблем нет."))
     return advice
+
+def brew_path():
+    for p in ("/opt/homebrew/bin/brew", "/usr/local/bin/brew", shutil.which("brew")):
+        if p and os.path.exists(p): return p
+    return None
+
+def parse_brew_outdated(text, kind):
+    """Парсит вывод `brew outdated --verbose`: 'name (cur) < new' / 'name (cur) != new'.
+    Возвращает [(name, cur, new, kind)]. Чистая функция — тестируемая."""
+    out = []
+    for line in (text or "").splitlines():
+        line = line.strip()
+        if not line: continue
+        m = re.match(r"^(\S+)\s+\((.+?)\)\s*(?:<|!=|->|≠)\s*(.+)$", line)
+        if m:
+            out.append((m.group(1), m.group(2).strip(), m.group(3).strip(), kind))
+        else:
+            out.append((line.split()[0], "?", "новее", kind))
+    return out
+
+def brew_outdated():
+    """Список устаревших пакетов Homebrew (formulae + casks). None — brew не установлен."""
+    brew = brew_path()
+    if not brew: return None
+    items = parse_brew_outdated(run([brew, "outdated", "--verbose"], 90), "формула")
+    items += parse_brew_outdated(run([brew, "outdated", "--cask", "--greedy", "--verbose"], 90), "приложение")
+    return items
 
 def _history_path():
     return os.path.join(OPT, "cleanup_history.json")
@@ -927,7 +954,7 @@ class CleanMac(tk.Tk):
                         ("dupes","👯 Дубликаты"),("uninstall","🧩 Деинсталлятор"),
                         ("disk","🗺 Карта диска"),("maintain","🩺 Обслуживание"),
                         ("shots","📸 Скриншоты"),("shred","🔥 Шредер"),
-                        ("history","📜 История"),
+                        ("updater","📦 Апдейтер"),("history","📜 История"),
                         ("browsers","🌐 Браузеры"),("trash","♻️ Корзина")]:
             b=tk.Label(bar, text=lbl, bg=GLASS, fg=TEXT, font=("SF Pro Text",12), padx=11, pady=8, cursor="pointinghand")
             b.pack(side="left", padx=4); b.bind("<Button-1>", lambda e,k=key:self._tool(k)); self.tool_chips[key]=b
@@ -940,7 +967,7 @@ class CleanMac(tk.Tk):
         self._lv=[]
         {"startup":self._t_startup,"large":self._t_large,"dupes":self._t_dupes,
          "uninstall":self._t_uninstall,"disk":self._t_disk,"maintain":self._t_maintain,
-         "shots":self._t_shots,"shred":self._t_shred,"history":self._t_history,
+         "shots":self._t_shots,"shred":self._t_shred,"updater":self._t_updater,"history":self._t_history,
          "browsers":self._t_browsers,"trash":self._t_trash}[key]()
 
     def _ptitle(self, text, sub=""):
@@ -1284,6 +1311,49 @@ class CleanMac(tk.Tk):
         self._shred_files = []
         self._tool("shred")
 
+    # --- Апдейтер приложений (Homebrew) ---
+    def _t_updater(self):
+        self._ptitle("Апдейтер", "Устаревшие приложения и пакеты Homebrew. Обновление — безопасно, официальными источниками.")
+        if brew_path() is None:
+            tk.Label(self.tpanel, text="Homebrew не найден. Установите с brew.sh, чтобы обновлять приложения отсюда.",
+                     bg=BG0, fg=MUTED, font=("SF Pro Text",12), wraplength=560, justify="left").pack(anchor="w", pady=10)
+            return
+        tk.Label(self.tpanel, text="Сканирую обновления…", bg=BG0, fg=MUTED, font=("SF Pro Text",12)).pack(anchor="w")
+        threading.Thread(target=self._updater_w, daemon=True).start()
+
+    def _updater_w(self):
+        items = brew_outdated()
+        self.q.put(("updater", items, None))
+
+    def _render_updater(self, items):
+        for w in self.tpanel.winfo_children()[2:]: w.destroy()   # убрать «Сканирую…»
+        if not items:
+            tk.Label(self.tpanel, text="✅ Все приложения обновлены.", bg=BG0, fg=GREEN,
+                     font=("SF Pro Text",13,"bold")).pack(anchor="w", pady=8); return
+        inner=self._scrollarea()
+        for name,cur,new,kind in items:
+            r=tk.Frame(inner, bg=GLASS); r.pack(fill="x", padx=8, pady=1)
+            tk.Label(r, text=f"{cur} → {new}", bg=GLASS, fg=GREEN, font=("SF Pro Text",10),
+                     width=18, anchor="e").pack(side="right", padx=(6,4))
+            tk.Label(r, text=kind, bg=GLASS, fg=MUTED, font=("SF Pro Text",9), width=11, anchor="e").pack(side="right")
+            tk.Label(r, text=name, bg=GLASS, fg=TEXT, font=("SF Pro Text",11), anchor="w").pack(side="left", fill="x", expand=True)
+        bar=tk.Frame(self.tpanel, bg=BG0); bar.pack(fill="x", pady=(6,0))
+        tk.Label(bar, text=f"Обновлений: {len(items)}", bg=BG0, fg=TEXT, font=("SF Pro Text",12,"bold")).pack(side="left")
+        self._btn(bar, "⬆️ Обновить всё", GREEN, self._brew_upgrade_all).pack(side="right")
+
+    def _brew_upgrade_all(self):
+        if not messagebox.askyesno("CleanMac", "Обновить все устаревшие пакеты и приложения Homebrew?\n"
+                                   "Это может занять несколько минут."): return
+        self.status("⬆️ Обновляю через Homebrew…")
+        threading.Thread(target=self._brew_upgrade_w, daemon=True).start()
+
+    def _brew_upgrade_w(self):
+        brew=brew_path()
+        if brew:
+            run([brew, "upgrade"], 1800)
+            run([brew, "upgrade", "--cask", "--greedy"], 1800)
+        self.q.put(("upgraded", None, None))
+
     # --- История очисток ---
     def _t_history(self):
         hist = cleanup_history()
@@ -1599,6 +1669,12 @@ class CleanMac(tk.Tk):
                     record_cleanup(a, "smart")
                     messagebox.showinfo("CleanMac", f"Освобождено: {human(a)} → Корзина.")
                     if self.page=="smart": self.nav("smart")
+                elif kind=="updater":
+                    if self.page=="tools": self._render_updater(a if a is not None else [])
+                elif kind=="upgraded":
+                    self.status("")
+                    messagebox.showinfo("CleanMac", "Обновление Homebrew завершено.")
+                    if self.page=="tools": self._tool("updater")
                 elif kind=="update":
                     self.update_note=a; self.badge.configure(text=a if a.startswith("⬆️") else "")
                     if self.page=="pro": self.nav("pro")
