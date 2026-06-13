@@ -3,6 +3,9 @@ import SwiftUI
 
 struct DashboardView: View {
     @ObservedObject var monitor: SystemMonitor
+    @StateObject private var cleaner = CacheCleaner()
+    @State private var boosting = false
+    @State private var boostDone = false
 
     var body: some View {
         ScrollView {
@@ -14,6 +17,27 @@ struct DashboardView: View {
                         .font(.subheadline).foregroundStyle(Brand.muted)
                     Spacer(minLength: 0)
                 }
+
+                // Флагманская кнопка «Ускорить»
+                Button(action: boost) {
+                    HStack(spacing: 10) {
+                        Image(systemName: boostDone ? "checkmark.circle.fill" : "bolt.fill")
+                            .font(.title3.bold())
+                        Text(boostDone ? "Готово — кэш очищен" : (boosting ? "Ускоряю…" : "Ускорить — как новый"))
+                            .font(.headline)
+                    }
+                    .foregroundStyle(Color(red: 0.04, green: 0.08, blue: 0.06))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 15)
+                    .background(
+                        LinearGradient(colors: [Brand.green, Brand.cyan],
+                                       startPoint: .leading, endPoint: .trailing)
+                    )
+                    .clipShape(Capsule())
+                    .shadow(color: Brand.green.opacity(0.35), radius: 12, y: 4)
+                }
+                .buttonStyle(.plain)
+                .disabled(boosting)
 
                 // Health-герой
                 VStack(spacing: 0) {
@@ -76,6 +100,19 @@ struct DashboardView: View {
             .frame(maxWidth: .infinity)
         }
         .background(Brand.bg0)
+    }
+
+    /// Один клик: очистка собственного кэша приложения (единственное безопасное на iOS).
+    private func boost() {
+        boosting = true
+        cleaner.clean()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+            boosting = false
+            withAnimation { boostDone = true }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                withAnimation { boostDone = false }
+            }
+        }
     }
 
     /// Безопасные советы по метрикам устройства (семафор по DESIGN.md).
