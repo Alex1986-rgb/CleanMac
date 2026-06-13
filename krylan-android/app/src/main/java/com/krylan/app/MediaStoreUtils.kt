@@ -9,7 +9,39 @@ import android.provider.MediaStore
 
 data class MediaFile(val id: Long, val name: String, val size: Long, val uri: Uri)
 
+/** Разбивка занятого медиа-хранилища по типам (байты). */
+data class StorageBreakdown(
+    val images: Long, val video: Long, val audio: Long, val other: Long,
+) {
+    val total get() = images + video + audio + other
+}
+
 object MediaStoreUtils {
+
+    /** Суммарный размер медиа по типам через MediaStore (без root, в рамках scoped storage). */
+    fun storageBreakdown(ctx: Context): StorageBreakdown {
+        fun sumOf(collection: Uri): Long {
+            var total = 0L
+            val proj = arrayOf(MediaStore.MediaColumns.SIZE)
+            try {
+                ctx.contentResolver.query(collection, proj, null, null, null)?.use { c ->
+                    val idx = c.getColumnIndexOrThrow(MediaStore.MediaColumns.SIZE)
+                    while (c.moveToNext()) total += c.getLong(idx)
+                }
+            } catch (_: Exception) { /* нет разрешения — 0 */ }
+            return total
+        }
+        val images = sumOf(MediaStore.Images.Media.EXTERNAL_CONTENT_URI)
+        val video = sumOf(MediaStore.Video.Media.EXTERNAL_CONTENT_URI)
+        val audio = sumOf(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI)
+        // «Прочее»: файлы из общего хранилища, не попавшие в медиа-коллекции (документы, архивы).
+        var other = 0L
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            other = sumOf(MediaStore.Downloads.EXTERNAL_CONTENT_URI)
+        }
+        return StorageBreakdown(images, video, audio, other)
+    }
+
 
     /** Разрешения на чтение медиа в зависимости от версии Android. */
     fun readPermissions(): Array<String> =

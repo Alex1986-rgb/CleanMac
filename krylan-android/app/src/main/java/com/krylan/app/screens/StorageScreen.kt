@@ -18,6 +18,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.krylan.app.MediaStoreUtils
 import com.krylan.app.SystemInfo
 import com.krylan.app.ui.Brand
 import com.krylan.app.ui.RingGauge
@@ -26,6 +27,7 @@ import com.krylan.app.ui.RingGauge
 fun StorageScreen(ctx: Context) {
     val storage = remember { SystemInfo.storage() }
     val cache = remember { SystemInfo.cacheBytes(ctx) }
+    val media = remember { MediaStoreUtils.storageBreakdown(ctx) }
 
     Column(
         Modifier
@@ -66,8 +68,18 @@ fun StorageScreen(ctx: Context) {
         BreakdownRow("Свободно", SystemInfo.fmtSize(storage.freeBytes), Brand.green)
         BreakdownRow("Кэш этого приложения", SystemInfo.fmtSize(cache), Brand.yellow)
 
+        if (media.total > 0) {
+            Text("Медиа по типам", color = Brand.muted, fontSize = 13.sp, fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(top = 4.dp))
+            BreakdownRow("📷 Фото", SystemInfo.fmtSize(media.images), Brand.blue)
+            BreakdownRow("🎬 Видео", SystemInfo.fmtSize(media.video), Brand.purple)
+            BreakdownRow("🎵 Аудио", SystemInfo.fmtSize(media.audio), Brand.green)
+            if (media.other > 0)
+                BreakdownRow("📄 Загрузки", SystemInfo.fmtSize(media.other), Brand.yellow)
+        }
+
         Text(
-            "Android 11+ не даёт приложениям видеть чужие кэши — это ограничение системы, а не KRYLAN. Используйте «Файлы» и «Дубли», чтобы найти, что занимает место.",
+            "Android 11+ не даёт приложениям видеть чужие кэши — это ограничение системы, а не KRYLAN. Используйте «Медиа» и «Приложения», чтобы найти, что занимает место.",
             color = Brand.muted, fontSize = 12.sp
         )
     }
