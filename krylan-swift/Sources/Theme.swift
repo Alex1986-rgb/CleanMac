@@ -5,7 +5,7 @@ enum Brand {
     static let name   = "KRYLAN"
     static let slogan = "Дай устройству крылья"
     static let author = "Кырлан Александр Сергеевич"
-    static let version = "0.2.0"
+    static let version = "0.3.0"
 
     static let bg0    = Color(red: 0.07, green: 0.08, blue: 0.11)
     static let glass  = Color(red: 0.13, green: 0.17, blue: 0.23)
