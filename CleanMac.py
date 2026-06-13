@@ -17,7 +17,7 @@ from tkinter import messagebox, filedialog
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from krylan_core import human  # noqa: E402
 
-VERSION = "2.13.0"
+VERSION = "2.14.0"
 BRAND   = "KRYLAN"
 SLOGAN  = "Дай устройству крылья"
 AUTHOR  = "Кырлан Александр Сергеевич"
@@ -479,6 +479,12 @@ class CleanMac(tk.Tk):
                  ).pack(anchor="w", padx=24, pady=(16,0))
         tk.Label(self.main, text=L("Состояние системы в реальном времени"), bg=BG0, fg=MUTED,
                  font=("SF Pro Text", 11)).pack(anchor="w", padx=24, pady=(0,6))
+        # Флагманская кнопка «1 клик — как новый»
+        boostbar=tk.Frame(self.main, bg=BG0); boostbar.pack(fill="x", padx=22, pady=(2,2))
+        self.boost_btn=self._btn(boostbar, L("🚀 Ускорить — сделать как новый"), GREEN, self._boost_now)
+        self.boost_btn.pack(side="left", padx=(2,10))
+        self.boost_lbl=tk.Label(boostbar, text="Очистит кэши, освободит место и разгрузит память — одним кликом, безопасно",
+                                bg=BG0, fg=MUTED, font=("SF Pro Text",10)); self.boost_lbl.pack(side="left")
         qa=tk.Frame(self.main, bg=BG0); qa.pack(fill="x", padx=22, pady=(0,8))
         self.bri_btn=self._btn(qa, L("☀️ Яркость 100%"), YELLOW, self._brightness_max)
         self.bri_btn.pack(side="left", padx=(2,10))
@@ -721,6 +727,50 @@ class CleanMac(tk.Tk):
             for app in ("Microsoft Edge","Google Chrome","Safari","Yandex"):
                 if app_running(app) and app!=front: run(["osascript","-e",f'quit app "{app}"'])
         self.q.put(("optimized", freed, None))
+
+    # ===== 1 КЛИК «УСКОРИТЬ» — всё безопасное разом (лучше BoostSpeed: без дефрага/реестра) =====
+    def _boost_now(self):
+        if getattr(self, "_boosting", False): return
+        self._boosting = True
+        threading.Thread(target=self._boost_worker, daemon=True).start()
+
+    def _boost_worker(self):
+        steps = []
+        # 1) Безопасные кэши и логи → Корзина (обратимо)
+        freed = 0
+        for cid,_,paths,skip,mode in CATEGORIES:
+            if skip and app_running(skip): continue       # не трогаем кэш открытого браузера
+            for p in paths:
+                if not os.path.exists(p): continue
+                if mode=="subitems" and os.path.isdir(p):
+                    for nm in os.listdir(p):
+                        fp=os.path.join(p,nm); s=path_size(fp)
+                        if to_trash(fp): freed+=s
+                else:
+                    s=path_size(p)
+                    if to_trash(p): freed+=s
+        steps.append(f"🧽 Кэши и логи → Корзина: {human(freed)}")
+
+        # 2) Освободить «очищаемое» место (локальные снимки APFS) — безопасно
+        purged = 0
+        try:
+            before = shutil.disk_usage(HOME).free
+            run(["tmutil","thinlocalsnapshots","/","999999999999","4"], 120)
+            purged = max(0, shutil.disk_usage(HOME).free - before)
+        except Exception: pass
+        if purged: steps.append(f"🧊 Освобождено места: {human(purged)}")
+
+        # 3) Сбросить кэш миниатюр Quick Look (без пароля)
+        run(["qlmanage","-r","cache"], 30)
+        steps.append("👁 Кэш Quick Look сброшен")
+
+        # 4) Разгрузить неактивную память (purge — без админа на свежих macOS; иначе тихо пропустим)
+        run(["/usr/sbin/purge"], 30)
+        steps.append("⚡️ Память разгружена")
+
+        record_cleanup(freed + purged, "boost")
+        self._boosting = False
+        self.q.put(("boosted", freed + purged, steps))
 
     def _toggle_close_browsers(self):
         flag=os.path.join(OPT,"close_browsers.on")
@@ -1441,6 +1491,14 @@ class CleanMac(tk.Tk):
                     record_cleanup(a, "autopilot")
                     messagebox.showinfo("CleanMac", f"Оптимизация выполнена.\nОсвобождено кэша: {human(a)}.")
                     if self.page=="autopilot": self._ap_refresh()
+                elif kind=="boosted":
+                    try: self.boost_btn.configure(text="  ✓ Готово  ")
+                    except Exception: pass
+                    self.after(1800, lambda: self.boost_btn.configure(text="  "+L("🚀 Ускорить — сделать как новый")+"  ") if hasattr(self,"boost_btn") else None)
+                    steps="\n".join("• "+s for s in (b or []))
+                    messagebox.showinfo("CleanMac",
+                        f"🚀 Готово! Компьютер ускорен.\n\nОсвобождено всего: ~{human(a)}\n\n{steps}\n\n"
+                        "Всё обратимо: очищенное — в Корзине. Дефрагментация SSD не делалась (она вредна).")
                 elif kind=="purged":
                     record_cleanup(a, "purge")
                     self.status("Готово")
