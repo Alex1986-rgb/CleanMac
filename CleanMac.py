@@ -39,7 +39,7 @@ from tkinter import messagebox, filedialog
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from krylan_core import human  # noqa: E402
 
-VERSION = "2.19.0"
+VERSION = "2.20.0"
 BRAND   = "KRYLAN"
 SLOGAN  = "Дай устройству крылья"
 AUTHOR  = "Кырлан Александр Сергеевич"
@@ -1231,23 +1231,79 @@ class CleanMac(tk.Tk):
             except Exception: pass
         rows.sort(reverse=True); self.q.put(("disk", rows[:16], None))
 
+    @staticmethod
+    def _squarify(sizes, x, y, dx, dy):
+        """Squarified treemap: возвращает прямоугольники (rx,ry,rw,rh) в порядке sizes.
+        sizes — по убыванию; нормируются под площадь dx*dy."""
+        sizes=[s for s in sizes if s>0]
+        if not sizes or dx<=0 or dy<=0: return []
+        total=sum(sizes); scaled=[s/total*(dx*dy) for s in sizes]
+        rects=[]
+        def worst(row, w):
+            s=sum(row); mx=max(row); mn=min(row)
+            if s<=0 or w<=0 or mn<=0: return float("inf")
+            return max(w*w*mx/(s*s), s*s/(w*w*mn))
+        def layout(row, x, y, dx, dy):
+            covered=sum(row)
+            if dx>=dy:
+                width=covered/dy if dy else 0; yy=y
+                for r in row:
+                    h=r/width if width else 0; rects.append((x,yy,width,h)); yy+=h
+                return x+width,y,dx-width,dy
+            else:
+                height=covered/dx if dx else 0; xx=x
+                for r in row:
+                    wv=r/height if height else 0; rects.append((xx,y,wv,height)); xx+=wv
+                return x,y+height,dx,dy-height
+        row=[]; i=0
+        while i<len(scaled):
+            r=scaled[i]; w=min(dx,dy)
+            if not row or worst(row+[r], w) <= worst(row, w):
+                row.append(r); i+=1
+            else:
+                x,y,dx,dy=layout(row,x,y,dx,dy); row=[]
+        if row: layout(row,x,y,dx,dy)
+        return rects
+
     def _render_disk(self, rows):
         for w in self.tpanel.winfo_children(): w.destroy()
-        self._ptitle("Карта диска", "Крупнейшие папки в ~. Клик по строке — открыть в Finder.")
-        cv=tk.Canvas(self.tpanel, bg=GLASS, highlightthickness=0); cv.pack(fill="both", expand=True, pady=(4,8))
-        mx=rows[0][0] if rows else 1
+        self._ptitle("Карта диска (Space Lens)", "Площадь блока = размер папки. Клик — открыть в Finder.")
+        if not hasattr(self, "_disk_mode"): self._disk_mode="tree"
+        bar=tk.Frame(self.tpanel, bg=BG0); bar.pack(fill="x")
+        def setmode(m,):
+            self._disk_mode=m; self._render_disk(rows)
+        for key,label in [("tree","🟦 Treemap"),("bars","📊 Бары")]:
+            m=key
+            b=tk.Label(bar, text=label, bg=(BLUE if self._disk_mode==key else GLASS_HI), fg="white" if self._disk_mode==key else TEXT,
+                       font=("SF Pro Text",11,"bold"), padx=10, pady=5, cursor="pointinghand")
+            b.pack(side="left", padx=(0,6)); b.bind("<Button-1>", lambda e,k=key: (setattr(self,"_disk_mode",k), self._render_disk(rows)))
+        cv=tk.Canvas(self.tpanel, bg=GLASS, highlightthickness=0); cv.pack(fill="both", expand=True, pady=(6,8))
         pal=[BLUE,GREEN,PURPLE,YELLOW,CYAN,RED]
         def draw(e=None):
-            cv.delete("all"); W=cv.winfo_width() or 600; y=14
-            for i,(sz,p) in enumerate(rows):
-                col=pal[i%len(pal)]; bw=max(6,(W-180)*sz/mx); tag=f"r{i}"
-                self._round(cv, 150,y,150+bw,y+22,6, fill=col, outline=col, tags=tag)
-                cv.create_text(12,y+11, anchor="w", fill=TEXT, font=("SF Pro Text",11),
-                               text=p.replace(HOME,"~")[:26], tags=tag)
-                cv.create_text(W-12,y+11, anchor="e", fill=MUTED, font=("SF Pro Text",11), text=human(sz), tags=tag)
-                cv.tag_bind(tag,"<Button-1>", lambda e,pp=p: run(["/usr/bin/open",pp]))
-                y+=30
-            cv.configure(scrollregion=(0,0,W,y))
+            cv.delete("all"); W=cv.winfo_width() or 600; H=cv.winfo_height() or 360
+            if self._disk_mode=="bars":
+                mx=rows[0][0] if rows else 1; y=14
+                for i,(sz,p) in enumerate(rows):
+                    col=pal[i%len(pal)]; bw=max(6,(W-180)*sz/mx); tag=f"r{i}"
+                    self._round(cv, 150,y,150+bw,y+22,6, fill=col, outline=col, tags=tag)
+                    cv.create_text(12,y+11, anchor="w", fill=TEXT, font=("SF Pro Text",11),
+                                   text=p.replace(HOME,"~")[:26], tags=tag)
+                    cv.create_text(W-12,y+11, anchor="e", fill=MUTED, font=("SF Pro Text",11), text=human(sz), tags=tag)
+                    cv.tag_bind(tag,"<Button-1>", lambda e,pp=p: run(["/usr/bin/open",pp]))
+                    y+=30
+                cv.configure(scrollregion=(0,0,W,y))
+            else:
+                rects=self._squarify([s for s,_ in rows], 4,4,W-8,H-8)
+                for i,((rx,ry,rw,rh),(sz,p)) in enumerate(zip(rects,rows)):
+                    col=pal[i%len(pal)]; tag=f"t{i}"
+                    cv.create_rectangle(rx,ry,rx+rw,ry+rh, fill=col, outline=BG0, width=2, tags=tag)
+                    if rw>54 and rh>22:
+                        cv.create_text(rx+6,ry+12, anchor="w", fill="white", font=("SF Pro Text",10,"bold"),
+                                       text=os.path.basename(p.rstrip("/"))[:18], tags=tag)
+                        cv.create_text(rx+6,ry+26, anchor="w", fill="white", font=("SF Pro Text",9),
+                                       text=human(sz), tags=tag)
+                    cv.tag_bind(tag,"<Button-1>", lambda e,pp=p: run(["/usr/bin/open",pp]))
+                cv.configure(scrollregion=(0,0,W,H))
         cv.bind("<Configure>", draw); draw()
 
     # --- Обслуживание ---

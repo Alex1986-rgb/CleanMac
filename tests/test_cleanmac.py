@@ -99,6 +99,21 @@ class TestDiskAdvice(unittest.TestCase):
         self.assertEqual(adv[0][0], "🟢")
 
 
+class TestSquarify(unittest.TestCase):
+    def test_areas_proportional_and_cover(self):
+        sizes=[50,30,20]
+        rects=cm.CleanMac._squarify(sizes, 0,0, 100,100)
+        self.assertEqual(len(rects), 3)
+        areas=[rw*rh for _,_,rw,rh in rects]
+        self.assertAlmostEqual(sum(areas), 100*100, delta=1)   # покрытие полное
+        # пропорции сохранены (первый вдвое больше третьего ~ 50 vs 20)
+        self.assertAlmostEqual(areas[0]/areas[2], 50/20, delta=0.05)
+
+    def test_empty_and_zero(self):
+        self.assertEqual(cm.CleanMac._squarify([], 0,0,100,100), [])
+        self.assertEqual(cm.CleanMac._squarify([0,0], 0,0,100,100), [])
+
+
 class TestOrphanName(unittest.TestCase):
     def setUp(self):
         self.ids = {"com.acme.coolapp", "telegram", "com.tdesktop.telegram"}
