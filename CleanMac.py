@@ -17,7 +17,7 @@ from tkinter import messagebox, filedialog
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from krylan_core import human  # noqa: E402
 
-VERSION = "2.14.0"
+VERSION = "2.15.0"
 BRAND   = "KRYLAN"
 SLOGAN  = "Дай устройству крылья"
 AUTHOR  = "Кырлан Александр Сергеевич"
@@ -1415,6 +1415,7 @@ class CleanMac(tk.Tk):
         row=tk.Frame(self.main, bg=BG0); row.pack(anchor="w", padx=24, pady=16)
         if not self.is_pro:
             self._btn(row,"⭐️ Купить Pro",PURPLE, lambda: run(["/usr/bin/open",BUY_URL])).pack(side="left", padx=(0,8))
+        self._btn(row,"🔄 Обновить и перезапустить",GREEN, self._self_update).pack(side="left", padx=(0,8))
         self._btn(row,"Проверить обновления",BLUE, lambda: threading.Thread(target=self._check_update,args=(True,),daemon=True).start()).pack(side="left", padx=(0,8))
         self._btn(row,"GitHub",GLASS_HI, lambda: run(["/usr/bin/open",f"https://github.com/{REPO}"])).pack(side="left")
         self._btn(row, ("🌐 EN" if LANG=="ru" else "🌐 RU"), GREEN,
@@ -1423,6 +1424,28 @@ class CleanMac(tk.Tk):
                   lambda: self.set_theme("light" if THEME=="dark" else "dark")).pack(side="left", padx=(8,0))
 
     # ---------- обновления ----------
+    def _self_update(self):
+        self.status("🔄 Обновляю из GitHub…")
+        threading.Thread(target=self._self_update_w, daemon=True).start()
+
+    def _self_update_w(self):
+        repo = os.path.dirname(os.path.abspath(__file__))
+        before = run(["git","-C",repo,"rev-parse","--short","HEAD"], 15).strip()
+        run(["git","-C",repo,"pull","--ff-only","--autostash"], 60)
+        after = run(["git","-C",repo,"rev-parse","--short","HEAD"], 15).strip()
+        newver = VERSION
+        try:
+            with open(os.path.join(repo,"VERSION")) as f: newver = f.read().strip()
+        except Exception: pass
+        self.q.put(("selfupdate", (before != after, newver), None))
+
+    def _do_restart(self):
+        """Перезапуск со свежим кодом: заменяем процесс новым python на обновлённом CleanMac.py."""
+        try:
+            os.execv(sys.executable, [sys.executable, os.path.abspath(__file__)])
+        except Exception as e:
+            messagebox.showerror("CleanMac", f"Не удалось перезапустить: {e}\nЗакройте и откройте приложение вручную.")
+
     def _check_update(self, manual=False):
         import ssl
         url=f"https://raw.githubusercontent.com/{REPO}/main/VERSION"
@@ -1523,6 +1546,15 @@ class CleanMac(tk.Tk):
                 elif kind=="update":
                     self.update_note=a; self.badge.configure(text=a if a.startswith("⬆️") else "")
                     if self.page=="pro": self.nav("pro")
+                elif kind=="selfupdate":
+                    self.status("")
+                    changed, newver = a
+                    if changed:
+                        if messagebox.askyesno("CleanMac",
+                            f"Обновлено до версии {newver}.\nПерезапустить сейчас, чтобы применить?"):
+                            self._do_restart()
+                    else:
+                        messagebox.showinfo("CleanMac", f"У вас уже последняя версия ({newver}).")
         except queue.Empty: pass
         except Exception: pass
         self.after(120, self._poll)
