@@ -38,6 +38,6 @@ struct TipsView: View {
             Spacer()
         }
         .padding(24).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(Brand.bg0)
+        .background(StarfieldView())
     }
 }

@@ -35,7 +35,7 @@ struct BatteryView: View {
         }
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(Brand.bg0)
+        .background(StarfieldView())
     }
 
     func infoRow(_ title: String, _ value: String) -> some View {

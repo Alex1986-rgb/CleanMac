@@ -270,7 +270,7 @@ struct PhotoDuplicatesView: View {
             .padding(16)
             .frame(maxWidth: .infinity)
         }
-        .background(Brand.bg0)
+        .background(StarfieldView())
     }
 }
 

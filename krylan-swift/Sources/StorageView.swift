@@ -32,7 +32,7 @@ struct StorageView: View {
         }
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(Brand.bg0)
+        .background(StarfieldView())
     }
 
     func row(_ title: String, _ value: String, _ color: Color) -> some View {

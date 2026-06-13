@@ -112,6 +112,6 @@ struct ScreenshotsView: View {
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .background(Brand.bg0)
+        .background(StarfieldView())
     }
 }
