@@ -99,7 +99,7 @@ struct DashboardView: View {
             .padding(16)
             .frame(maxWidth: .infinity)
         }
-        .background(Brand.bg0)
+        .background(StarfieldView())
     }
 
     /// Один клик: очистка собственного кэша приложения (единственное безопасное на iOS).
