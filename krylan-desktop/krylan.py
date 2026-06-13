@@ -16,7 +16,7 @@ from send2trash import send2trash
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import krylan_core
 
-VERSION = "1.9.0"
+VERSION = "1.10.0"
 SYSTEM = platform.system()           # Windows / Darwin / Linux
 HOME = os.path.expanduser("~")
 
@@ -50,6 +50,14 @@ I18N = {
     "🧳 Деинсталлятор": "🧳 Uninstaller", "📂 Пустые папки": "📂 Empty folders",
     "📈 Что выросло": "📈 What grew", "🔒 Приватность": "🔒 Privacy", "🩺 Диск": "🩺 Disk",
     "РЕКОМЕНДАЦИИ": "RECOMMENDATIONS",
+    "Готово к анализу": "Ready to analyze", "Анализ": "Analyze",
+    "Топ по памяти. «Завершить» закрывает выбранный процесс.":
+        "Top by memory. “End” closes the selected process.",
+    "Завершить": "End",
+    "Полная проверка одним кликом: кэши · корзина · старые загрузки · дубликаты.":
+        "Full one-click check: caches · trash · old downloads · duplicates.",
+    "Временные файлы и кэши. Всё уходит в Корзину (обратимо).":
+        "Temporary files and caches. Everything goes to Trash (reversible).",
 }
 def L(s):
     if LANG == "en":
@@ -461,7 +469,7 @@ class Krylan(tk.Tk):
                           self.info.get("batt") if self.info.get("batt") is not None else None)
         ay0 = 296; ah = 20 + len(adv)*22
         c.create_rectangle(20, ay0, W-20, ay0+ah, fill=GLASS, outline=GLASS)
-        c.create_text(40, ay0+14, anchor="w", fill=MUTED, font=("Segoe UI", 10, "bold"), text="РЕКОМЕНДАЦИИ")
+        c.create_text(40, ay0+14, anchor="w", fill=MUTED, font=("Segoe UI", 10, "bold"), text=L("РЕКОМЕНДАЦИИ"))
         for i,(col,text) in enumerate(adv):
             c.create_oval(40, ay0+30+i*22, 50, ay0+40+i*22, fill=col, outline=col)
             c.create_text(60, ay0+35+i*22, anchor="w", fill=TEXT, font=("Segoe UI", 11), text=text)
@@ -469,8 +477,8 @@ class Krylan(tk.Tk):
 
     # ---------- очистка ----------
     def show_clean(self):
-        tk.Label(self.main, text="Очистка", bg=BG0, fg=TEXT, font=("Segoe UI", 20, "bold")).pack(anchor="w", padx=24, pady=(18,2))
-        tk.Label(self.main, text="Временные файлы и кэши. Всё уходит в Корзину (обратимо).", bg=BG0, fg=MUTED, font=("Segoe UI", 10)).pack(anchor="w", padx=24, pady=(0,10))
+        tk.Label(self.main, text=L("Очистка"), bg=BG0, fg=TEXT, font=("Segoe UI", 20, "bold")).pack(anchor="w", padx=24, pady=(18,2))
+        tk.Label(self.main, text=L("Временные файлы и кэши. Всё уходит в Корзину (обратимо)."), bg=BG0, fg=MUTED, font=("Segoe UI", 10)).pack(anchor="w", padx=24, pady=(0,10))
         wrap = tk.Frame(self.main, bg=GLASS); wrap.pack(fill="x", padx=24)
         self.cl_vars = {}; self.cl_lbl = {}
         for i,(name,p) in enumerate(cleanup_targets()):
@@ -480,9 +488,9 @@ class Krylan(tk.Tk):
                            activebackground=GLASS, activeforeground=TEXT, font=("Segoe UI", 11), anchor="w").pack(side="left")
             sl = tk.Label(row, text="…", bg=GLASS, fg=GREEN, font=("Segoe UI", 11, "bold")); sl.pack(side="right"); self.cl_lbl[i] = sl
         bar = tk.Frame(self.main, bg=BG0); bar.pack(fill="x", padx=24, pady=14)
-        self.cl_total = tk.Label(bar, text="Готово к анализу", bg=BG0, fg=TEXT, font=("Segoe UI", 12, "bold")); self.cl_total.pack(side="left")
-        self._btn(bar, "Очистить", GREEN, self.run_clean).pack(side="right", padx=(8,0))
-        self._btn(bar, "Анализ", BLUE, self.run_analyze).pack(side="right")
+        self.cl_total = tk.Label(bar, text=L("Готово к анализу"), bg=BG0, fg=TEXT, font=("Segoe UI", 12, "bold")); self.cl_total.pack(side="left")
+        self._btn(bar, L("Очистить"), GREEN, self.run_clean).pack(side="right", padx=(8,0))
+        self._btn(bar, L("Анализ"), BLUE, self.run_analyze).pack(side="right")
 
     def _btn(self, parent, text, color, cmd):
         b = tk.Label(parent, text="  "+text+"  ", bg=color, fg="white", font=("Segoe UI", 12, "bold"), padx=14, pady=7, cursor="hand2")
@@ -521,7 +529,7 @@ class Krylan(tk.Tk):
     # ---------- сканер (one-click, в духе BoostSpeed My Scanner) ----------
     def show_scan(self):
         tk.Label(self.main, text=L("Сканер"), bg=BG0, fg=TEXT, font=("Segoe UI", 20, "bold")).pack(anchor="w", padx=24, pady=(18,2))
-        tk.Label(self.main, text="Полная проверка одним кликом: кэши · корзина · старые загрузки · дубликаты.",
+        tk.Label(self.main, text=L("Полная проверка одним кликом: кэши · корзина · старые загрузки · дубликаты."),
                  bg=BG0, fg=MUTED, font=("Segoe UI", 10)).pack(anchor="w", padx=24, pady=(0,10))
         bar = tk.Frame(self.main, bg=BG0); bar.pack(fill="x", padx=24)
         self._btn(bar, "🚀 Ускорить — как новый", GREEN, self.run_boost).pack(side="left", padx=(0,8))
@@ -642,8 +650,8 @@ class Krylan(tk.Tk):
 
     # ---------- процессы (диспетчер задач) ----------
     def show_procs(self):
-        tk.Label(self.main, text="Процессы", bg=BG0, fg=TEXT, font=("Segoe UI", 20, "bold")).pack(anchor="w", padx=24, pady=(18,2))
-        tk.Label(self.main, text="Топ по памяти. «Завершить» закрывает выбранный процесс.", bg=BG0, fg=MUTED, font=("Segoe UI", 10)).pack(anchor="w", padx=24, pady=(0,8))
+        tk.Label(self.main, text=L("Процессы"), bg=BG0, fg=TEXT, font=("Segoe UI", 20, "bold")).pack(anchor="w", padx=24, pady=(18,2))
+        tk.Label(self.main, text=L("Топ по памяти. «Завершить» закрывает выбранный процесс."), bg=BG0, fg=MUTED, font=("Segoe UI", 10)).pack(anchor="w", padx=24, pady=(0,8))
         head = tk.Frame(self.main, bg=BG0); head.pack(fill="x", padx=26)
         tk.Label(head, text="Процесс", bg=BG0, fg=MUTED, font=("Segoe UI", 10, "bold"), anchor="w", width=28).pack(side="left")
         tk.Label(head, text="ОЗУ", bg=BG0, fg=MUTED, font=("Segoe UI", 10, "bold"), width=10).pack(side="left")
@@ -666,7 +674,7 @@ class Krylan(tk.Tk):
             tk.Label(r, text=name[:30], bg=GLASS, fg=TEXT, font=("Segoe UI", 11), anchor="w", width=28).pack(side="left")
             tk.Label(r, text=human(rss), bg=GLASS, fg=MUTED, font=("Segoe UI", 10), width=10).pack(side="left")
             tk.Label(r, text=f"{cpu:.0f}%", bg=GLASS, fg=load_color(min(100, cpu)), font=("Segoe UI", 10), width=7).pack(side="left")
-            b = tk.Label(r, text="Завершить", bg=RED, fg="white", font=("Segoe UI", 9, "bold"), padx=8, pady=2, cursor="hand2")
+            b = tk.Label(r, text=L("Завершить"), bg=RED, fg="white", font=("Segoe UI", 9, "bold"), padx=8, pady=2, cursor="hand2")
             b.pack(side="right"); b.bind("<Button-1>", lambda e, pp=pid, nn=name: self._kill_proc(pp, nn))
         self.after(2500, self._procs_refresh)
 
