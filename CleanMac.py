@@ -10,9 +10,9 @@ KRYLAN · CleanMac — оптимизатор для macOS со «стеклян
 import os, time, shutil, hashlib, threading, queue, subprocess, collections, math, re, json
 import urllib.request
 import tkinter as tk
-from tkinter import messagebox
+from tkinter import messagebox, filedialog
 
-VERSION = "2.9.0"
+VERSION = "2.10.0"
 BRAND   = "KRYLAN"
 SLOGAN  = "Дай устройству крылья"
 AUTHOR  = "Кырлан Александр Сергеевич"
@@ -152,6 +152,25 @@ def to_trash(path):
     if os.path.exists(dest): dest = os.path.join(TRASH, f"{base}-{int(time.time()*1000)}")
     try: shutil.move(path, dest); return True
     except Exception: return False
+
+def shred_file(path):
+    """Безвозвратное удаление файла: перезапись случайными данными → усечение → удаление.
+    Защищает системные/корневые пути; работает только с обычными файлами."""
+    if not os.path.isfile(path) or os.path.islink(path): return False
+    if is_protected(path): return False
+    try:
+        size = os.path.getsize(path)
+        with open(path, "r+b", buffering=0) as f:
+            written, chunk = 0, 1024 * 1024
+            while written < size:
+                n = min(chunk, size - written)
+                f.write(os.urandom(n)); written += n
+            f.flush(); os.fsync(f.fileno())
+            f.seek(0); f.truncate(0)
+        os.remove(path)
+        return True
+    except Exception:
+        return False
 
 # ---------- метрики ----------
 def stat_cpu():
@@ -705,7 +724,7 @@ class CleanMac(tk.Tk):
         for key,lbl in [("startup","⚙️ Автозагрузка"),("large","📦 Крупные файлы"),
                         ("dupes","👯 Дубликаты"),("uninstall","🧩 Деинсталлятор"),
                         ("disk","🗺 Карта диска"),("maintain","🩺 Обслуживание"),
-                        ("shots","📸 Скриншоты"),
+                        ("shots","📸 Скриншоты"),("shred","🔥 Шредер"),
                         ("browsers","🌐 Браузеры"),("trash","♻️ Корзина")]:
             b=tk.Label(bar, text=lbl, bg=GLASS, fg=TEXT, font=("SF Pro Text",12), padx=11, pady=8, cursor="pointinghand")
             b.pack(side="left", padx=4); b.bind("<Button-1>", lambda e,k=key:self._tool(k)); self.tool_chips[key]=b
@@ -718,7 +737,7 @@ class CleanMac(tk.Tk):
         self._lv=[]
         {"startup":self._t_startup,"large":self._t_large,"dupes":self._t_dupes,
          "uninstall":self._t_uninstall,"disk":self._t_disk,"maintain":self._t_maintain,
-         "shots":self._t_shots,
+         "shots":self._t_shots,"shred":self._t_shred,
          "browsers":self._t_browsers,"trash":self._t_trash}[key]()
 
     def _ptitle(self, text, sub=""):
@@ -1013,6 +1032,54 @@ class CleanMac(tk.Tk):
                      font=("SF Pro Text",12)).pack(anchor="w", padx=10, pady=10)
         self._actionbar(f"Скриншотов: {n} · ~{human(total)} (старше 30 дн. отмечены)",
                         lambda: self._trash_sel(lambda: self._tool("shots")))
+
+    # --- Шредер (безопасное удаление по явному выбору) ---
+    def _t_shred(self):
+        self._ptitle("Шредер", "Безвозвратное удаление выбранных файлов с перезаписью. Не для системных папок.")
+        self._shred_files = []
+        self._btn(self.tpanel, "➕ Выбрать файлы…", BLUE, self._shred_pick).pack(anchor="w", pady=(2,6))
+        self._shred_box = tk.Frame(self.tpanel, bg=GLASS); self._shred_box.pack(fill="both", expand=True, pady=(0,8))
+        tk.Label(self._shred_box, text="Файлы не выбраны.", bg=GLASS, fg=MUTED,
+                 font=("SF Pro Text",12)).pack(anchor="w", padx=10, pady=10)
+        self._shred_action = tk.Frame(self.tpanel, bg=BG0); self._shred_action.pack(fill="x")
+        tk.Label(self.tpanel,
+                 text="⚠️ На SSD из-за wear-leveling и TRIM перезапись не гарантирует физическое стирание ячеек, "
+                      "но логически файл невосстановим. Для надёжности используйте шифрование диска (FileVault).",
+                 bg=BG0, fg=MUTED, font=("SF Pro Text",10), wraplength=560, justify="left").pack(anchor="w", pady=(6,0))
+
+    def _shred_pick(self):
+        paths = filedialog.askopenfilenames(title="Выберите файлы для уничтожения")
+        if not paths: return
+        self._shred_files = [p for p in paths if os.path.isfile(p) and not is_protected(p)]
+        for w in self._shred_box.winfo_children(): w.destroy()
+        for w in self._shred_action.winfo_children(): w.destroy()
+        if not self._shred_files:
+            tk.Label(self._shred_box, text="Файлы не выбраны.", bg=GLASS, fg=MUTED,
+                     font=("SF Pro Text",12)).pack(anchor="w", padx=10, pady=10); return
+        total = 0
+        for p in self._shred_files:
+            try: sz = os.path.getsize(p)
+            except OSError: sz = 0
+            total += sz
+            r = tk.Frame(self._shred_box, bg=GLASS); r.pack(fill="x", padx=8, pady=1)
+            tk.Label(r, text=human(sz), bg=GLASS, fg=MUTED, font=("SF Pro Text",10),
+                     width=9, anchor="e").pack(side="right", padx=(6,4))
+            tk.Label(r, text=os.path.basename(p), bg=GLASS, fg=TEXT, font=("SF Pro Text",11),
+                     anchor="w").pack(side="left", fill="x", expand=True)
+        self._btn(self._shred_action, f"🔥 Уничтожить {len(self._shred_files)} ({human(total)})",
+                  RED, self._shred_run).pack(side="left", pady=4)
+
+    def _shred_run(self):
+        n = len(self._shred_files)
+        if not n: return
+        if not messagebox.askyesno("Шредер",
+            f"Безвозвратно уничтожить {n} файл(ов)?\nЭто действие НЕОБРАТИМО — файлы не попадут в Корзину."): return
+        ok = 0
+        for p in list(self._shred_files):
+            if shred_file(p): ok += 1
+        messagebox.showinfo("CleanMac", f"Уничтожено: {ok} из {n}.")
+        self._shred_files = []
+        self._tool("shred")
 
     # --- Браузеры / Корзина ---
     def _t_browsers(self):
