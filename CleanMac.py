@@ -39,7 +39,7 @@ from tkinter import messagebox, filedialog
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from krylan_core import human  # noqa: E402
 
-VERSION = "2.25.0"
+VERSION = "2.26.0"
 BRAND   = "KRYLAN"
 SLOGAN  = "Дай устройству крылья"
 AUTHOR  = "Кырлан Александр Сергеевич"
@@ -1781,9 +1781,14 @@ class CleanMac(tk.Tk):
             self.net_down_hist.append(d); self.net_up_hist.append(u)
 
     def _animate(self):
-        if self.page=="dash" and hasattr(self,"cv") and self.cv.winfo_exists():
-            for k in self.disp: self.disp[k]+=(self.tgt[k]-self.disp[k])*0.22
-            self._draw_dash()
+        # КРИТИЧНО: любое исключение в отрисовке НЕ должно обрывать цикл —
+        # иначе дашборд «замерзает» (перестаёт обновляться интернет и метрики).
+        try:
+            if self.page=="dash" and hasattr(self,"cv") and self.cv.winfo_exists():
+                for k in self.disp: self.disp[k]+=(self.tgt[k]-self.disp[k])*0.22
+                self._draw_dash()
+        except Exception:
+            pass
         self.after(33, self._animate)
 
     # ---------- очередь ----------
