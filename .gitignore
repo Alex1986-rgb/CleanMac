@@ -18,6 +18,11 @@ krylan-android/local.properties
 krylan-android/.gradle/
 krylan-android/app/build/
 
+# Android signing — СЕКРЕТЫ, никогда не коммитить
+krylan-android/keystore.properties
+*.keystore
+*.jks
+
 # macOS
 .DS_Store
 
