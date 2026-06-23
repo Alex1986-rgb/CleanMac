@@ -15,6 +15,8 @@ final class SystemMonitor: ObservableObject {
     @Published var memoryUsedPercent: Double = 0
     @Published var netDownBps: Double = 0   // скорость загрузки, байт/с
     @Published var netUpBps: Double = 0     // скорость отдачи, байт/с
+    @Published var netDownHist: [Double] = Array(repeating: 0, count: 40)
+    @Published var netUpHist: [Double] = Array(repeating: 0, count: 40)
 
     private var timer: Timer?
     private var prevRecv: UInt64 = 0
@@ -80,6 +82,8 @@ final class SystemMonitor: ObservableObject {
             netUpBps   = max(0, Double(sent &- prevSent)) / dt
         }
         prevRecv = recv; prevSent = sent; prevNetTime = now
+        netDownHist = Array((netDownHist + [netDownBps]).suffix(40))
+        netUpHist = Array((netUpHist + [netUpBps]).suffix(40))
     }
 
     /// Суммарные байты recv/sent по всем активным интерфейсам (кроме loopback).

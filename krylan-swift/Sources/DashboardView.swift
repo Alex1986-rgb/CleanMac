@@ -80,8 +80,24 @@ struct DashboardView: View {
                          "\(monitor.diskFreeGB) ГБ свободно", "из \(monitor.diskTotalGB) ГБ", Brand.blue)
                 infoCard("memorychip.fill", "Оперативная память",
                          "\(Int(monitor.memoryUsedPercent))% занято", "всего \(monitor.ramTotalGB) ГБ", Brand.purple)
-                infoCard("network", "Интернет",
-                         "↓ \(monitor.netDownLabel)", "↑ \(monitor.netUpLabel)", Brand.green)
+                // Карточка «Интернет» с живым спарклайном ↓/↑
+                HStack(spacing: 14) {
+                    Image(systemName: "network").font(.title2).foregroundStyle(Brand.green)
+                        .frame(width: 46, height: 46)
+                        .background(RoundedRectangle(cornerRadius: 12).fill(Brand.green.opacity(0.15)))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("ИНТЕРНЕТ").font(.caption.bold()).foregroundStyle(Brand.muted)
+                        Text("↓ \(monitor.netDownLabel)   ↑ \(monitor.netUpLabel)")
+                            .font(.subheadline.bold()).foregroundStyle(Brand.text)
+                    }
+                    Spacer(minLength: 8)
+                    ZStack {
+                        Sparkline(values: monitor.netUpHist, color: Brand.blue)
+                        Sparkline(values: monitor.netDownHist, color: Brand.green)
+                    }.frame(width: 90, height: 34)
+                }
+                .padding(16)
+                .background(RoundedRectangle(cornerRadius: 16).fill(Brand.glass))
 
                 // Рекомендации
                 VStack(alignment: .leading, spacing: 10) {

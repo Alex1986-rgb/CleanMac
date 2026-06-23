@@ -8,8 +8,12 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.Canvas
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -42,6 +46,12 @@ fun DashboardScreen(ctx: Context) {
     val health = remember(tick) { SystemInfo.healthScore(ctx) }
     val healthLabel = if (health >= 70) "Отлично" else if (health >= 40) "Внимание" else "Критично"
     val net = remember(tick) { SystemInfo.netSpeed() }
+    val downHist = remember { mutableStateListOf<Float>() }
+    val upHist = remember { mutableStateListOf<Float>() }
+    LaunchedEffect(tick) {
+        downHist.add(net.downBps.toFloat()); if (downHist.size > 40) downHist.removeAt(0)
+        upHist.add(net.upBps.toFloat()); if (upHist.size > 40) upHist.removeAt(0)
+    }
 
     Column(
         Modifier
@@ -117,9 +127,29 @@ fun DashboardScreen(ctx: Context) {
         InfoCard(Icons.Filled.Memory, "Оперативная память",
             "${ramPct.toInt()}% занято",
             "всего ${"%.1f".format(SystemInfo.gb(SystemInfo.ramTotalBytes(ctx)))} ГБ", Brand.purple)
-        InfoCard(Icons.Filled.Wifi, "Интернет",
-            "↓ ${SystemInfo.fmtRate(net.downBps)}",
-            "↑ ${SystemInfo.fmtRate(net.upBps)}", Brand.green)
+        // Карточка «Интернет» с живым спарклайном ↓/↑
+        Card(
+            colors = CardDefaults.cardColors(containerColor = Brand.glass),
+            shape = RoundedCornerShape(16.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                Box(
+                    Modifier.size(46.dp).background(Brand.green.copy(alpha = 0.15f), RoundedCornerShape(12.dp)),
+                    contentAlignment = Alignment.Center
+                ) { Icon(Icons.Filled.Wifi, contentDescription = null, tint = Brand.green) }
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text("ИНТЕРНЕТ", color = Brand.muted, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Text("↓ ${SystemInfo.fmtRate(net.downBps)}   ↑ ${SystemInfo.fmtRate(net.upBps)}",
+                        color = Brand.text, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                }
+                Spacer(Modifier.weight(1f))
+                Box(Modifier.size(width = 90.dp, height = 34.dp)) {
+                    Sparkline(upHist, Brand.blue, Modifier.fillMaxSize())
+                    Sparkline(downHist, Brand.green, Modifier.fillMaxSize())
+                }
+            }
+        }
 
         Text("Создатель: ${Brand.AUTHOR}", color = Brand.muted, fontSize = 11.sp)
     }
@@ -133,6 +163,22 @@ private fun MetricRing(value: Float, label: String, invert: Boolean = false) {
             Text("${value.toInt()}%", color = Brand.text, fontSize = 15.sp, fontWeight = FontWeight.Bold)
         }
         Text(label, color = Brand.muted, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+    }
+}
+
+@Composable
+fun Sparkline(values: List<Float>, color: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier) {
+        if (values.size < 2) return@Canvas
+        val peak = (values.maxOrNull() ?: 1f).coerceAtLeast(1f)
+        val n = values.size - 1
+        val path = Path()
+        values.forEachIndexed { i, v ->
+            val x = size.width * i / n
+            val y = size.height - size.height * (v / peak)
+            if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+        }
+        drawPath(path, color, style = Stroke(width = 4f, cap = StrokeCap.Round))
     }
 }
 

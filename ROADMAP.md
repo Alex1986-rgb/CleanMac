@@ -81,8 +81,12 @@
 ## 5. Инфраструктура
 - [x] Публичный GitHub, релизы, Homebrew tap, автообновление
 - [x] CI (GitHub Actions): macOS DMG + Windows .exe + Linux по тегу + тесты
+      (файлы готовы, фикс `--exclude-module psutil`; включить: `bash enable-ci.sh` — нужен scope `workflow`)
 - [x] Sparkle appcast (шаблон docs/appcast.xml + generate-appcast.sh; EdDSA-подпись — после Developer ID)
 - [x] Аналитика загрузок (stats.sh — публичные счётчики GitHub, без телеметрии)
+- [x] Автопилот видит скрытую системную корзину тома (предупреждение + ctl.sh disk)
+- [x] Спарклайн-график скорости сети на iOS и Android (как на macOS)
+- [x] Готовые ответы App Privacy / Data Safety в store/listing.md
 
 ---
 
