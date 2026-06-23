@@ -10,7 +10,13 @@ icon_1024.png
 build/
 dist/
 *.dmg
+*.apk
 *.spec
+
+# Android (машинное / генерируемое)
+krylan-android/local.properties
+krylan-android/.gradle/
+krylan-android/app/build/
 
 # macOS
 .DS_Store
