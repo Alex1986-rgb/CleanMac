@@ -52,6 +52,52 @@ CFG   = os.path.join(HOME, ".config", "cleanmac")
 LIC   = os.path.join(CFG, "license")
 LANG_FILE = os.path.join(CFG, "lang")
 
+# ---------- глубокая корзина ----------
+# Главное: ~/.Trash часто пустая, а место душит СИСТЕМНАЯ корзина тома
+# (/System/Volumes/Data/.Trashes/UID) — туда уходят удаления из /Applications
+# и т.п., и там копятся десятки гигабайт незаметно.
+def trash_locations():
+    """Все корзины пользователя: ~/.Trash + системная корзина тома + тома в /Volumes."""
+    uid = os.getuid()
+    cands = [TRASH, f"/System/Volumes/Data/.Trashes/{uid}", f"/.Trashes/{uid}"]
+    vols = "/Volumes"
+    if os.path.isdir(vols):
+        try:
+            for v in os.listdir(vols):
+                cands.append(os.path.join(vols, v, ".Trashes", str(uid)))
+        except OSError:
+            pass
+    seen, out = set(), []
+    for p in cands:
+        rp = os.path.realpath(p)
+        if rp in seen or not os.path.isdir(p):
+            continue
+        seen.add(rp); out.append(p)
+    return out
+
+def deep_trash_size():
+    """Суммарный размер всех корзин в байтах (du, пути свои — без sudo)."""
+    total = 0
+    for p in trash_locations():
+        try:
+            r = subprocess.run(["/usr/bin/du", "-sk", p], capture_output=True, text=True, timeout=60)
+            kb = (r.stdout.split("\t")[0].strip() if r.stdout else "")
+            if kb.isdigit():
+                total += int(kb) * 1024
+        except Exception:
+            pass
+    return total
+
+def trash_count():
+    """Сколько объектов в Корзине по версии Finder (агрегирует все тома)."""
+    try:
+        r = subprocess.run(["osascript", "-e", 'tell application "Finder" to count items of trash'],
+                           capture_output=True, text=True, timeout=30)
+        n = r.stdout.strip()
+        return int(n) if n.isdigit() else None
+    except Exception:
+        return None
+
 # ---------- локализация (RU/EN) ----------
 def _load_lang():
     try:
@@ -409,6 +455,8 @@ CATEGORIES = [
         [os.path.join(HOME,"Library/Application Support/MobileSync/Backup")], None, "subitems"),
     ("maildl", "Вложения Почты (Mail Downloads)",
         [os.path.join(HOME,"Library/Containers/com.apple.mail/Data/Library/Mail Downloads")], None, "subitems"),
+    ("claudevm", "Образ VM-песочницы Claude (vm_bundles)",
+        [os.path.join(HOME,"Library/Application Support/Claude/vm_bundles")], None, "whole"),
 ]
 
 # ---------- приватность ----------
@@ -1580,15 +1628,38 @@ class CleanMac(tk.Tk):
         self._brez.configure(text=("Закрыты: "+", ".join(closed)) if closed else "Фоновых браузеров нет.")
 
     def _t_trash(self):
-        sz=path_size(TRASH)
-        self._ptitle("Корзина", f"Сейчас в Корзине ~{human(sz)}.")
+        self._ptitle("Корзина", "Считаю размер всех корзин (включая системную корзину тома)…")
+        self._btn(self.tpanel, "♻️ Очистить Корзину (безвозвратно)", RED, self._do_trash).pack(anchor="w", pady=8)
+        threading.Thread(target=self._trash_scan, daemon=True).start()
+
+    def _trash_scan(self):
+        sz = deep_trash_size()
+        n = trash_count()
+        locs = trash_locations()
+        # подсветим скрытый источник: ~/.Trash пустая, а место есть
+        hidden = sz - path_size(TRASH)
+        self.q.put(("trash_info", {"sz": sz, "n": n, "locs": locs, "hidden": hidden}, None))
+
+    def _render_trash_info(self, info):
+        for w in self.tpanel.winfo_children(): w.destroy()
+        sz, n, locs, hidden = info["sz"], info["n"], info["locs"], info["hidden"]
+        cnt = f"{n} объектов" if n is not None else "размер ниже"
+        txt = f"В Корзине ~{human(sz)} ({cnt})."
+        if hidden > 50*1024*1024 and len(locs) > 1:
+            txt += f"\n⚠️ Из них ~{human(hidden)} в системной корзине тома — её не видно в обычной Корзине Finder."
+        self._ptitle("Корзина", txt)
+        for p in locs:
+            tk.Label(self.tpanel, text=f"• {p.replace(HOME,'~')} — {human(path_size(p))}",
+                     bg=BG0, fg=MUTED, font=("SF Pro Text",10)).pack(anchor="w", padx=4)
         self._btn(self.tpanel, "♻️ Очистить Корзину (безвозвратно)", RED, self._do_trash).pack(anchor="w", pady=8)
 
     def _do_trash(self):
-        sz=path_size(TRASH)
-        if not messagebox.askyesno("Очистить Корзину", f"В Корзине ~{human(sz)}. Удалить безвозвратно?"): return
+        sz = deep_trash_size()
+        if not messagebox.askyesno("Очистить Корзину",
+                f"Во всех корзинах ~{human(sz)} (включая системную корзину тома). Удалить безвозвратно?"): return
         run(["osascript","-e",'tell application "Finder" to empty the trash'])
-        messagebox.showinfo("CleanMac","Запрошена очистка Корзины.")
+        record_cleanup(sz, kind="trash")
+        messagebox.showinfo("CleanMac", f"Запрошена очистка Корзины (~{human(sz)}). Может занять минуту.")
 
     # ================= ПРИВАТНОСТЬ =================
     def show_privacy(self):
@@ -1861,6 +1932,7 @@ class CleanMac(tk.Tk):
                     if sub=="large": self._render_large(data)
                     elif sub=="dupes": self._render_dupes(data)
                 elif kind=="disk" and self.page=="tools": self._render_disk(a)
+                elif kind=="trash_info" and self.page=="tools": self._render_trash_info(a)
                 elif kind=="maintdone":
                     try: self._mrez.configure(text="✅ Готово: "+a.replace("★","").strip())
                     except Exception: pass
