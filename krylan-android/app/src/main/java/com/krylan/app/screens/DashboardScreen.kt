@@ -17,6 +17,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -40,6 +41,7 @@ fun DashboardScreen(ctx: Context) {
     val battery = remember(tick) { SystemInfo.batteryPercent(ctx) }
     val health = remember(tick) { SystemInfo.healthScore(ctx) }
     val healthLabel = if (health >= 70) "Отлично" else if (health >= 40) "Внимание" else "Критично"
+    val net = remember(tick) { SystemInfo.netSpeed() }
 
     Column(
         Modifier
@@ -115,6 +117,9 @@ fun DashboardScreen(ctx: Context) {
         InfoCard(Icons.Filled.Memory, "Оперативная память",
             "${ramPct.toInt()}% занято",
             "всего ${"%.1f".format(SystemInfo.gb(SystemInfo.ramTotalBytes(ctx)))} ГБ", Brand.purple)
+        InfoCard(Icons.Filled.Wifi, "Интернет",
+            "↓ ${SystemInfo.fmtRate(net.downBps)}",
+            "↑ ${SystemInfo.fmtRate(net.upBps)}", Brand.green)
 
         Text("Создатель: ${Brand.AUTHOR}", color = Brand.muted, fontSize = 11.sp)
     }

@@ -13,8 +13,23 @@ final class SystemMonitor: ObservableObject {
     @Published var batteryPercent = 100
     @Published var diskUsedPercent: Double = 0
     @Published var memoryUsedPercent: Double = 0
+    @Published var netDownBps: Double = 0   // скорость загрузки, байт/с
+    @Published var netUpBps: Double = 0     // скорость отдачи, байт/с
 
     private var timer: Timer?
+    private var prevRecv: UInt64 = 0
+    private var prevSent: UInt64 = 0
+    private var prevNetTime: TimeInterval = 0
+
+    /// Человекочитаемая скорость, напр. «1.2 МБ/с».
+    var netDownLabel: String { Self.humanRate(netDownBps) }
+    var netUpLabel: String { Self.humanRate(netUpBps) }
+
+    static func humanRate(_ bps: Double) -> String {
+        let u = ["Б", "КБ", "МБ", "ГБ"]; var v = bps; var i = 0
+        while v >= 1024 && i < u.count - 1 { v /= 1024; i += 1 }
+        return String(format: i == 0 ? "%.0f %@/с" : "%.1f %@/с", v, u[i])
+    }
 
     /// Общая оценка состояния 0…100 (больше — лучше).
     var healthScore: Double {
@@ -55,6 +70,39 @@ final class SystemMonitor: ObservableObject {
         let lvl = UIDevice.current.batteryLevel
         batteryPercent = lvl < 0 ? 100 : Int(lvl * 100)
         #endif
+        // --- Сеть (интернет) ---
+        let (recv, sent) = Self.interfaceBytes()
+        let now = Date().timeIntervalSince1970
+        if prevNetTime > 0 {
+            let dt = max(0.5, now - prevNetTime)
+            // счётчики 32-битные — защищаемся от переполнения через wrapping
+            netDownBps = max(0, Double(recv &- prevRecv)) / dt
+            netUpBps   = max(0, Double(sent &- prevSent)) / dt
+        }
+        prevRecv = recv; prevSent = sent; prevNetTime = now
+    }
+
+    /// Суммарные байты recv/sent по всем активным интерфейсам (кроме loopback).
+    /// getifaddrs + if_data работает и на macOS, и в песочнице iOS.
+    static func interfaceBytes() -> (recv: UInt64, sent: UInt64) {
+        var ifaddr: UnsafeMutablePointer<ifaddrs>?
+        guard getifaddrs(&ifaddr) == 0 else { return (0, 0) }
+        defer { freeifaddrs(ifaddr) }
+        var recv: UInt64 = 0, sent: UInt64 = 0
+        var ptr = ifaddr
+        while let p = ptr {
+            defer { ptr = p.pointee.ifa_next }
+            let name = String(cString: p.pointee.ifa_name)
+            let flags = Int32(p.pointee.ifa_flags)
+            guard let addr = p.pointee.ifa_addr,
+                  addr.pointee.sa_family == UInt8(AF_LINK),
+                  (flags & IFF_UP) == IFF_UP, name != "lo0",
+                  let data = p.pointee.ifa_data?.assumingMemoryBound(to: if_data.self)
+            else { continue }
+            recv += UInt64(data.pointee.ifi_ibytes)
+            sent += UInt64(data.pointee.ifi_obytes)
+        }
+        return (recv, sent)
     }
 
     /// % занятой физической памяти через Mach (работает на macOS и iOS).

@@ -3,9 +3,11 @@ package com.krylan.app
 
 import android.app.ActivityManager
 import android.content.Context
+import android.net.TrafficStats
 import android.os.BatteryManager
 import android.os.Environment
 import android.os.StatFs
+import android.os.SystemClock
 import java.io.File
 import java.util.Locale
 
@@ -32,6 +34,32 @@ object SystemInfo {
         val bm = ctx.getSystemService(Context.BATTERY_SERVICE) as BatteryManager
         return bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
     }
+
+    // --- Сеть (интернет): скорость вниз/вверх через общесистемные счётчики ---
+    data class NetSpeed(val downBps: Long, val upBps: Long)
+
+    private var prevRx = 0L
+    private var prevTx = 0L
+    private var prevNetMs = 0L
+
+    /** Скорость сети с прошлого вызова (байт/с). Первый вызов вернёт 0. */
+    fun netSpeed(): NetSpeed {
+        val rx = TrafficStats.getTotalRxBytes()
+        val tx = TrafficStats.getTotalTxBytes()
+        val now = SystemClock.elapsedRealtime()
+        // UNSUPPORTED (-1) на устройствах без счётчиков
+        if (rx < 0 || tx < 0) return NetSpeed(0, 0)
+        var down = 0L; var up = 0L
+        if (prevNetMs > 0) {
+            val dt = ((now - prevNetMs).coerceAtLeast(500)) / 1000.0
+            down = ((rx - prevRx).coerceAtLeast(0) / dt).toLong()
+            up = ((tx - prevTx).coerceAtLeast(0) / dt).toLong()
+        }
+        prevRx = rx; prevTx = tx; prevNetMs = now
+        return NetSpeed(down, up)
+    }
+
+    fun fmtRate(bytesPerSec: Long): String = "${fmtSize(bytesPerSec)}/с"
 
     /** Оценка здоровья 0..100 — как в iOS-версии: среднее от запаса по памяти и диску. */
     fun healthScore(ctx: Context): Float {

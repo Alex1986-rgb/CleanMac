@@ -80,6 +80,8 @@ struct DashboardView: View {
                          "\(monitor.diskFreeGB) ГБ свободно", "из \(monitor.diskTotalGB) ГБ", Brand.blue)
                 infoCard("memorychip.fill", "Оперативная память",
                          "\(Int(monitor.memoryUsedPercent))% занято", "всего \(monitor.ramTotalGB) ГБ", Brand.purple)
+                infoCard("network", "Интернет",
+                         "↓ \(monitor.netDownLabel)", "↑ \(monitor.netUpLabel)", Brand.green)
 
                 // Рекомендации
                 VStack(alignment: .leading, spacing: 10) {

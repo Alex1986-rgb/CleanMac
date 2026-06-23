@@ -17,21 +17,54 @@ except Exception:
 
 # ---------- сеть (интернет): скорость вниз/вверх ----------
 _net_prev = {"t": None, "down": 0, "up": 0}
-def stat_net():
-    """Текущая скорость сети (байт/с) как (down, up). Без psutil — нули."""
-    if psutil is None: return (0.0, 0.0)
+
+def _net_counters_netstat():
+    """Суммарные байты recv/sent по всем физическим интерфейсам через netstat -ib.
+    Резерв, когда psutil недоступен (например, не попал в .app-бандл)."""
     try:
-        io = psutil.net_io_counters(); now = time.time()
-        if _net_prev["t"] is None:
-            _net_prev.update({"t": now, "down": io.bytes_recv, "up": io.bytes_sent})
-            return (0.0, 0.0)
-        dt = max(0.5, now - _net_prev["t"])
-        down = max(0, (io.bytes_recv - _net_prev["down"]) / dt)
-        up = max(0, (io.bytes_sent - _net_prev["up"]) / dt)
-        _net_prev.update({"t": now, "down": io.bytes_recv, "up": io.bytes_sent})
-        return (down, up)
+        out = subprocess.run(["/usr/sbin/netstat", "-ib"],
+                             capture_output=True, text=True, timeout=5).stdout
     except Exception:
+        return None
+    recv = sent = 0; seen = set()
+    for line in out.splitlines()[1:]:
+        f = line.split()
+        # строка-агрегат интерфейса помечена <Link#..> в колонке Network
+        if len(f) < 10 or f[0] == "lo0" or not f[2].startswith("<Link"):
+            continue
+        if f[0] in seen:
+            continue
+        seen.add(f[0])
+        try:
+            recv += int(f[6]); sent += int(f[9])
+        except (ValueError, IndexError):
+            continue
+    return (recv, sent) if seen else None
+
+def _net_raw_counters():
+    """(bytes_recv, bytes_sent) от psutil, иначе от netstat. None — если никак."""
+    if psutil is not None:
+        try:
+            io = psutil.net_io_counters()
+            return (io.bytes_recv, io.bytes_sent)
+        except Exception:
+            pass
+    return _net_counters_netstat()
+
+def stat_net():
+    """Текущая скорость сети (байт/с) как (down, up)."""
+    c = _net_raw_counters()
+    if c is None:
         return (0.0, 0.0)
+    recv, sent = c; now = time.time()
+    if _net_prev["t"] is None:
+        _net_prev.update({"t": now, "down": recv, "up": sent})
+        return (0.0, 0.0)
+    dt = max(0.5, now - _net_prev["t"])
+    down = max(0, (recv - _net_prev["down"]) / dt)
+    up = max(0, (sent - _net_prev["up"]) / dt)
+    _net_prev.update({"t": now, "down": recv, "up": sent})
+    return (down, up)
 import tkinter as tk
 from tkinter import messagebox, filedialog
 
@@ -39,7 +72,7 @@ from tkinter import messagebox, filedialog
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from krylan_core import human  # noqa: E402
 
-VERSION = "2.27.0"
+VERSION = "2.28.0"
 BRAND   = "KRYLAN"
 SLOGAN  = "Дай устройству крылья"
 AUTHOR  = "Кырлан Александр Сергеевич"
