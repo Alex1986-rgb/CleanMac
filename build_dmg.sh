@@ -11,8 +11,11 @@ mkdir -p "$STAGE"
 
 if "$PY" -c "import PyInstaller" 2>/dev/null; then
   echo "▶ Сборка самодостаточного .app через PyInstaller…"
+  # psutil исключаем намеренно: его .so одной архитектуры ломает universal2.
+  # В CleanMac.py psutil нужен ТОЛЬКО для скорости сети, а там есть резерв
+  # через `netstat -ib` — поэтому в бандле сеть работает и без psutil.
   "$PY" -m PyInstaller --windowed --name "$NAME" --icon CleanMac.icns \
-        --target-arch universal2 \
+        --target-arch universal2 --exclude-module psutil \
         --osx-bundle-identifier com.macbook.cleanmac --noconfirm CleanMac.py
   cp -R "dist/$NAME.app" "$STAGE/"
 else
