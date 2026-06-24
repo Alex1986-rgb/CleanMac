@@ -80,7 +80,7 @@ from tkinter import messagebox, filedialog
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from krylan_core import human  # noqa: E402
 
-VERSION = "2.33.0"
+VERSION = "2.34.0"
 BRAND   = "KRYLAN"
 SLOGAN  = "Дай устройству крылья"
 AUTHOR  = "Кырлан Александр Сергеевич"
@@ -841,6 +841,52 @@ class CleanMac(tk.Tk):
             c.create_line(*flat, fill=_blend(color,BG0,0.35), width=6, smooth=True, capstyle="round")
             c.create_line(*flat, fill=color, width=2, smooth=True, capstyle="round")
 
+    def _globe(self, c, cx, cy, r, fr):
+        """Вращающаяся каркасная «планета-устройство» (HUD, неон-циан)."""
+        # ореол-свечение
+        for k in range(5,0,-1):
+            rr=r+k*4
+            c.create_oval(cx-rr,cy-rr,cx+rr,cy+rr, outline=_blend(CYAN,BG0,0.86), width=1)
+        # тёмная сфера + лимб
+        c.create_oval(cx-r,cy-r,cx+r,cy+r, fill=_blend(BG0,CYAN,0.10), outline=CYAN, width=2)
+        # параллели (широты)
+        for lat in (-0.66,-0.33,0.0,0.33,0.66):
+            rx=r*math.sqrt(max(0.0,1-lat*lat)); yy=cy-r*lat
+            c.create_oval(cx-rx, yy-rx*0.18, cx+rx, yy+rx*0.18, outline=_blend(CYAN,BG0,0.62), width=1)
+        # меридианы (долготы) — вращаются: ширина = |r·cos(phase)|
+        phase=fr*0.04; M=8
+        for k in range(M):
+            ang=phase + k*math.pi/M
+            rx=abs(r*math.cos(ang))
+            col=_blend(CYAN, BG0, 0.40 + 0.32*(1-abs(math.cos(ang))))
+            if rx>1: c.create_oval(cx-rx, cy-r, cx+rx, cy+r, outline=col, width=1)
+        # светящиеся узлы («города»), вращаются с планетой
+        rnd=random.Random(7)
+        for n in range(7):
+            la=rnd.uniform(-0.7,0.7); na=phase*1.0 + n*0.9
+            rx=r*math.sqrt(max(0.0,1-la*la))
+            nx=cx+rx*math.cos(na); ny=cy-r*la
+            if math.sin(na)>-0.1:                 # только передняя полусфера
+                c.create_oval(nx-2,ny-2,nx+2,ny+2, fill="#ff66d4", outline="#ff66d4")
+
+    def _hints(self, c, cx, cy, r, fr):
+        """Парящие подсказки-чипы вокруг планеты — как в фантастических HUD."""
+        tips=[f"ОЗУ {int(self.disp['ram'])}%", f"CPU {int(self.disp['cpu'])}%",
+              f"Диск {int(self.disp['disk'])}%", f"↓ {human(self.net_down)}/с",
+              f"Здоровье {int(self.disp['health'])}", f"Батарея {self.batt.get('pct',0)}%"]
+        n=len(tips)
+        for i,t in enumerate(tips):
+            a=fr*0.012 + i*(2*math.pi/n)
+            rad=r+50+10*math.sin(fr*0.03+i)
+            hx=cx+rad*math.cos(a)*1.45; hy=cy+rad*math.sin(a)*0.58
+            ex=cx+r*math.cos(a); ey=cy+r*math.sin(a)*0.58
+            tw=0.55+0.45*math.sin(fr*0.05+i)
+            c.create_line(ex,ey,hx,hy, fill=_blend(CYAN,BG0,0.80), width=1)
+            c.create_oval(hx-3,hy-3,hx+3,hy+3, outline=CYAN, fill=_blend(CYAN,BG0,0.45))
+            right=math.cos(a)>=0
+            c.create_text(hx+(14 if right else -14), hy, anchor=("w" if right else "e"),
+                          fill=_blend(TEXT,BG0,1-tw*0.7), font=("SF Pro Text",10,"bold"), text=t)
+
     # ================= ДАШБОРД =================
     def show_dash(self):
         tk.Label(self.main, text=L("Дашборд"), bg=BG0, fg=TEXT, font=("SF Pro Display", 28, "bold")
@@ -863,6 +909,13 @@ class CleanMac(tk.Tk):
         self.bri_btn.pack(side="right", padx=(0,8))
         self.cv = tk.Canvas(self.main, bg=BG0, highlightthickness=0)
         self.cv.pack(fill="both", expand=True, padx=14, pady=(0,12))
+        # прокрутка дашборда колёсиком (чтобы дотянуться до нижних карточек и планеты)
+        self.cv.bind("<Enter>", lambda e: self.cv.bind_all("<MouseWheel>", self._dash_wheel))
+        self.cv.bind("<Leave>", lambda e: self.cv.unbind_all("<MouseWheel>"))
+
+    def _dash_wheel(self, e):
+        try: self.cv.yview_scroll(int(-e.delta/3), "units")
+        except Exception: pass
 
     def _brightness_max(self):
         set_brightness(1.0)
@@ -980,7 +1033,14 @@ class CleanMac(tk.Tk):
         for icon,text in adv:
             c.create_text(x+16,ay, anchor="w", fill=TEXT, font=("SF Pro Text",11), text=f"{icon}  {text}")
             ay+=22
-        c.configure(scrollregion=(0,0,W,y5+ah+m))
+        # --- HUD: вращающаяся «планета-устройство» с парящими подсказками ---
+        fr=getattr(self,"_frame",0)
+        gy=y5+ah+m; gh=216
+        self._card(c, m, gy, W-2*m, gh, "Устройство · в реальном времени", accent=CYAN, icon="🛰")
+        gcx, gcy, gr = W*0.5, gy+gh*0.5+10, 56
+        self._globe(c, gcx, gcy, gr, fr)
+        self._hints(c, gcx, gcy, gr, fr)
+        c.configure(scrollregion=(0,0,W,gy+gh+m))
 
     def _battery(self, c, x,y,w,h,frac,charging):
         col = GREEN if charging or frac>.4 else (YELLOW if frac>.2 else RED)
