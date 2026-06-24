@@ -72,7 +72,7 @@ from tkinter import messagebox, filedialog
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from krylan_core import human  # noqa: E402
 
-VERSION = "2.28.0"
+VERSION = "2.29.0"
 BRAND   = "KRYLAN"
 SLOGAN  = "Дай устройству крылья"
 AUTHOR  = "Кырлан Александр Сергеевич"
@@ -152,15 +152,17 @@ TR = {
 def L(s):
     return TR.get(s, s) if LANG=="en" else s
 
-# ---------- акценты (общие для тем) ----------
-GREEN, BLUE, YELLOW, RED, PURPLE, CYAN = "#37d39a", "#4b8cf9", "#f6bb45", "#f2685f", "#a78bfa", "#36c6d6"
+# ---------- акценты: системные цвета iOS (Apple Human Interface) ----------
+GREEN, BLUE, YELLOW, RED, PURPLE, CYAN = "#30d158", "#0a84ff", "#ffd60a", "#ff453a", "#bf5af2", "#64d2ff"
 
-# ---------- темы оформления ----------
+# ---------- темы оформления (сгруппированные фоны как в iOS) ----------
 THEMES = {
-    "dark":  {"BG0":"#11151d","BG1":"#1b2330","SIDEBAR":"#0e1219","GLASS":"#222b3a",
-              "GLASS_HI":"#2b3647","TRACK":"#333d4e","TEXT":"#eef2f8","MUTED":"#8a94a6"},
-    "light": {"BG0":"#eef1f7","BG1":"#e2e8f2","SIDEBAR":"#e6ebf4","GLASS":"#ffffff",
-              "GLASS_HI":"#dbe2ee","TRACK":"#ccd5e1","TEXT":"#1b2230","MUTED":"#5f6b7a"},
+    # iOS dark: чёрная база, карточки systemGray6, разделители systemGray4
+    "dark":  {"BG0":"#000000","BG1":"#1c1c1e","SIDEBAR":"#1c1c1e","GLASS":"#1c1c1e",
+              "GLASS_HI":"#2c2c2e","TRACK":"#3a3a3c","TEXT":"#ffffff","MUTED":"#98989f"},
+    # iOS light: systemGroupedBackground + белые карточки
+    "light": {"BG0":"#f2f2f7","BG1":"#ffffff","SIDEBAR":"#f2f2f7","GLASS":"#ffffff",
+              "GLASS_HI":"#e5e5ea","TRACK":"#d1d1d6","TEXT":"#000000","MUTED":"#8e8e93"},
 }
 THEME_FILE = os.path.join(CFG, "theme")
 def _load_theme():
@@ -566,7 +568,7 @@ class CleanMac(tk.Tk):
                          anchor="w", padx=10, pady=12, cursor="pointinghand")
             b.pack(fill="x"); b.bind("<Button-1>", lambda e,k=key: self.nav(k))
             b.bind("<Enter>", lambda e,bb=b,k=key: bb.configure(bg=GLASS_HI) if self.page!=k else None)
-            b.bind("<Leave>", lambda e,bb=b,k=key: bb.configure(bg=(GLASS if self.page==k else SIDEBAR)))
+            b.bind("<Leave>", lambda e,bb=b,k=key: bb.configure(bg=(GLASS_HI if self.page==k else SIDEBAR)))
             self.nav_btns[key]=b
         self.badge = tk.Label(self.side, text="", bg=SIDEBAR, fg=YELLOW, font=("SF Pro Text", 11, "bold"),
                               wraplength=184, justify="left"); self.badge.pack(side="bottom", fill="x", padx=12, pady=(0,6))
@@ -577,7 +579,8 @@ class CleanMac(tk.Tk):
     def nav(self, key):
         self.page = key
         for k,b in self.nav_btns.items():
-            b.configure(bg=GLASS if k==key else SIDEBAR, fg=TEXT if k==key else "#9aa3b2")
+            b.configure(bg=GLASS_HI if k==key else SIDEBAR, fg=GREEN if k==key else MUTED,
+                        font=("SF Pro Text", 13, "bold" if k==key else "normal"))
         for w in self.main.winfo_children(): w.destroy()
         {"dash":self.show_dash,"smart":self.show_smart,"privacy":self.show_privacy,"threats":self.show_threats,
          "autopilot":self.show_autopilot,"cleaner":self.show_cleaner,
@@ -697,7 +700,7 @@ class CleanMac(tk.Tk):
 
     # ================= ДАШБОРД =================
     def show_dash(self):
-        tk.Label(self.main, text=L("Дашборд"), bg=BG0, fg=TEXT, font=("SF Pro Display", 22, "bold")
+        tk.Label(self.main, text=L("Дашборд"), bg=BG0, fg=TEXT, font=("SF Pro Display", 28, "bold")
                  ).pack(anchor="w", padx=24, pady=(16,0))
         tk.Label(self.main, text=L("Состояние системы в реальном времени"), bg=BG0, fg=MUTED,
                  font=("SF Pro Text", 11)).pack(anchor="w", padx=24, pady=(0,6))
@@ -851,7 +854,7 @@ class CleanMac(tk.Tk):
 
     # ================= УМНАЯ ОЧИСТКА =================
     def show_smart(self):
-        tk.Label(self.main, text=L("Умная очистка"), bg=BG0, fg=TEXT, font=("SF Pro Display",22,"bold")
+        tk.Label(self.main, text=L("Умная очистка"), bg=BG0, fg=TEXT, font=("SF Pro Display",28,"bold")
                  ).pack(anchor="w", padx=24, pady=(16,2))
         tk.Label(self.main, text="Один проход по всем безопасным категориям. Всё уходит в Корзину.",
                  bg=BG0, fg=MUTED, font=("SF Pro Text",11)).pack(anchor="w", padx=24, pady=(0,10))
@@ -907,7 +910,7 @@ class CleanMac(tk.Tk):
 
     # ================= АВТОПИЛОТ =================
     def show_autopilot(self):
-        tk.Label(self.main, text=L("Автопилот"), bg=BG0, fg=TEXT, font=("SF Pro Display",22,"bold")
+        tk.Label(self.main, text=L("Автопилот"), bg=BG0, fg=TEXT, font=("SF Pro Display",28,"bold")
                  ).pack(anchor="w", padx=24, pady=(16,2))
         tk.Label(self.main, text="Фоновый страж следит за памятью и при пике сам чистит и разгружает.",
                  bg=BG0, fg=MUTED, font=("SF Pro Text",11)).pack(anchor="w", padx=24, pady=(0,14))
@@ -934,7 +937,7 @@ class CleanMac(tk.Tk):
 
         tk.Label(self.main, text="Журнал автопилота:", bg=BG0, fg=MUTED, font=("SF Pro Text",11)
                  ).pack(anchor="w", padx=24, pady=(10,2))
-        self.ap_log=tk.Text(self.main, bg="#0f1218", fg=TEXT, font=("SF Mono",11), relief="flat",
+        self.ap_log=tk.Text(self.main, bg=GLASS, fg=TEXT, font=("SF Mono",11), relief="flat",
                             padx=12, pady=10); self.ap_log.pack(fill="both", expand=True, padx=24, pady=(0,16))
         self._ap_refresh()
 
@@ -1055,7 +1058,7 @@ class CleanMac(tk.Tk):
 
     # ================= ОЧИСТКА =================
     def show_cleaner(self):
-        tk.Label(self.main, text=L("Очистка"), bg=BG0, fg=TEXT, font=("SF Pro Display",22,"bold")
+        tk.Label(self.main, text=L("Очистка"), bg=BG0, fg=TEXT, font=("SF Pro Display",28,"bold")
                  ).pack(anchor="w", padx=24, pady=(16,2))
         tk.Label(self.main, text="«Анализ» посчитает объём, «Очистить» переместит в Корзину.",
                  bg=BG0, fg=MUTED, font=("SF Pro Text",11)).pack(anchor="w", padx=24, pady=(0,12))
@@ -1116,7 +1119,7 @@ class CleanMac(tk.Tk):
 
     # ================= ИНСТРУМЕНТЫ (интерактивные) =================
     def show_tools(self):
-        tk.Label(self.main, text=L("Инструменты"), bg=BG0, fg=TEXT, font=("SF Pro Display",22,"bold")
+        tk.Label(self.main, text=L("Инструменты"), bg=BG0, fg=TEXT, font=("SF Pro Display",28,"bold")
                  ).pack(anchor="w", padx=24, pady=(16,8))
         self.tool_chips={}
         chips=[("startup","⚙️ Автозагрузка"),("large","📦 Крупные файлы"),
@@ -1696,7 +1699,7 @@ class CleanMac(tk.Tk):
 
     # ================= ПРИВАТНОСТЬ =================
     def show_privacy(self):
-        tk.Label(self.main, text=L("Приватность"), bg=BG0, fg=TEXT, font=("SF Pro Display",22,"bold")
+        tk.Label(self.main, text=L("Приватность"), bg=BG0, fg=TEXT, font=("SF Pro Display",28,"bold")
                  ).pack(anchor="w", padx=24, pady=(16,2))
         tk.Label(self.main, text="Очистка следов работы → в Корзину (обратимо). Браузеры должны быть закрыты.",
                  bg=BG0, fg=MUTED, font=("SF Pro Text",11)).pack(anchor="w", padx=24, pady=(0,10))
@@ -1740,7 +1743,7 @@ class CleanMac(tk.Tk):
 
     # ================= ЗАЩИТА =================
     def show_threats(self):
-        tk.Label(self.main, text=L("Защита"), bg=BG0, fg=TEXT, font=("SF Pro Display",22,"bold")
+        tk.Label(self.main, text=L("Защита"), bg=BG0, fg=TEXT, font=("SF Pro Display",28,"bold")
                  ).pack(anchor="w", padx=24, pady=(16,2))
         tk.Label(self.main, text="Эвристический поиск известного рекламного/нежелательного ПО в точках автозапуска. Не заменяет антивирус.",
                  bg=BG0, fg=MUTED, font=("SF Pro Text",11), wraplength=640, justify="left").pack(anchor="w", padx=24, pady=(0,8))
