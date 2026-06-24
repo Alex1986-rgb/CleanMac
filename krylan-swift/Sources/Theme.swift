@@ -7,18 +7,19 @@ enum Brand {
     static let author = "Кырлан Александр Сергеевич"
     static let version = "0.6.0"
 
-    static let bg0    = Color(red: 0.07, green: 0.08, blue: 0.11)
-    static let bg1    = Color(red: 0.106, green: 0.137, blue: 0.188)   // #1B2330 из DESIGN.md
-    static let glass  = Color(red: 0.13, green: 0.17, blue: 0.23)
-    static let track  = Color(red: 0.20, green: 0.24, blue: 0.31)
-    static let text   = Color(red: 0.93, green: 0.95, blue: 0.97)
-    static let muted  = Color(red: 0.54, green: 0.58, blue: 0.65)
-    static let green  = Color(red: 0.21, green: 0.83, blue: 0.60)
-    static let blue   = Color(red: 0.29, green: 0.55, blue: 0.97)
-    static let cyan   = Color(red: 0.21, green: 0.78, blue: 0.84)
-    static let purple = Color(red: 0.65, green: 0.54, blue: 0.98)
-    static let yellow = Color(red: 0.96, green: 0.73, blue: 0.27)
-    static let red    = Color(red: 0.95, green: 0.41, blue: 0.37)
+    // Системные цвета iOS (Apple HIG): чёрная база, карточки systemGray6.
+    static let bg0    = Color(red: 0.0,   green: 0.0,   blue: 0.0)     // #000000
+    static let bg1    = Color(red: 0.110, green: 0.110, blue: 0.118)   // #1C1C1E
+    static let glass  = Color(red: 0.110, green: 0.110, blue: 0.118)   // systemGray6
+    static let track  = Color(red: 0.227, green: 0.227, blue: 0.235)   // #3A3A3C systemGray4
+    static let text   = Color(red: 1.0,   green: 1.0,   blue: 1.0)     // #FFFFFF
+    static let muted  = Color(red: 0.596, green: 0.596, blue: 0.624)   // #98989F
+    static let green  = Color(red: 0.188, green: 0.820, blue: 0.345)   // systemGreen #30D158
+    static let blue   = Color(red: 0.039, green: 0.518, blue: 1.0)     // systemBlue #0A84FF
+    static let cyan   = Color(red: 0.392, green: 0.824, blue: 1.0)     // systemTeal #64D2FF
+    static let purple = Color(red: 0.749, green: 0.353, blue: 0.949)   // systemPurple #BF5AF2
+    static let yellow = Color(red: 1.0,   green: 0.839, blue: 0.039)   // systemYellow #FFD60A
+    static let red    = Color(red: 1.0,   green: 0.271, blue: 0.227)   // systemRed #FF453A
 
     /// Цвет по нагрузке: 0 — хорошо (зелёный), 100 — плохо (красный).
     static func load(_ p: Double) -> Color {

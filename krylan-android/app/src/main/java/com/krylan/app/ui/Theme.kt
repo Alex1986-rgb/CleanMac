@@ -12,17 +12,18 @@ object Brand {
     const val SLOGAN = "Дай устройству крылья"
     const val AUTHOR = "Кырлан Александр Сергеевич"
 
-    val bg0 = Color(0xFF12161D)
-    val glass = Color(0xFF212B37)
-    val track = Color(0xFF333D4E)
-    val text = Color(0xFFEEF2F8)
-    val muted = Color(0xFF8A94A6)
-    val green = Color(0xFF37D39A)
-    val blue = Color(0xFF4B8CF9)
-    val yellow = Color(0xFFF6BB45)
-    val red = Color(0xFFF2685F)
-    val purple = Color(0xFFA78BFA)
-    val cyan = Color(0xFF36C6D6)
+    // Системные цвета iOS (Apple HIG): чёрная база, карточки systemGray6.
+    val bg0 = Color(0xFF000000)
+    val glass = Color(0xFF1C1C1E)   // systemGray6
+    val track = Color(0xFF3A3A3C)   // systemGray4
+    val text = Color(0xFFFFFFFF)
+    val muted = Color(0xFF98989F)
+    val green = Color(0xFF30D158)   // systemGreen
+    val blue = Color(0xFF0A84FF)    // systemBlue
+    val yellow = Color(0xFFFFD60A)  // systemYellow
+    val red = Color(0xFFFF453A)     // systemRed
+    val purple = Color(0xFFBF5AF2)  // systemPurple
+    val cyan = Color(0xFF64D2FF)    // systemTeal
 
     fun load(p: Float): Color = if (p < 60) green else if (p < 85) yellow else red
 }
