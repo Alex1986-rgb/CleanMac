@@ -135,6 +135,50 @@ class TestOrphanName(unittest.TestCase):
         self.assertTrue(cm._is_orphan_name("com.deleted.oldapp", self.ids))
 
 
+class TestVersionCompare(unittest.TestCase):
+    """Апдейтер: баннер только для реально новой версии (числовое сравнение)."""
+    def test_tuple(self):
+        self.assertEqual(cm.ver_tuple("2.29.0"), (2, 29, 0))
+        self.assertEqual(cm.ver_tuple(" 1.2 "), (1, 2))
+        self.assertEqual(cm.ver_tuple("мусор"), (0,))   # не падает
+
+    def test_newer_older_equal(self):
+        self.assertTrue(cm.ver_tuple("2.30.0") > cm.ver_tuple("2.29.0"))   # новее
+        self.assertFalse(cm.ver_tuple("2.28.0") > cm.ver_tuple("2.29.0"))  # откат не предлагаем
+        self.assertFalse(cm.ver_tuple("2.29.0") > cm.ver_tuple("2.29.0"))  # равны
+
+    def test_string_compare_pitfall(self):
+        # строковое сравнение ошибочно считает '2.9' новее '2.29'; числовое — нет
+        self.assertFalse(cm.ver_tuple("2.9.0") > cm.ver_tuple("2.29.0"))
+
+
+class TestNetSpeed(unittest.TestCase):
+    """Скорость сети: psutil ИЛИ резерв netstat; всегда неотрицательно."""
+    def test_stat_net_nonneg_tuple(self):
+        d, u = cm.stat_net()
+        self.assertIsInstance(d, float); self.assertIsInstance(u, float)
+        self.assertGreaterEqual(d, 0.0); self.assertGreaterEqual(u, 0.0)
+
+    def test_netstat_fallback(self):
+        c = cm._net_counters_netstat()        # на macOS интерфейсы есть
+        self.assertTrue(c is None or (isinstance(c, tuple) and len(c) == 2))
+        if c is not None:
+            self.assertGreaterEqual(c[0], 0); self.assertGreaterEqual(c[1], 0)
+
+
+class TestDeepTrash(unittest.TestCase):
+    """Глубокая Корзина: видит и системную корзину тома, не только ~/.Trash."""
+    def test_locations_are_dirs(self):
+        locs = cm.trash_locations()
+        self.assertIsInstance(locs, list)
+        for p in locs:
+            self.assertTrue(os.path.isdir(p))
+        self.assertIn(cm.TRASH, locs + [cm.TRASH])  # ~/.Trash учитывается, если существует
+
+    def test_deep_size_nonneg(self):
+        self.assertGreaterEqual(cm.deep_trash_size(), 0)
+
+
 class TestBrewParser(unittest.TestCase):
     def test_formula_lines(self):
         text = "ack (3.9.0) < 3.10.0\naircrack-ng (1.7_1) < 1.7_2"

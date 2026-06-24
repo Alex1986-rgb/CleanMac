@@ -65,6 +65,14 @@ def stat_net():
     up = max(0, (sent - _net_prev["up"]) / dt)
     _net_prev.update({"t": now, "down": recv, "up": sent})
     return (down, up)
+def ver_tuple(s):
+    """Версия '2.29.0' → (2,29,0) для корректного числового сравнения.
+    Строковое сравнение ошибается ('2.9' > '2.29'); числовое — нет."""
+    try:
+        return tuple(int(x) for x in str(s).strip().split("."))
+    except Exception:
+        return (0,)
+
 import tkinter as tk
 from tkinter import messagebox, filedialog
 
@@ -1882,10 +1890,7 @@ class CleanMac(tk.Tk):
                 if latest: break
             except Exception:
                 continue
-        def _vt(s):
-            try: return tuple(int(x) for x in str(s).strip().split("."))
-            except Exception: return (0,)
-        if latest and _vt(latest) > _vt(VERSION):
+        if latest and ver_tuple(latest) > ver_tuple(VERSION):
             self.q.put(("update", f"⬆️ Доступна версия {latest} (у вас {VERSION})", None))
         elif latest and manual:
             self.q.put(("update", f"✅ Установлена последняя версия {VERSION}", None))
