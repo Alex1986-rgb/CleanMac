@@ -80,7 +80,7 @@ from tkinter import messagebox, filedialog
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from krylan_core import human  # noqa: E402
 
-VERSION = "2.38.0"
+VERSION = "2.39.0"
 BRAND   = "KRYLAN"
 SLOGAN  = "Дай устройству крылья"
 AUTHOR  = "Кырлан Александр Сергеевич"
@@ -907,19 +907,21 @@ class CleanMac(tk.Tk):
 
     # ================= ДАШБОРД =================
     def show_dash(self):
-        tk.Label(self.main, text=L("Дашборд"), bg=BG0, fg=TEXT, font=("SF Pro Display", 28, "bold")
-                 ).pack(anchor="w", padx=24, pady=(16,0))
-        tk.Label(self.main, text=L("Состояние системы в реальном времени"), bg=BG0, fg=MUTED,
-                 font=("SF Pro Text", 11)).pack(anchor="w", padx=24, pady=(0,6))
-        # Единая верхняя панель: слева — флагманская кнопка, справа — яркость (компактно)
-        bar=tk.Frame(self.main, bg=BG0); bar.pack(fill="x", padx=22, pady=(4,12))
-        self.boost_btn=self._btn(bar, L("🚀 Ускорить — сделать как новый"), GREEN, self._boost_now)
-        self.boost_btn.pack(side="left", padx=(2,0))
+        # Шапка в один ряд: «Дашборд» + LIVE-индикатор слева, кнопки справа
+        head=tk.Frame(self.main, bg=BG0); head.pack(fill="x", padx=22, pady=(16,12))
+        left=tk.Frame(head, bg=BG0); left.pack(side="left")
+        tk.Label(left, text=L("Дашборд"), bg=BG0, fg=TEXT, font=("SF Pro Display", 26, "bold")).pack(side="left")
+        self.live_dot=tk.Label(left, text="●", bg=BG0, fg=GREEN, font=("SF Pro Text", 13))
+        self.live_dot.pack(side="left", padx=(14,4), pady=(8,0))
+        tk.Label(left, text="В РЕАЛЬНОМ ВРЕМЕНИ", bg=BG0, fg=MUTED,
+                 font=("SF Pro Text", 10, "bold")).pack(side="left", pady=(9,0))
         # яркость: компактная кнопка-цикл 25 → 50 → 75 → 100 %
         cur=get_brightness()
         self._bri_lvl=int(round((cur if cur is not None else 0.75)*100/25)*25) or 25
-        self.bri_btn=self._btn(bar, f"☀ {self._bri_lvl}%", YELLOW, self._brightness_cycle)
-        self.bri_btn.pack(side="right", padx=(0,2))
+        self.bri_btn=self._btn(head, f"☀ {self._bri_lvl}%", YELLOW, self._brightness_cycle)
+        self.bri_btn.pack(side="right", padx=(8,2))
+        self.boost_btn=self._btn(head, L("⚡ Ускорить — сделать как новый"), GREEN, self._boost_now)
+        self.boost_btn.pack(side="right")
         self.cv = tk.Canvas(self.main, bg=BG0, highlightthickness=0)
         self.cv.pack(fill="both", expand=True, padx=14, pady=(0,12))
         # прокрутка дашборда колёсиком (чтобы дотянуться до нижних карточек и планеты)
@@ -1009,7 +1011,7 @@ class CleanMac(tk.Tk):
         c.create_text(W-22, 60, anchor="e", fill=BLUE, font=("SF Pro Display",14,"bold"), text=f"↑ {human(self.net_up)}/с")
         # кардиограмма «пульс системы» — верх-лево (ЭКГ, цвет по здоровью)
         c.create_text(22, 13, anchor="w", fill=MUTED, font=("SF Pro Text",9,"bold"), text="♥ ПУЛЬС СИСТЕМЫ")
-        self._ekg(c, 22, 22, max(140, cx-150), 42, fr, col_for(self.disp["health"], inv=True))
+        self._ekg(c, 22, 22, max(140, cx-150), 42, fr, RED)
         # ===== метрики-гейджи вокруг планеты =====
         sval=human(self.swap_mb*1024*1024).replace(" ","")
         gauges=[("ЗДОРОВЬЕ", str(int(self.disp["health"])), self.disp["health"]/100, col_for(self.disp["health"],inv=True)),
@@ -2111,6 +2113,11 @@ class CleanMac(tk.Tk):
             if self.page=="dash" and hasattr(self,"cv") and self.cv.winfo_exists():
                 for k in self.disp: self.disp[k]+=(self.tgt[k]-self.disp[k])*0.22
                 self._draw_dash()
+                # LIVE-индикатор: мигает в такт; цвет по здоровью
+                if hasattr(self,"live_dot"):
+                    base=col_for(self.disp["health"], inv=True)
+                    on=(self._frame//16)%2==0
+                    self.live_dot.configure(fg=base if on else _blend(base,BG0,0.55))
         except Exception:
             pass
         self.after(33, self._animate)
@@ -2145,7 +2152,7 @@ class CleanMac(tk.Tk):
                 elif kind=="boosted":
                     try: self.boost_btn.configure(text="  ✓ Готово  ")
                     except Exception: pass
-                    self.after(1800, lambda: self.boost_btn.configure(text="  "+L("🚀 Ускорить — сделать как новый")+"  ") if hasattr(self,"boost_btn") else None)
+                    self.after(1800, lambda: self.boost_btn.configure(text=L("⚡ Ускорить — сделать как новый")) if hasattr(self,"boost_btn") else None)
                     steps="\n".join("• "+s for s in (b or []))
                     messagebox.showinfo("CleanMac",
                         f"🚀 Готово! Компьютер ускорен.\n\nОсвобождено всего: ~{human(a)}\n\n{steps}\n\n"
