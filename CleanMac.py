@@ -80,7 +80,7 @@ from tkinter import messagebox, filedialog
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from krylan_core import human  # noqa: E402
 
-VERSION = "2.39.0"
+VERSION = "2.40.0"
 BRAND   = "KRYLAN"
 SLOGAN  = "Дай устройству крылья"
 AUTHOR  = "Кырлан Александр Сергеевич"
@@ -603,12 +603,18 @@ class CleanMac(tk.Tk):
         self.is_pro = os.path.exists(LIC)
         self.update_note = ""
         self._group_active = {}   # запоминаем активную под-вкладку каждой группы
+        self._visible = True      # окно на экране и в фокусе → анимируем; иначе пауза
         self._build()
         self.nav("dash")
+        # пауза анимации, когда окно не активно/свёрнуто — чтобы не жечь CPU
+        self.bind("<FocusIn>",  lambda e: setattr(self, "_visible", True))
+        self.bind("<FocusOut>", lambda e: setattr(self, "_visible", False))
+        self.bind("<Unmap>",    lambda e: setattr(self, "_visible", False))
+        self.bind("<Map>",      lambda e: setattr(self, "_visible", True))
         threading.Thread(target=self._sampler, daemon=True).start()
         threading.Thread(target=self._net_sampler, daemon=True).start()
         threading.Thread(target=self._check_update, daemon=True).start()
-        self.after(80, self._poll); self.after(33, self._animate)
+        self.after(80, self._poll); self.after(66, self._animate)
 
     # ---------- каркас ----------
     def _build(self):
@@ -748,7 +754,7 @@ class CleanMac(tk.Tk):
         base="#060d1e"; glow="#173d72"
         c.create_rectangle(0,0,w,h, fill=base, outline=base)
         cxp, cyp = w*0.5, h*0.30
-        rings=16; maxr=max(w,h)*1.0
+        rings=11; maxr=max(w,h)*1.0
         for i in range(rings,0,-1):
             t=i/rings; rr=maxr*t
             col=_blend(glow, base, t)        # внешние кольца тёмные, центр — свечение
@@ -759,7 +765,7 @@ class CleanMac(tk.Tk):
         """Натуральное звёздное небо: звёзды разного размера, мерцание, блики у ярких."""
         if not hasattr(self, "_stars"):
             rnd = random.Random(42); self._stars=[]
-            for _ in range(150):
+            for _ in range(90):
                 self._stars.append((rnd.random(), rnd.random(),
                                     rnd.uniform(0.4,2.2),        # размер
                                     rnd.uniform(0,6.28),         # фаза мерцания
@@ -784,7 +790,7 @@ class CleanMac(tk.Tk):
         # внешний круг-след
         c.create_oval(cx-r,cy-r,cx+r,cy+r, outline=TRACK, width=w)
         # HUD-насечки по периметру: горят неоном до текущего значения; каждая 6-я — длинная
-        N=48
+        N=28
         for i in range(N):
             a=math.radians(90 - (i/N)*360); lit=(i/N)<=frac; major=(i%6==0)
             rr1=r+4; rr2=r+(13 if major else (10 if lit else 7))
@@ -858,7 +864,7 @@ class CleanMac(tk.Tk):
         puls=math.exp(-((ph-0.16)**2)/0.004)+0.6*math.exp(-((ph-0.34)**2)/0.004)
         puls=min(1.0,puls)
         # ореол-свечение (пульсирует)
-        for k in range(6,0,-1):
+        for k in range(4,0,-1):
             rr=r+k*4 + puls*7
             c.create_oval(cx-rr,cy-rr,cx+rr,cy+rr, outline=_blend(CYAN,BG0,0.88-0.10*puls*(6-k)/6), width=1)
         # кольцо-импульс, расходящееся при ударе
@@ -872,7 +878,7 @@ class CleanMac(tk.Tk):
             rx=r*math.sqrt(max(0.0,1-lat*lat)); yy=cy-r*lat
             c.create_oval(cx-rx, yy-rx*0.18, cx+rx, yy+rx*0.18, outline=_blend(CYAN,BG0,0.62), width=1)
         # меридианы (долготы) — вращаются: ширина = |r·cos(phase)|
-        phase=fr*0.04; M=8
+        phase=fr*0.04; M=6
         for k in range(M):
             ang=phase + k*math.pi/M
             rx=abs(r*math.cos(ang))
@@ -963,7 +969,7 @@ class CleanMac(tk.Tk):
             return 0.0
         baseline=y+h*0.55; amp=h*0.42; cyc=118.0; off=(fr*1.7)%cyc
         pts=[]
-        for px in range(0,int(w)+1,2):
+        for px in range(0,int(w)+1,3):
             t=((px+off)%cyc)/cyc
             pts += [x+px, baseline-beat(t)*amp]
         if len(pts)>=4:
@@ -2106,21 +2112,24 @@ class CleanMac(tk.Tk):
             self.net_down_hist.append(d); self.net_up_hist.append(u)
 
     def _animate(self):
-        # КРИТИЧНО: любое исключение в отрисовке НЕ должно обрывать цикл —
-        # иначе дашборд «замерзает» (перестаёт обновляться интернет и метрики).
+        # КРИТИЧНО: любое исключение в отрисовке НЕ должно обрывать цикл.
+        # Анимируем только когда дашборд видим и в фокусе — иначе app зря жрёт CPU.
+        active=False
         try:
-            self._frame = getattr(self, "_frame", 0) + 1
-            if self.page=="dash" and hasattr(self,"cv") and self.cv.winfo_exists():
-                for k in self.disp: self.disp[k]+=(self.tgt[k]-self.disp[k])*0.22
+            active = (getattr(self,"_visible",True) and self.page=="dash"
+                      and hasattr(self,"cv") and self.cv.winfo_exists())
+            if active:
+                self._frame = getattr(self, "_frame", 0) + 1
+                for k in self.disp: self.disp[k]+=(self.tgt[k]-self.disp[k])*0.30
                 self._draw_dash()
-                # LIVE-индикатор: мигает в такт; цвет по здоровью
                 if hasattr(self,"live_dot"):
                     base=col_for(self.disp["health"], inv=True)
-                    on=(self._frame//16)%2==0
+                    on=(self._frame//8)%2==0
                     self.live_dot.configure(fg=base if on else _blend(base,BG0,0.55))
         except Exception:
             pass
-        self.after(33, self._animate)
+        # 15 fps когда смотрим; раз в 0.6 с когда окно неактивно/свёрнуто
+        self.after(85 if active else 600, self._animate)
 
     # ---------- очередь ----------
     def _poll(self):
