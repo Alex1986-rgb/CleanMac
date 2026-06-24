@@ -80,7 +80,7 @@ from tkinter import messagebox, filedialog
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from krylan_core import human  # noqa: E402
 
-VERSION = "2.32.0"
+VERSION = "2.33.0"
 BRAND   = "KRYLAN"
 SLOGAN  = "Дай устройству крылья"
 AUTHOR  = "Кырлан Александр Сергеевич"
@@ -160,14 +160,14 @@ TR = {
 def L(s):
     return TR.get(s, s) if LANG=="en" else s
 
-# ---------- акценты: системные цвета iOS (Apple Human Interface) ----------
-GREEN, BLUE, YELLOW, RED, PURPLE, CYAN = "#30d158", "#0a84ff", "#ffd60a", "#ff453a", "#bf5af2", "#64d2ff"
+# ---------- акценты: неоновые (HUD), близко к iOS-системным ----------
+GREEN, BLUE, YELLOW, RED, PURPLE, CYAN = "#2fe5a0", "#2f8fff", "#ffd60a", "#ff5a52", "#a98bff", "#36d6ff"
 
 # ---------- темы оформления (сгруппированные фоны как в iOS) ----------
 THEMES = {
-    # iOS dark: чёрная база, карточки systemGray6, разделители systemGray4
-    "dark":  {"BG0":"#000000","BG1":"#1c1c1e","SIDEBAR":"#1c1c1e","GLASS":"#1c1c1e",
-              "GLASS_HI":"#2c2c2e","TRACK":"#3a3a3c","TEXT":"#ffffff","MUTED":"#98989f"},
+    # HUD navy: глубокий навигационный синий, панели-карточки, неоновые акценты
+    "dark":  {"BG0":"#091327","BG1":"#15315a","SIDEBAR":"#0a1426","GLASS":"#102444",
+              "GLASS_HI":"#1c3a66","TRACK":"#22436f","TEXT":"#e4eefb","MUTED":"#7088b2"},
     # iOS light: systemGroupedBackground + белые карточки
     "light": {"BG0":"#f2f2f7","BG1":"#ffffff","SIDEBAR":"#f2f2f7","GLASS":"#ffffff",
               "GLASS_HI":"#e5e5ea","TRACK":"#d1d1d6","TEXT":"#000000","MUTED":"#8e8e93"},
@@ -736,12 +736,15 @@ class CleanMac(tk.Tk):
         return c.create_polygon(pts, smooth=True, **kw)
 
     def _grad(self, c, w, h):
-        # вертикальный градиент фона (имитация стекла) + звёздное небо + порхающие крылья
-        steps=40
-        for i in range(steps):
-            t=i/steps
-            col="#%02x%02x%02x"%tuple(int(int(BG0[j:j+2],16)+(int(BG1[j:j+2],16)-int(BG0[j:j+2],16))*t) for j in (1,3,5))
-            c.create_rectangle(0, h*i/steps, w, h*(i+1)/steps+1, fill=col, outline=col)
+        # Радиальное свечение HUD: ярче к центру-верху, темнее к краям (как на референсе).
+        base="#060d1e"; glow="#173d72"
+        c.create_rectangle(0,0,w,h, fill=base, outline=base)
+        cxp, cyp = w*0.5, h*0.30
+        rings=16; maxr=max(w,h)*1.0
+        for i in range(rings,0,-1):
+            t=i/rings; rr=maxr*t
+            col=_blend(glow, base, t)        # внешние кольца тёмные, центр — свечение
+            c.create_oval(cxp-rr, cyp-rr*0.85, cxp+rr, cyp+rr*0.85, fill=col, outline=col)
         self._starfield(c, w, h)
 
     def _starfield(self, c, w, h):
@@ -767,18 +770,30 @@ class CleanMac(tk.Tk):
                           fill="#3f5180")  # мягкий сине-стальной акцент бренда
 
     def _ring(self, c, cx,cy,r,frac,color,w,big,small,val):
+        glow=_blend(color,BG0,0.5)
+        # внешний круг-след
         c.create_oval(cx-r,cy-r,cx+r,cy+r, outline=TRACK, width=w)
+        # HUD-насечки по периметру: горят неоном до текущего значения; каждая 6-я — длинная
+        N=48
+        for i in range(N):
+            a=math.radians(90 - (i/N)*360); lit=(i/N)<=frac; major=(i%6==0)
+            rr1=r+4; rr2=r+(13 if major else (10 if lit else 7))
+            c.create_line(cx+rr1*math.cos(a), cy-rr1*math.sin(a),
+                          cx+rr2*math.cos(a), cy-rr2*math.sin(a),
+                          fill=(color if lit else _blend(color,BG0,0.68)),
+                          width=(2 if (lit or major) else 1))
+        # дуга прогресса со свечением
         if frac>0.001:
             ext=-frac*359.9
-            # мягкое свечение под дугой (Apple/Binance-стиль)
-            c.create_arc(cx-r,cy-r,cx+r,cy+r, start=90, extent=ext, style="arc",
-                         outline=_blend(color,BG0,0.5), width=w+6)
+            c.create_arc(cx-r,cy-r,cx+r,cy+r, start=90, extent=ext, style="arc", outline=glow, width=w+7)
             c.create_arc(cx-r,cy-r,cx+r,cy+r, start=90, extent=ext, style="arc", outline=color, width=w)
-            for ang in (90, 90+ext):
-                px=cx+r*math.cos(math.radians(ang)); py=cy-r*math.sin(math.radians(ang))
-                c.create_oval(px-w/2,py-w/2,px+w/2,py+w/2, fill=color, outline=color)
-        c.create_text(cx,cy-3, text=val, fill=TEXT, font=("SF Pro Display", big, "bold"))
-        c.create_text(cx,cy+r+13, text=small, fill=MUTED, font=("SF Pro Text", 10))
+            ea=math.radians(90+ext); px=cx+r*math.cos(ea); py=cy-r*math.sin(ea)
+            c.create_oval(px-w/2-1,py-w/2-1,px+w/2+1,py+w/2+1, fill="#ffffff", outline=color)
+        # внутреннее декоративное кольцо (HUD-глубина)
+        ri=r-w-6
+        if ri>6: c.create_oval(cx-ri,cy-ri,cx+ri,cy+ri, outline=_blend(color,BG0,0.8), width=1)
+        c.create_text(cx,cy-2, text=val, fill=TEXT, font=("SF Pro Display", big, "bold"))
+        c.create_text(cx,cy+r+15, text=small, fill=MUTED, font=("SF Pro Text", 10))
 
     def _donut(self, c, cx,cy,r,w, segs, center_top="", center_bot=""):
         start=90
