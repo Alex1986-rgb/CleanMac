@@ -1882,7 +1882,10 @@ class CleanMac(tk.Tk):
                 if latest: break
             except Exception:
                 continue
-        if latest and latest!=VERSION:
+        def _vt(s):
+            try: return tuple(int(x) for x in str(s).strip().split("."))
+            except Exception: return (0,)
+        if latest and _vt(latest) > _vt(VERSION):
             self.q.put(("update", f"⬆️ Доступна версия {latest} (у вас {VERSION})", None))
         elif latest and manual:
             self.q.put(("update", f"✅ Установлена последняя версия {VERSION}", None))
