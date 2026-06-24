@@ -80,7 +80,7 @@ from tkinter import messagebox, filedialog
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from krylan_core import human  # noqa: E402
 
-VERSION = "2.37.0"
+VERSION = "2.38.0"
 BRAND   = "KRYLAN"
 SLOGAN  = "Дай устройству крылья"
 AUTHOR  = "Кырлан Александр Сергеевич"
@@ -915,16 +915,11 @@ class CleanMac(tk.Tk):
         bar=tk.Frame(self.main, bg=BG0); bar.pack(fill="x", padx=22, pady=(4,12))
         self.boost_btn=self._btn(bar, L("🚀 Ускорить — сделать как новый"), GREEN, self._boost_now)
         self.boost_btn.pack(side="left", padx=(2,0))
-        # яркость справа: %  ←slider←  ☀️
+        # яркость: компактная кнопка-цикл 25 → 50 → 75 → 100 %
         cur=get_brightness()
-        self.bri_var=tk.IntVar(value=int((cur if cur is not None else 0.7)*100))
-        self.bri_pct=tk.Label(bar, text=f'{self.bri_var.get()}%', bg=BG0, fg=YELLOW,
-                              font=("SF Pro Text",12,"bold"), width=4); self.bri_pct.pack(side="right", padx=(6,4))
-        tk.Scale(bar, from_=0, to=100, orient="horizontal", variable=self.bri_var, command=self._bri_slide,
-                 bg=BG0, fg=MUTED, troughcolor=TRACK, highlightthickness=0, bd=0, length=120,
-                 showvalue=False, activebackground=YELLOW, sliderrelief="flat").pack(side="right")
-        self.bri_btn=self._btn(bar, "☀️", YELLOW, self._brightness_max)
-        self.bri_btn.pack(side="right", padx=(0,8))
+        self._bri_lvl=int(round((cur if cur is not None else 0.75)*100/25)*25) or 25
+        self.bri_btn=self._btn(bar, f"☀ {self._bri_lvl}%", YELLOW, self._brightness_cycle)
+        self.bri_btn.pack(side="right", padx=(0,2))
         self.cv = tk.Canvas(self.main, bg=BG0, highlightthickness=0)
         self.cv.pack(fill="both", expand=True, padx=14, pady=(0,12))
         # прокрутка дашборда колёсиком (чтобы дотянуться до нижних карточек и планеты)
@@ -935,16 +930,13 @@ class CleanMac(tk.Tk):
         try: self.cv.yview_scroll(int(-e.delta/3), "units")
         except Exception: pass
 
-    def _brightness_max(self):
-        set_brightness(1.0)
-        try: self.bri_var.set(100); self.bri_pct.configure(text="100%")
-        except Exception: pass
-        old=self.bri_btn.cget("text"); self.bri_btn.configure(text="  ✓ 100%  ")
-        self.after(1200, lambda: self.bri_btn.configure(text=old))
-
-    def _bri_slide(self, val):
-        set_brightness(max(0.05, int(val)/100))
-        try: self.bri_pct.configure(text=f"{int(val)}%")
+    def _brightness_cycle(self):
+        presets=[25,50,75,100]
+        cur=getattr(self,"_bri_lvl",75)
+        nxt=next((p for p in presets if p>cur), presets[0])   # следующий пресет, по кругу
+        self._bri_lvl=nxt
+        set_brightness(nxt/100)
+        try: self.bri_btn.configure(text=f"☀ {nxt}%")
         except Exception: pass
 
     def _card(self, c, x,y,w,h, title=None, accent=None, icon=None):
