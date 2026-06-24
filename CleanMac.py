@@ -80,7 +80,7 @@ from tkinter import messagebox, filedialog
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from krylan_core import human  # noqa: E402
 
-VERSION = "2.31.0"
+VERSION = "2.32.0"
 BRAND   = "KRYLAN"
 SLOGAN  = "Дай устройству крылья"
 AUTHOR  = "Кырлан Александр Сергеевич"
@@ -769,8 +769,12 @@ class CleanMac(tk.Tk):
     def _ring(self, c, cx,cy,r,frac,color,w,big,small,val):
         c.create_oval(cx-r,cy-r,cx+r,cy+r, outline=TRACK, width=w)
         if frac>0.001:
-            c.create_arc(cx-r,cy-r,cx+r,cy+r, start=90, extent=-frac*359.9, style="arc", outline=color, width=w)
-            for ang in (90, 90-frac*359.9):
+            ext=-frac*359.9
+            # мягкое свечение под дугой (Apple/Binance-стиль)
+            c.create_arc(cx-r,cy-r,cx+r,cy+r, start=90, extent=ext, style="arc",
+                         outline=_blend(color,BG0,0.5), width=w+6)
+            c.create_arc(cx-r,cy-r,cx+r,cy+r, start=90, extent=ext, style="arc", outline=color, width=w)
+            for ang in (90, 90+ext):
                 px=cx+r*math.cos(math.radians(ang)); py=cy-r*math.sin(math.radians(ang))
                 c.create_oval(px-w/2,py-w/2,px+w/2,py+w/2, fill=color, outline=color)
         c.create_text(cx,cy-3, text=val, fill=TEXT, font=("SF Pro Display", big, "bold"))
@@ -781,8 +785,11 @@ class CleanMac(tk.Tk):
         c.create_oval(cx-r,cy-r,cx+r,cy+r, outline=TRACK, width=w)
         for frac,color in segs:
             if frac<=0: continue
-            c.create_arc(cx-r,cy-r,cx+r,cy+r, start=start, extent=-frac*359.9, style="arc", outline=color, width=w)
-            start-=frac*359.9
+            ext=-frac*359.9
+            c.create_arc(cx-r,cy-r,cx+r,cy+r, start=start, extent=ext, style="arc",
+                         outline=_blend(color,BG0,0.5), width=w+5)
+            c.create_arc(cx-r,cy-r,cx+r,cy+r, start=start, extent=ext, style="arc", outline=color, width=w)
+            start+=ext
         if center_top: c.create_text(cx,cy-7, text=center_top, fill=TEXT, font=("SF Pro Display", 17, "bold"))
         if center_bot: c.create_text(cx,cy+12, text=center_bot, fill=MUTED, font=("SF Pro Text", 10))
 
@@ -825,24 +832,20 @@ class CleanMac(tk.Tk):
                  ).pack(anchor="w", padx=24, pady=(16,0))
         tk.Label(self.main, text=L("Состояние системы в реальном времени"), bg=BG0, fg=MUTED,
                  font=("SF Pro Text", 11)).pack(anchor="w", padx=24, pady=(0,6))
-        # Флагманская кнопка «1 клик — как новый»
-        boostbar=tk.Frame(self.main, bg=BG0); boostbar.pack(fill="x", padx=22, pady=(2,2))
-        self.boost_btn=self._btn(boostbar, L("🚀 Ускорить — сделать как новый"), GREEN, self._boost_now)
-        self.boost_btn.pack(side="left", padx=(2,10))
-        self.boost_lbl=tk.Label(boostbar, text="Очистит кэши, освободит место и разгрузит память — одним кликом, безопасно",
-                                bg=BG0, fg=MUTED, font=("SF Pro Text",10)); self.boost_lbl.pack(side="left")
-        qa=tk.Frame(self.main, bg=BG0); qa.pack(fill="x", padx=22, pady=(0,8))
-        self.bri_btn=self._btn(qa, L("☀️ Яркость 100%"), YELLOW, self._brightness_max)
-        self.bri_btn.pack(side="left", padx=(2,10))
+        # Единая верхняя панель: слева — флагманская кнопка, справа — яркость (компактно)
+        bar=tk.Frame(self.main, bg=BG0); bar.pack(fill="x", padx=22, pady=(4,12))
+        self.boost_btn=self._btn(bar, L("🚀 Ускорить — сделать как новый"), GREEN, self._boost_now)
+        self.boost_btn.pack(side="left", padx=(2,0))
+        # яркость справа: %  ←slider←  ☀️
         cur=get_brightness()
         self.bri_var=tk.IntVar(value=int((cur if cur is not None else 0.7)*100))
-        tk.Scale(qa, from_=0, to=100, orient="horizontal", variable=self.bri_var, command=self._bri_slide,
-                 bg=BG0, fg=MUTED, troughcolor=TRACK, highlightthickness=0, bd=0, length=140,
-                 showvalue=False, activebackground=YELLOW, sliderrelief="flat").pack(side="left", padx=(0,6))
-        self.bri_pct=tk.Label(qa, text=f'{self.bri_var.get()}%', bg=BG0, fg=YELLOW, font=("SF Pro Text",11,"bold"))
-        self.bri_pct.pack(side="left", padx=(0,14))
-        self._btn(qa, L("✨ Умная очистка"), GREEN, lambda: self.nav("smart")).pack(side="left", padx=(0,8))
-        self._btn(qa, L("🚀 Автопилот"), BLUE, lambda: self.nav("autopilot")).pack(side="left")
+        self.bri_pct=tk.Label(bar, text=f'{self.bri_var.get()}%', bg=BG0, fg=YELLOW,
+                              font=("SF Pro Text",12,"bold"), width=4); self.bri_pct.pack(side="right", padx=(6,4))
+        tk.Scale(bar, from_=0, to=100, orient="horizontal", variable=self.bri_var, command=self._bri_slide,
+                 bg=BG0, fg=MUTED, troughcolor=TRACK, highlightthickness=0, bd=0, length=120,
+                 showvalue=False, activebackground=YELLOW, sliderrelief="flat").pack(side="right")
+        self.bri_btn=self._btn(bar, "☀️", YELLOW, self._brightness_max)
+        self.bri_btn.pack(side="right", padx=(0,8))
         self.cv = tk.Canvas(self.main, bg=BG0, highlightthickness=0)
         self.cv.pack(fill="both", expand=True, padx=14, pady=(0,12))
 
@@ -859,14 +862,15 @@ class CleanMac(tk.Tk):
         except Exception: pass
 
     def _card(self, c, x,y,w,h, title=None, accent=None, icon=None):
-        self._round(c, x,y,x+w,y+h, 16, fill=GLASS, outline=GLASS_HI)
+        # iOS-стиль: мягкое скругление, без жёсткой обводки (как сгруппированные ячейки)
+        self._round(c, x,y,x+w,y+h, 18, fill=GLASS, outline="")
         if title:
-            tx = x+16
+            tx = x+18
             if accent:
-                self._round(c, x+14, y+11, x+19, y+22, 2, fill=accent, outline=accent)
-                tx = x+28
-            label = (icon+"  " if icon else "") + title
-            c.create_text(tx, y+16, text=label, anchor="w", fill=MUTED, font=("SF Pro Text", 11, "bold"))
+                c.create_oval(x+16, y+13, x+23, y+20, fill=accent, outline="")   # точка-акцент
+                tx = x+31
+            label = (icon+"  " if icon else "") + title.upper()
+            c.create_text(tx, y+16, text=label, anchor="w", fill=MUTED, font=("SF Pro Text", 10, "bold"))
 
     def _draw_dash(self):
         if not (self.page=="dash" and self.cv.winfo_exists()): return
