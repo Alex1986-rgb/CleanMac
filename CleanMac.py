@@ -80,7 +80,7 @@ from tkinter import messagebox, filedialog
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from krylan_core import human  # noqa: E402
 
-VERSION = "2.36.0"
+VERSION = "2.37.0"
 BRAND   = "KRYLAN"
 SLOGAN  = "Дай устройству крылья"
 AUTHOR  = "Кырлан Александр Сергеевич"
@@ -228,13 +228,21 @@ class RoundedButton(tk.Canvas):
         self.bind("<Leave>", lambda e: self._render(self._color))
         self.bind("<Button-1>", lambda e: self._cmd())
 
+    def _poly(self, x0,y0,x1,y1, r, **kw):
+        pts=[x0+r,y0, x1-r,y0, x1,y0, x1,y0+r, x1,y1-r, x1,y1, x1-r,y1, x0+r,y1, x0,y1, x0,y1-r, x0,y0+r, x0,y0]
+        return self.create_polygon(pts, smooth=True, **kw)
+
     def _render(self, col):
         tw=self._fnt.measure(self._text); th=self._fnt.metrics("linespace")
-        w=tw+self._padx*2; h=th+self._pady*2; r=min(self._r, h//2)
+        gp=4
+        pw=tw+self._padx*2; ph=th+self._pady*2
+        w=pw+gp*2; h=ph+gp*2; r=min(self._r, ph//2)
         super().configure(width=w, height=h)
         self.delete("all")
-        pts=[r,0, w-r,0, w,0, w,r, w,h-r, w,h, w-r,h, r,h, 0,h, 0,h-r, 0,r, 0,0]
-        self.create_polygon(pts, smooth=True, fill=col, outline="")
+        # HUD-свечение (halo) под кнопкой
+        self._poly(1,1,w-1,h-1, r+gp, fill=_blend(col,BG0,0.55), outline="")
+        # пилюля
+        self._poly(gp,gp,w-gp,h-gp, r, fill=col, outline="")
         self.create_text(w/2, h/2, text=self._text, fill=self._fg, font=self._font)
 
     def configure(self, cnf=None, **kw):
@@ -748,26 +756,28 @@ class CleanMac(tk.Tk):
         self._starfield(c, w, h)
 
     def _starfield(self, c, w, h):
-        """Звёздное небо (мерцающие точки) + мягко порхающие крылья — фон в духе KRYLAN."""
-        # звёзды генерируются один раз с фиксированным сидом, чтобы не «прыгали» между кадрами
+        """Натуральное звёздное небо: звёзды разного размера, мерцание, блики у ярких."""
         if not hasattr(self, "_stars"):
-            rnd = random.Random(42)
-            self._stars = [(rnd.random(), rnd.random(), rnd.uniform(0.6,1.8), rnd.uniform(0,6.28),
-                            rnd.choice(["#cdd6e6","#aab6cf","#8fa0c8","#dfe6f2"])) for _ in range(70)]
+            rnd = random.Random(42); self._stars=[]
+            for _ in range(150):
+                self._stars.append((rnd.random(), rnd.random(),
+                                    rnd.uniform(0.4,2.2),        # размер
+                                    rnd.uniform(0,6.28),         # фаза мерцания
+                                    rnd.uniform(0.25,1.0),       # базовая яркость
+                                    rnd.uniform(0.02,0.09),      # скорость мерцания
+                                    rnd.random()<0.08))          # яркая (с бликом-крестом)
         fr = getattr(self, "_frame", 0)
-        for fx, fy, sz, ph, scol in self._stars:
+        for fx, fy, sz, ph, bb, spd, bright in self._stars:
             x, y = fx*w, fy*h
-            tw = 0.55 + 0.45*math.sin(fr*0.06 + ph)        # мерцание
-            r = sz*(0.7+0.5*tw)
-            # затемняем цвет по мерцанию
-            base=[int(scol[1:3],16),int(scol[3:5],16),int(scol[5:7],16)]
-            col="#%02x%02x%02x"%tuple(int(ch*tw) for ch in base)
+            tw = bb*(0.5 + 0.5*math.sin(fr*spd + ph))
+            r = sz*(0.55+0.55*tw)
+            v = min(255, int(190*tw)+18)
+            col = "#%02x%02x%02x"%(v, v, min(255, v+22))   # чуть голубоватый белый
             c.create_oval(x-r,y-r,x+r,y+r, fill=col, outline=col)
-        # порхающие крылья: пара символов 🪽, мягко поднимаются/опускаются
-        for i,(wx,amp,spd) in enumerate([(0.10,10,0.05),(0.90,13,0.045),(0.5,8,0.06)]):
-            wy = 0.14 + 0.04*i + (amp*math.sin(fr*spd + i))/h
-            c.create_text(wx*w, wy*h, text="🪽", font=("SF Pro Display", 24),
-                          fill="#3f5180")  # мягкий сине-стальной акцент бренда
+            if bright and tw>0.62:                          # тонкий блик-крест у ярких
+                g=r*2.8; gc=_blend("#cfe0ff", BG0, 1-(tw-0.62)/0.38*0.55)
+                c.create_line(x-g,y, x+g,y, fill=gc, width=1)
+                c.create_line(x,y-g, x,y+g, fill=gc, width=1)
 
     def _ring(self, c, cx,cy,r,frac,color,w,big,small,val):
         glow=_blend(color,BG0,0.5)
@@ -842,13 +852,21 @@ class CleanMac(tk.Tk):
             c.create_line(*flat, fill=color, width=2, smooth=True, capstyle="round")
 
     def _globe(self, c, cx, cy, r, fr):
-        """Вращающаяся каркасная «планета-устройство» (HUD, неон-циан)."""
-        # ореол-свечение
-        for k in range(5,0,-1):
-            rr=r+k*4
-            c.create_oval(cx-rr,cy-rr,cx+rr,cy+rr, outline=_blend(CYAN,BG0,0.86), width=1)
-        # тёмная сфера + лимб
-        c.create_oval(cx-r,cy-r,cx+r,cy+r, fill=_blend(BG0,CYAN,0.10), outline=CYAN, width=2)
+        """Вращающаяся каркасная «планета-устройство» (HUD, неон-циан), с пульсом-сердцебиением."""
+        # пульс-сердцебиение: два быстрых удара за цикл
+        ph=(fr*0.03)%1.0
+        puls=math.exp(-((ph-0.16)**2)/0.004)+0.6*math.exp(-((ph-0.34)**2)/0.004)
+        puls=min(1.0,puls)
+        # ореол-свечение (пульсирует)
+        for k in range(6,0,-1):
+            rr=r+k*4 + puls*7
+            c.create_oval(cx-rr,cy-rr,cx+rr,cy+rr, outline=_blend(CYAN,BG0,0.88-0.10*puls*(6-k)/6), width=1)
+        # кольцо-импульс, расходящееся при ударе
+        if puls>0.15:
+            pr=r+8+puls*16
+            c.create_oval(cx-pr,cy-pr,cx+pr,cy+pr, outline=_blend(CYAN,BG0,0.45-puls*0.25), width=2)
+        # тёмная сфера + лимб (ярче на ударе)
+        c.create_oval(cx-r,cy-r,cx+r,cy+r, fill=_blend(BG0,CYAN,0.10+0.06*puls), outline=_blend(CYAN,"#ffffff",puls*0.35), width=2)
         # параллели (широты)
         for lat in (-0.66,-0.33,0.0,0.33,0.66):
             rx=r*math.sqrt(max(0.0,1-lat*lat)); yy=cy-r*lat
@@ -940,6 +958,27 @@ class CleanMac(tk.Tk):
             label = (icon+"  " if icon else "") + title.upper()
             c.create_text(tx, y+16, text=label, anchor="w", fill=MUTED, font=("SF Pro Text", 10, "bold"))
 
+    def _ekg(self, c, x, y, w, h, fr, color):
+        """Бегущая кардиограмма «пульс системы» (ЭКГ-волна со свечением)."""
+        def beat(t):
+            if 0.12<t<0.17:  return 0.18*math.sin((t-0.12)/0.05*math.pi)   # P
+            if 0.18<t<0.205: return -0.12                                   # Q
+            if 0.205<t<0.235:return 1.0                                     # R
+            if 0.235<t<0.27: return -0.42                                   # S
+            if 0.32<t<0.45:  return 0.24*math.sin((t-0.32)/0.13*math.pi)    # T
+            return 0.0
+        baseline=y+h*0.55; amp=h*0.42; cyc=118.0; off=(fr*1.7)%cyc
+        pts=[]
+        for px in range(0,int(w)+1,2):
+            t=((px+off)%cyc)/cyc
+            pts += [x+px, baseline-beat(t)*amp]
+        if len(pts)>=4:
+            c.create_line(*pts, fill=_blend(color,BG0,0.40), width=4, capstyle="round")
+            c.create_line(*pts, fill=color, width=2, capstyle="round")
+        # бегущая точка-«сердце» на гребне последнего удара
+        hx=x+((cyc-off+0.22*cyc)%cyc);
+        c.create_oval(hx-3,baseline-amp-3,hx+3,baseline-amp+3, fill=color, outline=color)
+
     def _device_info(self):
         if hasattr(self, "_devinfo"): return self._devinfo
         import platform as _pl, socket as _sk
@@ -976,9 +1015,9 @@ class CleanMac(tk.Tk):
         c.create_text(W-22, 18, anchor="e", fill=MUTED, font=("SF Pro Text",10,"bold"), text="🌐 ИНТЕРНЕТ")
         c.create_text(W-22, 40, anchor="e", fill=GREEN, font=("SF Pro Display",14,"bold"), text=f"↓ {human(self.net_down)}/с")
         c.create_text(W-22, 60, anchor="e", fill=BLUE, font=("SF Pro Display",14,"bold"), text=f"↑ {human(self.net_up)}/с")
-        # тренды — верх-лево (мини-график)
-        c.create_text(22, 18, anchor="w", fill=MUTED, font=("SF Pro Text",10,"bold"), text="📈 ТРЕНД CPU/ОЗУ/ДИСК")
-        self._spark(c, 22, 30, 160, 42, [(self.cpu_hist,BLUE),(self.ram_hist,PURPLE),(self.disk_hist,YELLOW)])
+        # кардиограмма «пульс системы» — верх-лево (ЭКГ, цвет по здоровью)
+        c.create_text(22, 13, anchor="w", fill=MUTED, font=("SF Pro Text",9,"bold"), text="♥ ПУЛЬС СИСТЕМЫ")
+        self._ekg(c, 22, 22, max(140, cx-150), 42, fr, col_for(self.disp["health"], inv=True))
         # ===== метрики-гейджи вокруг планеты =====
         sval=human(self.swap_mb*1024*1024).replace(" ","")
         gauges=[("ЗДОРОВЬЕ", str(int(self.disp["health"])), self.disp["health"]/100, col_for(self.disp["health"],inv=True)),
@@ -993,8 +1032,9 @@ class CleanMac(tk.Tk):
             gxp=cx+orbit*math.cos(a); gyp=cy+orbit*math.sin(a)
             ex=cx+gr*math.cos(a); ey=cy+gr*math.sin(a)
             lx=gxp-gauge_r*math.cos(a); ly=gyp-gauge_r*math.sin(a)
-            c.create_line(ex,ey,lx,ly, fill=_blend(CYAN,BG0,0.68), width=1)
-            c.create_oval(ex-2,ey-2,ex+2,ey+2, fill=CYAN, outline=CYAN)
+            c.create_line(ex,ey,lx,ly, fill=_blend(CYAN,BG0,0.42), width=1)   # светящийся коннектор
+            c.create_oval(ex-2,ey-2,ex+2,ey+2, fill=CYAN, outline=CYAN)        # узел у планеты
+            c.create_oval(lx-2,ly-2,lx+2,ly+2, fill=_blend(color,BG0,0.2), outline=color)  # узел у гейджа
             self._ring(c, gxp,gyp,gauge_r, min(1,frac), color, 8, 15, label, val)
         # ===== ЦЕНТР: вращающаяся планета-устройство =====
         self._globe(c, cx, cy, gr, fr)
