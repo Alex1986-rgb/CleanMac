@@ -1,6 +1,6 @@
 cask "cleanmac" do
-  version "2.37.0"
-  sha256 "b8a27458c9c7fb500129e4d48adc4cd0ed63b67dce96bca26c08a45943d2e320"
+  version "2.38.0"
+  sha256 "ec95b1b49862e3931fb316ccfbf455c3bf9d3c8ac2a789c163f95f0604be062f"
 
   url "https://github.com/Alex1986-rgb/CleanMac/releases/download/v#{version}/CleanMac.dmg"
   name "CleanMac"
