@@ -80,7 +80,7 @@ from tkinter import messagebox, filedialog
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from krylan_core import human  # noqa: E402
 
-VERSION = "2.35.0"
+VERSION = "2.36.0"
 BRAND   = "KRYLAN"
 SLOGAN  = "Дай устройству крылья"
 AUTHOR  = "Кырлан Александр Сергеевич"
@@ -940,71 +940,71 @@ class CleanMac(tk.Tk):
             label = (icon+"  " if icon else "") + title.upper()
             c.create_text(tx, y+16, text=label, anchor="w", fill=MUTED, font=("SF Pro Text", 10, "bold"))
 
+    def _device_info(self):
+        if hasattr(self, "_devinfo"): return self._devinfo
+        import platform as _pl, socket as _sk
+        def sc(k):
+            try: return subprocess.run(["sysctl","-n",k],capture_output=True,text=True,timeout=3).stdout.strip()
+            except Exception: return ""
+        chip=sc("machdep.cpu.brand_string") or _pl.processor() or "Apple Silicon"
+        model=sc("hw.model") or "Mac"
+        try: mem=int(sc("hw.memsize") or 0)
+        except Exception: mem=0
+        try: name=_sk.gethostname().replace(".local","")
+        except Exception: name="Mac"
+        try: osv=_pl.mac_ver()[0]
+        except Exception: osv=""
+        self._devinfo={"name":name,"chip":chip,"model":model,"ram":human(mem),"os":osv}
+        return self._devinfo
+
     def _draw_dash(self):
         if not (self.page=="dash" and self.cv.winfo_exists()): return
         c=self.cv; c.delete("all")
         W=c.winfo_width() or 760; H=c.winfo_height() or 620
         self._grad(c, W, H)
-        m=12; W2=(W-3*m)/2; W3=(W-4*m)/3
-        # ===== ГЕРОЙ: Health + 4 кольца + Интернет (во всю ширину) =====
-        y=m; w=W-2*m; hHero=150
-        self._card(c, m, y, w, hHero)
-        lab=("Отлично" if self.disp["health"]>=75 else "Хорошо" if self.disp["health"]>=50 else "Внимание")
-        self._ring(c, m+78,y+78,55,self.disp["health"]/100,col_for(self.disp["health"],inv=True),14,24,
-                   "ЗДОРОВЬЕ · "+lab, str(int(self.disp["health"])))
-        rings=[("cpu","CPU",f'{int(self.disp["cpu"])}%'),("ram","ОЗУ",f'{int(self.disp["ram"])}%'),
-               ("swap","SWAP",human(self.swap_mb*1024*1024).replace(" ","")),("disk","ДИСК",f'{int(self.disp["disk"])}%')]
-        gx=m+196; gap=(w-360)/4
-        for i,(k,l,v) in enumerate(rings):
-            self._ring(c, int(gx+gap*i+gap/2), y+72, 37, min(1,self.disp[k]/100), col_for(self.disp[k],inv=True),9,14,l,v)
-        ix=m+w-18
-        c.create_text(ix, y+20, anchor="e", fill=MUTED, font=("SF Pro Text",10,"bold"), text="🌐 ИНТЕРНЕТ")
-        c.create_text(ix, y+46, anchor="e", fill=GREEN, font=("SF Pro Display",15,"bold"), text=f"↓ {human(self.net_down)}/с")
-        c.create_text(ix, y+70, anchor="e", fill=BLUE, font=("SF Pro Display",15,"bold"), text=f"↑ {human(self.net_up)}/с")
-        peak0=max(list(self.net_down_hist)+list(self.net_up_hist)+[1])
-        self._spark_auto(c, ix-150, y+88, 150, 46, [(self.net_down_hist,GREEN),(self.net_up_hist,BLUE)], peak0)
-        # ===== РЯД B: Память | Диск | Батарея (3 колонки) =====
-        yB=y+hHero+m; hB=132; xs=[m, m+W3+m, m+2*(W3+m)]
-        palette=[GREEN,BLUE,PURPLE,YELLOW,TRACK]
-        # Память
-        x=xs[0]; self._card(c,x,yB,W3,hB,"Память",accent=PURPLE,icon="🧠")
-        total=sum(self.vm.values()) or 1
-        segs=[(v/total,palette[i%5]) for i,(k,v) in enumerate(self.vm.items())]
-        self._donut(c, x+62,yB+78,40,13, segs, human(total-self.vm.get("Свободная",0)).replace(" ",""),"занято")
-        c.create_text(x+118,yB+66,anchor="w",fill=TEXT,font=("SF Pro Text",13,"bold"),text=f"{int(self.disp['ram'])}% занято")
-        c.create_text(x+118,yB+88,anchor="w",fill=MUTED,font=("SF Pro Text",10),text=f"свободно {human(self.vm.get('Свободная',0))}")
-        # Диск
-        x=xs[1]; self._card(c,x,yB,W3,hB,"Диск",accent=BLUE,icon="💽")
-        used=self.disk_total-self.disk_free
-        self._donut(c, x+62,yB+78,40,13, [(used/max(1,self.disk_total),col_for(self.disp["disk"],inv=True)),
-                    (self.disk_free/max(1,self.disk_total),TRACK)], f'{int(self.disp["disk"])}%',"занято")
-        c.create_text(x+118,yB+64,anchor="w",fill=MUTED,font=("SF Pro Text",11),text="свободно")
-        c.create_text(x+118,yB+84,anchor="w",fill=GREEN,font=("SF Pro Display",16,"bold"),text=human(self.disk_free))
-        c.create_text(x+118,yB+106,anchor="w",fill=MUTED,font=("SF Pro Text",9),text=f"из {human(self.disk_total)}")
-        # Батарея
-        x=xs[2]; self._card(c,x,yB,W3,hB,"Батарея",accent=GREEN,icon="🔋")
-        self._battery(c, x+20,yB+58,78,36, min(1,self.disp["batt"]/100), self.batt["charging"])
-        c.create_text(x+20,yB+98,anchor="w",fill=TEXT,font=("SF Pro Display",20,"bold"),text=f'{self.batt["pct"]}%')
-        st="заряжается" if self.batt["charging"] else "разряжается"
-        c.create_text(x+W3-16,yB+60,anchor="e",fill=MUTED,font=("SF Pro Text",10),text=st)
-        hp=self.batt["health"]
-        c.create_text(x+W3-16,yB+86,anchor="e",fill=(GREEN if hp>=80 else YELLOW if hp>=60 else RED),
-                      font=("SF Pro Display",16,"bold"),text=f"{hp}%")
-        c.create_text(x+W3-16,yB+106,anchor="e",fill=MUTED,font=("SF Pro Text",9),text="ёмкость")
-        # ===== РЯД C: Тренды | Устройство-планета — тянется до низа окна =====
-        yC=yB+hB+m; hC=max(150, H-yC-m)
-        # Тренды
-        x=m; self._card(c,x,yC,W2,hC,"Тренды за минуту",accent=BLUE,icon="📈")
-        self._spark(c, x+16,yC+34,W2-32,hC-58,
-                    [(self.cpu_hist,BLUE),(self.ram_hist,PURPLE),(self.health_hist,GREEN),(self.disk_hist,YELLOW)])
-        for i,(lbl,col) in enumerate([("CPU",BLUE),("ОЗУ",PURPLE),("Здор.",GREEN),("Диск",YELLOW)]):
-            c.create_text(x+16+i*62,yC+hC-14, text="● "+lbl, anchor="w", fill=col, font=("SF Pro Text",10))
-        # Устройство-планета
-        x=m+W2+m; self._card(c,x,yC,W2,hC,"Устройство · в реальном времени",accent=CYAN,icon="🛰")
         fr=getattr(self,"_frame",0)
-        gcx=x+W2/2; gcy=yC+hC/2+8; gr=min(60, hC*0.28)
-        self._globe(c, gcx,gcy,gr, fr)
-        self._hints(c, gcx,gcy,gr, fr)
+        # ===== радиальная «рубка»: планета в центре, метрики вокруг =====
+        cx=W/2; cy=H*0.47
+        gr=max(58, min(W*0.115, H*0.165, 116))
+        gauge_r=max(27, min(40, min(W,H)*0.05))
+        orbit=min(gr+90, cy-gauge_r-24, (H-cy)-gauge_r-44, W/2-gauge_r-16)
+        orbit=max(orbit, gr+gauge_r+20)
+        # часы — верх-центр (HUD)
+        c.create_text(cx, 20, fill=CYAN, font=("SF Mono",22,"bold"), text=time.strftime("%H:%M"))
+        c.create_text(cx, 40, fill=MUTED, font=("SF Pro Text",9,"bold"), text="СИСТЕМА · РЕАЛЬНОЕ ВРЕМЯ")
+        # интернет — верх-право
+        c.create_text(W-22, 18, anchor="e", fill=MUTED, font=("SF Pro Text",10,"bold"), text="🌐 ИНТЕРНЕТ")
+        c.create_text(W-22, 40, anchor="e", fill=GREEN, font=("SF Pro Display",14,"bold"), text=f"↓ {human(self.net_down)}/с")
+        c.create_text(W-22, 60, anchor="e", fill=BLUE, font=("SF Pro Display",14,"bold"), text=f"↑ {human(self.net_up)}/с")
+        # тренды — верх-лево (мини-график)
+        c.create_text(22, 18, anchor="w", fill=MUTED, font=("SF Pro Text",10,"bold"), text="📈 ТРЕНД CPU/ОЗУ/ДИСК")
+        self._spark(c, 22, 30, 160, 42, [(self.cpu_hist,BLUE),(self.ram_hist,PURPLE),(self.disk_hist,YELLOW)])
+        # ===== метрики-гейджи вокруг планеты =====
+        sval=human(self.swap_mb*1024*1024).replace(" ","")
+        gauges=[("ЗДОРОВЬЕ", str(int(self.disp["health"])), self.disp["health"]/100, col_for(self.disp["health"],inv=True)),
+                ("CPU", f'{int(self.disp["cpu"])}%', self.disp["cpu"]/100, col_for(self.disp["cpu"],inv=True)),
+                ("ОЗУ", f'{int(self.disp["ram"])}%', self.disp["ram"]/100, col_for(self.disp["ram"],inv=True)),
+                ("ДИСК", f'{int(self.disp["disk"])}%', self.disp["disk"]/100, col_for(self.disp["disk"],inv=True)),
+                ("SWAP", sval, min(1,self.swap_mb/8192.0), CYAN),
+                ("БАТАРЕЯ", f'{self.batt["pct"]}%', self.disp["batt"]/100, col_for(self.disp["batt"],inv=True))]
+        angles=[-120,-60,0,60,120,180]   # верх-центр и низ-центр свободны (часы / характеристики)
+        for (label,val,frac,color),deg in zip(gauges,angles):
+            a=math.radians(deg)
+            gxp=cx+orbit*math.cos(a); gyp=cy+orbit*math.sin(a)
+            ex=cx+gr*math.cos(a); ey=cy+gr*math.sin(a)
+            lx=gxp-gauge_r*math.cos(a); ly=gyp-gauge_r*math.sin(a)
+            c.create_line(ex,ey,lx,ly, fill=_blend(CYAN,BG0,0.68), width=1)
+            c.create_oval(ex-2,ey-2,ex+2,ey+2, fill=CYAN, outline=CYAN)
+            self._ring(c, gxp,gyp,gauge_r, min(1,frac), color, 8, 15, label, val)
+        # ===== ЦЕНТР: вращающаяся планета-устройство =====
+        self._globe(c, cx, cy, gr, fr)
+        # характеристики устройства — под планетой (на «земле»)
+        di=self._device_info()
+        c.create_text(cx, cy+gr+18, fill=TEXT, font=("SF Pro Display",15,"bold"), text=di["name"])
+        c.create_text(cx, cy+gr+38, fill=CYAN, font=("SF Pro Text",11,"bold"),
+                      text=f'{di["chip"]} · {di["ram"]}' if di["chip"] else di["ram"])
+        c.create_text(cx, H-16, fill=MUTED, font=("SF Pro Text",9),
+                      text=f'{di["model"]} · macOS {di["os"]}')
         c.configure(scrollregion=(0,0,W,H))
 
     def _battery(self, c, x,y,w,h,frac,charging):
