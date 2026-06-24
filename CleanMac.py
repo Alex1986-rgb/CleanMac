@@ -80,7 +80,7 @@ from tkinter import messagebox, filedialog
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from krylan_core import human  # noqa: E402
 
-VERSION = "2.34.0"
+VERSION = "2.35.0"
 BRAND   = "KRYLAN"
 SLOGAN  = "Дай устройству крылья"
 AUTHOR  = "Кырлан Александр Сергеевич"
@@ -877,9 +877,9 @@ class CleanMac(tk.Tk):
         n=len(tips)
         for i,t in enumerate(tips):
             a=fr*0.012 + i*(2*math.pi/n)
-            rad=r+50+10*math.sin(fr*0.03+i)
-            hx=cx+rad*math.cos(a)*1.45; hy=cy+rad*math.sin(a)*0.58
-            ex=cx+r*math.cos(a); ey=cy+r*math.sin(a)*0.58
+            rad=r+34+8*math.sin(fr*0.03+i)
+            hx=cx+rad*math.cos(a)*1.55; hy=cy+rad*math.sin(a)*0.78
+            ex=cx+r*math.cos(a); ey=cy+r*math.sin(a)*0.78
             tw=0.55+0.45*math.sin(fr*0.05+i)
             c.create_line(ex,ey,hx,hy, fill=_blend(CYAN,BG0,0.80), width=1)
             c.create_oval(hx-3,hy-3,hx+3,hy+3, outline=CYAN, fill=_blend(CYAN,BG0,0.45))
@@ -945,102 +945,67 @@ class CleanMac(tk.Tk):
         c=self.cv; c.delete("all")
         W=c.winfo_width() or 760; H=c.winfo_height() or 620
         self._grad(c, W, H)
-        m=14; colw=(W-3*m)/2
-        # --- Карта 1: Health + 4 кольца (во всю ширину) ---
-        x,y,w,h=m,m,W-2*m,150; self._card(c,x,y,w,h)
+        m=12; W2=(W-3*m)/2; W3=(W-4*m)/3
+        # ===== ГЕРОЙ: Health + 4 кольца + Интернет (во всю ширину) =====
+        y=m; w=W-2*m; hHero=150
+        self._card(c, m, y, w, hHero)
         lab=("Отлично" if self.disp["health"]>=75 else "Хорошо" if self.disp["health"]>=50 else "Внимание")
-        self._ring(c, x+78,y+76,58,self.disp["health"]/100,col_for(self.disp["health"],inv=True),14,26,
+        self._ring(c, m+78,y+78,55,self.disp["health"]/100,col_for(self.disp["health"],inv=True),14,24,
                    "ЗДОРОВЬЕ · "+lab, str(int(self.disp["health"])))
         rings=[("cpu","CPU",f'{int(self.disp["cpu"])}%'),("ram","ОЗУ",f'{int(self.disp["ram"])}%'),
                ("swap","SWAP",human(self.swap_mb*1024*1024).replace(" ","")),("disk","ДИСК",f'{int(self.disp["disk"])}%')]
-        gx=x+196; gap=(w-356)/4   # ужали кольца, оставив справа место под «Интернет»
+        gx=m+196; gap=(w-360)/4
         for i,(k,l,v) in enumerate(rings):
-            self._ring(c, int(gx+gap*i+gap/2), y+72, 38, min(1,self.disp[k]/100), col_for(self.disp[k],inv=True),10,15,l,v)
-        # --- живой блок «Интернет» в герое (всегда виден) ---
-        ix=x+w-18
+            self._ring(c, int(gx+gap*i+gap/2), y+72, 37, min(1,self.disp[k]/100), col_for(self.disp[k],inv=True),9,14,l,v)
+        ix=m+w-18
         c.create_text(ix, y+20, anchor="e", fill=MUTED, font=("SF Pro Text",10,"bold"), text="🌐 ИНТЕРНЕТ")
-        c.create_text(ix, y+48, anchor="e", fill=GREEN, font=("SF Pro Display",15,"bold"),
-                      text=f"↓ {human(self.net_down)}/с")
-        c.create_text(ix, y+74, anchor="e", fill=BLUE, font=("SF Pro Display",15,"bold"),
-                      text=f"↑ {human(self.net_up)}/с")
-        c.create_text(ix, y+100, anchor="e", fill=MUTED, font=("SF Pro Text",9),
-                      text="скорость сети")
-        # --- Карта 2: история CPU/RAM ---
-        y2=y+h+m; x,w,h=m,colw,160; self._card(c,x,y2,w,h,"Тренды за минуту", accent=BLUE, icon="📈")
-        self._spark(c, x+16,y2+34,w-32,h-58,
+        c.create_text(ix, y+46, anchor="e", fill=GREEN, font=("SF Pro Display",15,"bold"), text=f"↓ {human(self.net_down)}/с")
+        c.create_text(ix, y+70, anchor="e", fill=BLUE, font=("SF Pro Display",15,"bold"), text=f"↑ {human(self.net_up)}/с")
+        peak0=max(list(self.net_down_hist)+list(self.net_up_hist)+[1])
+        self._spark_auto(c, ix-150, y+88, 150, 46, [(self.net_down_hist,GREEN),(self.net_up_hist,BLUE)], peak0)
+        # ===== РЯД B: Память | Диск | Батарея (3 колонки) =====
+        yB=y+hHero+m; hB=132; xs=[m, m+W3+m, m+2*(W3+m)]
+        palette=[GREEN,BLUE,PURPLE,YELLOW,TRACK]
+        # Память
+        x=xs[0]; self._card(c,x,yB,W3,hB,"Память",accent=PURPLE,icon="🧠")
+        total=sum(self.vm.values()) or 1
+        segs=[(v/total,palette[i%5]) for i,(k,v) in enumerate(self.vm.items())]
+        self._donut(c, x+62,yB+78,40,13, segs, human(total-self.vm.get("Свободная",0)).replace(" ",""),"занято")
+        c.create_text(x+118,yB+66,anchor="w",fill=TEXT,font=("SF Pro Text",13,"bold"),text=f"{int(self.disp['ram'])}% занято")
+        c.create_text(x+118,yB+88,anchor="w",fill=MUTED,font=("SF Pro Text",10),text=f"свободно {human(self.vm.get('Свободная',0))}")
+        # Диск
+        x=xs[1]; self._card(c,x,yB,W3,hB,"Диск",accent=BLUE,icon="💽")
+        used=self.disk_total-self.disk_free
+        self._donut(c, x+62,yB+78,40,13, [(used/max(1,self.disk_total),col_for(self.disp["disk"],inv=True)),
+                    (self.disk_free/max(1,self.disk_total),TRACK)], f'{int(self.disp["disk"])}%',"занято")
+        c.create_text(x+118,yB+64,anchor="w",fill=MUTED,font=("SF Pro Text",11),text="свободно")
+        c.create_text(x+118,yB+84,anchor="w",fill=GREEN,font=("SF Pro Display",16,"bold"),text=human(self.disk_free))
+        c.create_text(x+118,yB+106,anchor="w",fill=MUTED,font=("SF Pro Text",9),text=f"из {human(self.disk_total)}")
+        # Батарея
+        x=xs[2]; self._card(c,x,yB,W3,hB,"Батарея",accent=GREEN,icon="🔋")
+        self._battery(c, x+20,yB+58,78,36, min(1,self.disp["batt"]/100), self.batt["charging"])
+        c.create_text(x+20,yB+98,anchor="w",fill=TEXT,font=("SF Pro Display",20,"bold"),text=f'{self.batt["pct"]}%')
+        st="заряжается" if self.batt["charging"] else "разряжается"
+        c.create_text(x+W3-16,yB+60,anchor="e",fill=MUTED,font=("SF Pro Text",10),text=st)
+        hp=self.batt["health"]
+        c.create_text(x+W3-16,yB+86,anchor="e",fill=(GREEN if hp>=80 else YELLOW if hp>=60 else RED),
+                      font=("SF Pro Display",16,"bold"),text=f"{hp}%")
+        c.create_text(x+W3-16,yB+106,anchor="e",fill=MUTED,font=("SF Pro Text",9),text="ёмкость")
+        # ===== РЯД C: Тренды | Устройство-планета — тянется до низа окна =====
+        yC=yB+hB+m; hC=max(150, H-yC-m)
+        # Тренды
+        x=m; self._card(c,x,yC,W2,hC,"Тренды за минуту",accent=BLUE,icon="📈")
+        self._spark(c, x+16,yC+34,W2-32,hC-58,
                     [(self.cpu_hist,BLUE),(self.ram_hist,PURPLE),(self.health_hist,GREEN),(self.disk_hist,YELLOW)])
         for i,(lbl,col) in enumerate([("CPU",BLUE),("ОЗУ",PURPLE),("Здор.",GREEN),("Диск",YELLOW)]):
-            c.create_text(x+16+i*62,y2+h-14, text="● "+lbl, anchor="w", fill=col, font=("SF Pro Text",10))
-        # --- Карта 3: состав памяти (пончик) ---
-        x3=m+colw+m; self._card(c,x3,y2,colw,h,"Память", accent=PURPLE, icon="🧠")
-        total=sum(self.vm.values()) or 1
-        palette=[GREEN,BLUE,PURPLE,YELLOW,TRACK]
-        segs=[(v/total,palette[i%5]) for i,(k,v) in enumerate(self.vm.items())]
-        self._donut(c, x3+70,y2+86,46,14, segs, human(total-self.vm.get("Свободная",0)).replace(" ",""), "занято")
-        ly=y2+34
-        for i,(k,v) in enumerate(self.vm.items()):
-            c.create_oval(x3+150,ly+2,x3+160,ly+12, fill=palette[i%5], outline=palette[i%5])
-            c.create_text(x3+168,ly+7, anchor="w", fill=TEXT, font=("SF Pro Text",10), text=f"{k}")
-            c.create_text(x3+colw-16,ly+7, anchor="e", fill=MUTED, font=("SF Pro Text",10), text=human(v))
-            ly+=22
-        # --- Карта 4: диск (пончик) ---
-        y3=y2+h+m; x,w,h=m,colw,150; self._card(c,x,y3,w,h,"Диск", accent=BLUE, icon="💽")
-        used=self.disk_total-self.disk_free
-        self._donut(c, x+70,y3+82,46,14, [(used/max(1,self.disk_total),col_for(self.disp["disk"],inv=True)),
-                    (self.disk_free/max(1,self.disk_total),TRACK)], f'{int(self.disp["disk"])}%', "занято")
-        c.create_text(x+150,y3+60, anchor="w", fill=TEXT, font=("SF Pro Text",12,"bold"),
-                      text=f"Свободно: {human(self.disk_free)}")
-        c.create_text(x+150,y3+84, anchor="w", fill=MUTED, font=("SF Pro Text",11),
-                      text=f"Всего: {human(self.disk_total)}")
-        # --- Карта 5: батарея ---
-        x5=m+colw+m; self._card(c,x5,y3,colw,h,"Батарея", accent=GREEN, icon="🔋")
-        self._battery(c, x5+24,y3+44,86,38, min(1,self.disp["batt"]/100), self.batt["charging"])
-        st="заряжается" if self.batt["charging"] else "разряжается"
-        c.create_text(x5+128,y3+50, anchor="w", fill=TEXT, font=("SF Pro Display",20,"bold"), text=f'{self.batt["pct"]}%')
-        c.create_text(x5+128,y3+76, anchor="w", fill=MUTED, font=("SF Pro Text",10),
-                      text=st+(f' · ~{self.batt["tleft"]}' if self.batt["tleft"] and ":" in self.batt["tleft"] else ""))
-        hp=self.batt["health"]
-        c.create_text(x5+colw-16,y3+50, anchor="e", fill=(GREEN if hp>=80 else YELLOW if hp>=60 else RED),
-                      font=("SF Pro Display",18,"bold"), text=f"{hp}%")
-        c.create_text(x5+colw-16,y3+74, anchor="e", fill=MUTED, font=("SF Pro Text",10),
-                      text=f"циклов {self.batt['cycles']} · {self.batt['cond']}")
-        # --- Карта 6: процессы ---
-        y4=y3+h+m; x,w,h=m,W-2*m,150; self._card(c,x,y4,w,h,"Активные процессы", accent=YELLOW, icon="⚙️")
-        py=y4+40
-        for cpu,mem,name in self.procs:
-            c.create_text(x+16,py, anchor="w", fill=TEXT, font=("SF Pro Text",12), text=name)
-            bx=x+200; bw=w-380
-            self._round(c,bx,py-6,bx+bw,py+6,6, fill=TRACK, outline=TRACK)
-            fw=max(4,min(bw,bw*cpu/100))
-            self._round(c,bx,py-6,bx+fw,py+6,6, fill=col_for(cpu,inv=True), outline=col_for(cpu,inv=True))
-            c.create_text(bx+bw+40,py, anchor="e", fill=MUTED, font=("SF Pro Text",11), text=f"{cpu:.0f}%")
-            c.create_text(x+w-16,py, anchor="e", fill=MUTED, font=("SF Pro Text",11), text=human(mem))
-            py+=21
-        # --- Карта 7: Интернет (сеть) с графиком ---
-        yN=y4+h+m; x,w,h=m,W-2*m,150; self._card(c,x,yN,w,h,"Интернет", accent=CYAN, icon="🌐")
-        peak=max(list(self.net_down_hist)+list(self.net_up_hist)+[1])
-        self._spark_auto(c, x+16,yN+34,w-32,h-58, [(self.net_down_hist,GREEN),(self.net_up_hist,BLUE)], peak)
-        c.create_text(x+16,yN+h-14, anchor="w", fill=GREEN, font=("SF Pro Text",10),
-                      text=f"● ↓ {human(self.net_down)}/с")
-        c.create_text(x+150,yN+h-14, anchor="w", fill=BLUE, font=("SF Pro Text",10),
-                      text=f"● ↑ {human(self.net_up)}/с")
-        c.create_text(x+w-16,yN+22, anchor="e", fill=MUTED, font=("SF Pro Text",10),
-                      text=f"пик ↓ {human(peak)}/с")
-        # --- Карта 8: рекомендации ---
-        adv=disk_advice(self.disp["disk"], self.disp["ram"], self.batt.get("pct"))
-        y5=yN+h+m; ah=28+len(adv)*22; x,w=m,W-2*m; self._card(c,x,y5,w,ah,"Рекомендации", accent=GREEN, icon="💡")
-        ay=y5+38
-        for icon,text in adv:
-            c.create_text(x+16,ay, anchor="w", fill=TEXT, font=("SF Pro Text",11), text=f"{icon}  {text}")
-            ay+=22
-        # --- HUD: вращающаяся «планета-устройство» с парящими подсказками ---
+            c.create_text(x+16+i*62,yC+hC-14, text="● "+lbl, anchor="w", fill=col, font=("SF Pro Text",10))
+        # Устройство-планета
+        x=m+W2+m; self._card(c,x,yC,W2,hC,"Устройство · в реальном времени",accent=CYAN,icon="🛰")
         fr=getattr(self,"_frame",0)
-        gy=y5+ah+m; gh=216
-        self._card(c, m, gy, W-2*m, gh, "Устройство · в реальном времени", accent=CYAN, icon="🛰")
-        gcx, gcy, gr = W*0.5, gy+gh*0.5+10, 56
-        self._globe(c, gcx, gcy, gr, fr)
-        self._hints(c, gcx, gcy, gr, fr)
-        c.configure(scrollregion=(0,0,W,gy+gh+m))
+        gcx=x+W2/2; gcy=yC+hC/2+8; gr=min(60, hC*0.28)
+        self._globe(c, gcx,gcy,gr, fr)
+        self._hints(c, gcx,gcy,gr, fr)
+        c.configure(scrollregion=(0,0,W,H))
 
     def _battery(self, c, x,y,w,h,frac,charging):
         col = GREEN if charging or frac>.4 else (YELLOW if frac>.2 else RED)
