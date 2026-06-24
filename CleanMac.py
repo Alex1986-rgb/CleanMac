@@ -80,7 +80,7 @@ from tkinter import messagebox, filedialog
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from krylan_core import human  # noqa: E402
 
-VERSION = "2.30.0"
+VERSION = "2.31.0"
 BRAND   = "KRYLAN"
 SLOGAN  = "Дай устройству крылья"
 AUTHOR  = "Кырлан Александр Сергеевич"
@@ -204,6 +204,49 @@ def _lighten(hexc, amt=0.16):
     r,g,b = int(hexc[1:3],16), int(hexc[3:5],16), int(hexc[5:7],16)
     f = lambda c: min(255, int(c+(255-c)*amt))
     return f"#{f(r):02x}{f(g):02x}{f(b):02x}"
+
+def _blend(hexc, other, t):
+    """Смешать цвет hexc с other на долю t (0..1). Для градиентов и свечения."""
+    a = (int(hexc[1:3],16), int(hexc[3:5],16), int(hexc[5:7],16))
+    b = (int(other[1:3],16), int(other[3:5],16), int(other[5:7],16))
+    m = lambda i: max(0, min(255, int(a[i] + (b[i]-a[i])*t)))
+    return f"#{m(0):02x}{m(1):02x}{m(2):02x}"
+
+class RoundedButton(tk.Canvas):
+    """Скруглённая кнопка (Apple/iOS-пилюля) на Canvas. Поддерживает configure(text=)/cget."""
+    def __init__(self, parent, text, color, cmd, fg="white", radius=13,
+                 padx=17, pady=9, font=("SF Pro Text", 13, "bold")):
+        import tkinter.font as tkfont
+        self._text=text; self._color=color; self._hov=_lighten(color)
+        self._cmd=cmd; self._fg=fg; self._font=font; self._r=radius
+        self._padx=padx; self._pady=pady; self._fnt=tkfont.Font(font=font)
+        try: pbg=parent.cget("bg")
+        except Exception: pbg=BG0
+        super().__init__(parent, bg=pbg, highlightthickness=0, cursor="pointinghand")
+        self._render(self._color)
+        self.bind("<Enter>", lambda e: self._render(self._hov))
+        self.bind("<Leave>", lambda e: self._render(self._color))
+        self.bind("<Button-1>", lambda e: self._cmd())
+
+    def _render(self, col):
+        tw=self._fnt.measure(self._text); th=self._fnt.metrics("linespace")
+        w=tw+self._padx*2; h=th+self._pady*2; r=min(self._r, h//2)
+        super().configure(width=w, height=h)
+        self.delete("all")
+        pts=[r,0, w-r,0, w,0, w,r, w,h-r, w,h, w-r,h, r,h, 0,h, 0,h-r, 0,r, 0,0]
+        self.create_polygon(pts, smooth=True, fill=col, outline="")
+        self.create_text(w/2, h/2, text=self._text, fill=self._fg, font=self._font)
+
+    def configure(self, cnf=None, **kw):
+        if "text" in kw:
+            self._text=kw.pop("text"); self._render(self._color)
+        if "bg" in kw: kw.pop("bg")
+        if kw: super().configure(**kw)
+    config = configure
+
+    def cget(self, key):
+        if key=="text": return self._text
+        return super().cget(key)
 
 # ---------- яркость экрана (приватный DisplayServices, без Accessibility) ----------
 _DS=None; _DID=None
@@ -744,24 +787,37 @@ class CleanMac(tk.Tk):
         if center_bot: c.create_text(cx,cy+12, text=center_bot, fill=MUTED, font=("SF Pro Text", 10))
 
     def _spark(self, c, x,y,w,h, series):
+        # Тренды 0..100% в стиле Binance: лёгкое свечение + чёткая линия.
         c.create_line(x,y+h,x+w,y+h, fill=TRACK)
         for deq,color in series:
-            n=len(deq); sw=w/max(1,n-1); pts=[]
+            n=len(deq)
+            if n<2: continue
+            sw=w/(n-1); pts=[]
             for i,v in enumerate(deq): pts += [x+i*sw, y+h-(min(100,v)/100)*h]
-            if len(pts)>=4: c.create_line(*pts, fill=color, width=2, smooth=True)
+            c.create_line(*pts, fill=_blend(color,BG0,0.45), width=5, smooth=True, capstyle="round")
+            c.create_line(*pts, fill=color, width=2, smooth=True, capstyle="round")
 
     def _spark_auto(self, c, x,y,w,h, series, peak):
-        """График с авто-масштабом по пику (для сети в байт/с): заливка + линия."""
+        """Авто-масштаб по пику (сеть): градиентная заливка + светящаяся линия (Binance-style)."""
         c.create_line(x,y+h,x+w,y+h, fill=TRACK)
         peak=max(1,peak)
         for deq,color in series:
-            n=len(deq); sw=w/max(1,n-1); pts=[]
-            for i,v in enumerate(deq): pts += [x+i*sw, y+h-min(1.0,v/peak)*h]
-            if len(pts)>=4:
-                # полупрозрачная заливка под линией (имитация через тёмный фон-цвет)
-                fillpts=[x,y+h]+pts+[x+w,y+h]
-                c.create_polygon(*fillpts, fill=color, outline="", stipple="gray25")
-                c.create_line(*pts, fill=color, width=2, smooth=True)
+            n=len(deq)
+            if n<2: continue
+            sw=w/(n-1)
+            pts=[(x+i*sw, y+h-min(1.0,v/peak)*h) for i,v in enumerate(deq)]
+            flat=[co for p in pts for co in p]
+            # градиентная заливка: 4 полосы, ярче ближе к линии
+            BANDS=4
+            for k in range(BANDS):
+                floor=y+h - (h*k/BANDS)
+                t=0.88 - 0.13*k
+                band=[(px, min(py, floor)) for (px,py) in pts]
+                poly=[x,floor]+[co for p in band for co in p]+[x+w,floor]
+                c.create_polygon(*poly, fill=_blend(color,BG0,t), outline="", smooth=True)
+            # светящаяся линия поверх
+            c.create_line(*flat, fill=_blend(color,BG0,0.35), width=6, smooth=True, capstyle="round")
+            c.create_line(*flat, fill=color, width=2, smooth=True, capstyle="round")
 
     # ================= ДАШБОРД =================
     def show_dash(self):
@@ -1142,11 +1198,7 @@ class CleanMac(tk.Tk):
         self._btn(bar,L("Анализ"),BLUE,self.run_analyze).pack(side="right")
 
     def _btn(self, parent, text, color, cmd):
-        hov=_lighten(color)
-        b=tk.Label(parent, text="  "+text+"  ", bg=color, fg="white", font=("SF Pro Text",13,"bold"),
-                   padx=14, pady=8, cursor="pointinghand")
-        b.bind("<Enter>", lambda e: b.configure(bg=hov)); b.bind("<Leave>", lambda e: b.configure(bg=color))
-        b.bind("<Button-1>", lambda e:cmd()); return b
+        return RoundedButton(parent, text, color, cmd)
 
     def run_analyze(self):
         self.total_lbl.configure(text="Анализирую…")
