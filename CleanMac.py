@@ -80,7 +80,7 @@ from tkinter import messagebox, filedialog
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from krylan_core import human  # noqa: E402
 
-VERSION = "2.29.0"
+VERSION = "2.30.0"
 BRAND   = "KRYLAN"
 SLOGAN  = "Дай устройству крылья"
 AUTHOR  = "Кырлан Александр Сергеевич"
@@ -551,6 +551,7 @@ class CleanMac(tk.Tk):
         self.cat_vars={}; self.cat_size_lbl={}; self.found={}; self._alert_t={}
         self.is_pro = os.path.exists(LIC)
         self.update_note = ""
+        self._group_active = {}   # запоминаем активную под-вкладку каждой группы
         self._build()
         self.nav("dash")
         threading.Thread(target=self._sampler, daemon=True).start()
@@ -569,30 +570,86 @@ class CleanMac(tk.Tk):
         tk.Label(self.side, text=f"  CleanMac · v{VERSION}", bg=SIDEBAR, fg=MUTED,
                  font=("SF Pro Text", 10)).pack(anchor="w", padx=12, pady=(0,16))
         self.nav_btns = {}
-        for key,icon,name in [("dash","📊","Дашборд"),("smart","✨","Умная очистка"),("privacy","🔒","Приватность"),
-                          ("threats","🛡","Защита"),("autopilot","🚀","Автопилот"),("cleaner","🧽","Очистка"),
-                          ("tools","🛠","Инструменты"),("pro","⭐️","Pro / О программе")]:
-            b = tk.Label(self.side, text=f"   {icon}  {L(name)}", bg=SIDEBAR, fg=TEXT, font=("SF Pro Text", 13),
-                         anchor="w", padx=10, pady=12, cursor="pointinghand")
-            b.pack(fill="x"); b.bind("<Button-1>", lambda e,k=key: self.nav(k))
-            b.bind("<Enter>", lambda e,bb=b,k=key: bb.configure(bg=GLASS_HI) if self.page!=k else None)
-            b.bind("<Leave>", lambda e,bb=b,k=key: bb.configure(bg=(GLASS_HI if self.page==k else SIDEBAR)))
-            self.nav_btns[key]=b
+        for key,glyph,name in [("dash","dash","Дашборд"),("clean","clean","Очистка"),
+                               ("guard","guard","Защита"),("pro","pro","Pro / О программе")]:
+            row = tk.Frame(self.side, bg=SIDEBAR, cursor="pointinghand"); row.pack(fill="x", pady=1)
+            cv = tk.Canvas(row, width=26, height=44, bg=SIDEBAR, highlightthickness=0)
+            cv.pack(side="left", padx=(12,2))
+            lbl = tk.Label(row, text=f" {L(name)}", bg=SIDEBAR, fg=MUTED, font=("SF Pro Text", 13),
+                           anchor="w"); lbl.pack(side="left", fill="x", expand=True)
+            for wdg in (row, cv, lbl):
+                wdg.bind("<Button-1>", lambda e,k=key: self.nav(k))
+                wdg.bind("<Enter>", lambda e,k=key: self._nav_hover(k, True))
+                wdg.bind("<Leave>", lambda e,k=key: self._nav_hover(k, False))
+            self.nav_btns[key] = {"row":row, "cv":cv, "lbl":lbl, "glyph":glyph}
+            self._glyph(cv, glyph, MUTED)
         self.badge = tk.Label(self.side, text="", bg=SIDEBAR, fg=YELLOW, font=("SF Pro Text", 11, "bold"),
                               wraplength=184, justify="left"); self.badge.pack(side="bottom", fill="x", padx=12, pady=(0,6))
         self.statusbar = tk.Label(self.side, text="", bg=SIDEBAR, fg=MUTED, font=("SF Pro Text", 10),
                                   wraplength=184, justify="left"); self.statusbar.pack(side="bottom", fill="x", padx=12, pady=4)
         self.main = tk.Frame(self, bg=BG0); self.main.pack(side="left", fill="both", expand=True)
 
+    # Консолидация: 4 раздела сайдбара, под-вкладки внутри групп.
+    GROUPS = {"clean": [("smart","Умная очистка"), ("cleaner","Категории"), ("privacy","Приватность")],
+              "guard": [("threats","Угрозы"), ("autopilot","Автопилот"), ("tools","Инструменты")]}
+
+    def _parent_of(self, page):
+        for g, leaves in self.GROUPS.items():
+            if page in [lk for lk,_ in leaves]: return g
+        return page   # dash / pro — сами себе раздел
+
+    def _nav_hover(self, key, on):
+        d = self.nav_btns.get(key)
+        if not d or self._parent_of(self.page) == key: return
+        bg = GLASS_HI if on else SIDEBAR
+        d["row"].configure(bg=bg); d["cv"].configure(bg=bg); d["lbl"].configure(bg=bg)
+
     def nav(self, key):
+        if key in self.GROUPS:                       # клик по группе → её активная под-вкладка
+            key = self._group_active.get(key) or self.GROUPS[key][0][0]
         self.page = key
-        for k,b in self.nav_btns.items():
-            b.configure(bg=GLASS_HI if k==key else SIDEBAR, fg=GREEN if k==key else MUTED,
-                        font=("SF Pro Text", 13, "bold" if k==key else "normal"))
+        parent = self._parent_of(key)
+        if parent in self.GROUPS: self._group_active[parent] = key
+        for k, d in self.nav_btns.items():
+            on = (k == parent); bg = GLASS_HI if on else SIDEBAR
+            d["row"].configure(bg=bg); d["cv"].configure(bg=bg)
+            d["lbl"].configure(bg=bg, fg=GREEN if on else MUTED,
+                               font=("SF Pro Text", 13, "bold" if on else "normal"))
+            self._glyph(d["cv"], d["glyph"], GREEN if on else MUTED)
         for w in self.main.winfo_children(): w.destroy()
+        if parent in self.GROUPS:
+            self._render_subnav(parent, key)
         {"dash":self.show_dash,"smart":self.show_smart,"privacy":self.show_privacy,"threats":self.show_threats,
          "autopilot":self.show_autopilot,"cleaner":self.show_cleaner,
          "tools":self.show_tools,"pro":self.show_pro}[key]()
+
+    def _render_subnav(self, parent, active):
+        """iOS-стиль сегментированного переключателя под-вкладок группы."""
+        bar = tk.Frame(self.main, bg=BG0); bar.pack(fill="x", padx=24, pady=(16,0))
+        for lk, label in self.GROUPS[parent]:
+            on = (lk == active)
+            seg = tk.Label(bar, text=f"  {L(label)}  ", bg=GREEN if on else GLASS,
+                           fg="#0b1410" if on else MUTED,
+                           font=("SF Pro Text", 12, "bold" if on else "normal"),
+                           padx=10, pady=7, cursor="pointinghand")
+            seg.pack(side="left", padx=(0,8))
+            seg.bind("<Button-1>", lambda e,k=lk: self.nav(k))
+
+    def _glyph(self, cv, name, color):
+        """Минималистичные векторные иконки сайдбара (в духе SF Symbols), центр ~ (13,22)."""
+        cv.delete("all"); w = 2
+        if name == "dash":                       # сетка 2×2
+            for gx,gy in [(6,15),(15,15),(6,24),(15,24)]:
+                cv.create_rectangle(gx,gy,gx+5,gy+5, outline=color, width=w)
+        elif name == "clean":                    # искра (4-конечная звезда)
+            cv.create_polygon(13,13, 16,19, 22,22, 16,25, 13,31, 10,25, 4,22, 10,19,
+                              outline=color, width=w, fill="", joinstyle="round")
+        elif name == "guard":                    # щит
+            cv.create_polygon(13,13, 21,16, 21,22, 13,31, 5,22, 5,16,
+                              outline=color, width=w, fill="", joinstyle="round")
+        elif name == "pro":                      # звезда (5 лучей)
+            cv.create_polygon(13,13, 15,19, 22,19, 16,24, 18,31, 13,26, 8,31, 10,24, 4,19, 11,19,
+                              outline=color, width=w, fill="", joinstyle="round")
 
     def status(self,t): self.statusbar.configure(text=t)
 
