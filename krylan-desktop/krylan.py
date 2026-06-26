@@ -383,6 +383,43 @@ def list_updates():
         return (None, [], f"Не удалось проверить обновления: {e}")
     return (None, [], "ОС не поддерживается.")
 
+# ---------- Health Report: HTML-отчёт о состоянии и кандидатах на очистку ----------
+def build_html_report(title, sections, generated=""):
+    """Чистая функция: (заголовок, [(секция, [(метка, значение)])]) → HTML-строка.
+    Без побочных эффектов — удобно тестировать."""
+    import html as _h
+    esc = _h.escape
+    out = [
+        "<!doctype html><html lang='ru'><head><meta charset='utf-8'>",
+        f"<title>{esc(title)}</title>",
+        "<style>",
+        "body{margin:0;background:#11151d;color:#eef2f8;font:15px/1.5 -apple-system,Segoe UI,Roboto,sans-serif}",
+        ".wrap{max-width:760px;margin:0 auto;padding:32px 22px}",
+        "h1{font-size:26px;margin:0 0 4px}.slogan{color:#37d39a;font-weight:700;margin:0 0 18px}",
+        ".gen{color:#8a94a6;font-size:13px;margin-bottom:22px}",
+        ".card{background:#222b3a;border-radius:16px;padding:18px 20px;margin:0 0 16px}",
+        ".card h2{font-size:16px;margin:0 0 12px;color:#37d39a}",
+        ".row{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #333d4e}",
+        ".row:last-child{border-bottom:0}.row .v{font-weight:700}",
+        ".foot{color:#8a94a6;font-size:12px;margin-top:18px}",
+        "</style></head><body><div class='wrap'>",
+        f"<h1>🪽 {esc(title)}</h1>",
+        "<p class='slogan'>Дай устройству крылья</p>",
+    ]
+    if generated:
+        out.append(f"<p class='gen'>Сформировано: {esc(generated)}</p>")
+    for sec_title, rows in sections:
+        out.append("<div class='card'>")
+        out.append(f"<h2>{esc(sec_title)}</h2>")
+        for label, value in rows:
+            out.append(f"<div class='row'><span>{esc(str(label))}</span>"
+                       f"<span class='v'>{esc(str(value))}</span></div>")
+        out.append("</div>")
+    out.append("<p class='foot'>KRYLAN Desktop · только безопасная очистка (всё в Корзину). "
+               "Создатель: Кырлан Александр Сергеевич.</p>")
+    out.append("</div></body></html>")
+    return "".join(out)
+
 # ---------- headless-очистка (для планировщика) ----------
 def clean_caches_headless(dry=False):
     """Содержимое кэшей → Корзина. Возвращает (байт, строки отчёта)."""
@@ -772,7 +809,7 @@ class Krylan(tk.Tk):
                          ("🗺 Карта диска", self.t_diskmap), ("🧳 Деинсталлятор", self.t_uninstall),
                          ("📂 Пустые папки", self.t_empty), ("📈 Что выросло", self.t_growth),
                          ("🔒 Приватность", self.t_privacy), ("🩺 Диск", self.t_smart),
-                         ("🔄 Обновления", self.t_updates)]:
+                         ("🔄 Обновления", self.t_updates), ("📄 Отчёт", self.t_report)]:
             self._btn(bar, lbl, GLASS, cmd).pack(side="left", padx=4)
         self._dupe_extras = []
         self.t_action = tk.Frame(self.main, bg=BG0); self.t_action.pack(fill="x", padx=24, pady=(8,0))
@@ -827,6 +864,40 @@ class Krylan(tk.Tk):
                 lines.append(f"  • {name}\n      {cur}  →  {new}\n")
             lines.append(f"\n  {hint}\n")
         self.q.put(("tout", "".join(lines), None))
+
+    def t_report(self):
+        self._out("📄 Собираю отчёт о состоянии…"); threading.Thread(target=self._report_w, daemon=True).start()
+
+    def _report_w(self):
+        import webbrowser, datetime
+        vm = psutil.virtual_memory()
+        drive = HOME if SYSTEM != "Windows" else os.environ.get("SystemDrive", "C:") + "\\"
+        du = psutil.disk_usage(drive)
+        sysrows = [
+            ("Система", os_label()),
+            ("CPU", f"{psutil.cpu_percent(interval=0.3):.0f}%"),
+            ("Оперативная память", f"{vm.percent:.0f}% занято ({human(vm.used)} из {human(vm.total)})"),
+            ("Диск", f"{du.percent:.0f}% занято · свободно {human(du.free)} из {human(du.total)}"),
+        ]
+        cacherows, total = [], 0
+        for name, p in cleanup_targets():
+            sz = dir_size(p); total += sz
+            cacherows.append((name, human(sz)))
+        cacherows.append(("Всего в кэшах", human(total)))
+        gen = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+        htmlrep = build_html_report("KRYLAN — отчёт о состоянии",
+                                    [("Система", sysrows), ("Кэши (кандидаты на очистку)", cacherows)],
+                                    generated=gen)
+        path = os.path.join(HOME, "KRYLAN-report.html")
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(htmlrep)
+            webbrowser.open("file://" + path)
+            msg = (f"📄  Отчёт сохранён\n\n  {path}\n\n  Открыт в браузере.\n\n"
+                   f"  Всего в кэшах: {human(total)}\n  Свободно на диске: {human(du.free)}\n")
+        except Exception as e:
+            msg = f"📄  Не удалось сохранить отчёт: {e}\n"
+        self.q.put(("tout", msg, None))
 
     def t_large(self):
         self._out("📦 Ищу файлы >100 МБ…"); threading.Thread(target=self._large_w, daemon=True).start()

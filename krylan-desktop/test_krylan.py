@@ -165,9 +165,6 @@ class TestPrivacyTargets(unittest.TestCase):
             self.assertIsInstance(item, str)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 class TestSoftwareUpdater(unittest.TestCase):
     def test_brew_outdated_paren(self):
         txt = "wget (1.21.3) < 1.21.4\nnode (20.1.0) < 20.2.0\n"
@@ -201,3 +198,27 @@ class TestSoftwareUpdater(unittest.TestCase):
 
     def test_winget_no_separator(self):
         self.assertEqual(krylan.parse_winget_upgrade("garbage line only\n"), [])
+
+class TestHtmlReport(unittest.TestCase):
+    def test_structure_and_escaping(self):
+        html = krylan.build_html_report(
+            "KRYLAN — отчёт",
+            [("Система", [("CPU", "12%"), ("Диск", "80% занято")]),
+             ("Кэши", [("Chrome <cache>", "1.5 ГБ")])],
+            generated="2026-06-27 10:00")
+        self.assertIn("<!doctype html>", html)
+        self.assertIn("KRYLAN — отчёт", html)
+        self.assertIn("2026-06-27 10:00", html)
+        self.assertIn("12%", html)
+        # значение с угловыми скобками экранируется
+        self.assertIn("Chrome &lt;cache&gt;", html)
+        self.assertNotIn("<cache>", html)
+        self.assertTrue(html.strip().endswith("</html>"))
+
+    def test_empty_sections(self):
+        html = krylan.build_html_report("T", [])
+        self.assertIn("</html>", html)
+
+
+if __name__ == "__main__":
+    unittest.main()

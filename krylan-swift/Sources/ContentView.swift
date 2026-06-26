@@ -6,6 +6,7 @@ enum Section: String, CaseIterable, Identifiable {
     case storage   = "Хранилище"
     case battery   = "Батарея"
     case cleanup   = "Очистка"
+    case review    = "Разбор"
     case photos    = "Фото-дубли"
     case shots     = "Скриншоты"
     case videos    = "Видео"
@@ -20,6 +21,7 @@ enum Section: String, CaseIterable, Identifiable {
         case .storage:   return "storage"
         case .battery:   return "battery"
         case .cleanup:   return "cleanup"
+        case .review:    return "review"
         case .photos:    return "photos"
         case .shots:     return "screenshots"
         case .videos:    return "videos"
@@ -34,6 +36,7 @@ enum Section: String, CaseIterable, Identifiable {
         case .storage:   return "internaldrive"
         case .battery:   return "battery.100"
         case .cleanup:   return "trash"
+        case .review:    return "rectangle.stack.badge.minus"
         case .photos:    return "photo.on.rectangle.angled"
         case .shots:     return "camera.viewfinder"
         case .videos:    return "film"
@@ -58,6 +61,7 @@ struct ContentView: View {
         case .storage:   StorageView(monitor: monitor)
         case .battery:   BatteryView(monitor: monitor)
         case .cleanup:   CleanupView()
+        case .review:    SwipeReviewView()
         case .photos:    PhotoDuplicatesView()
         case .shots:     ScreenshotsView()
         case .videos:    LargeVideosView()
