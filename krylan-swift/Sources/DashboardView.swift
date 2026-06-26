@@ -18,12 +18,12 @@ struct DashboardView: View {
                     Spacer(minLength: 0)
                 }
 
-                // Флагманская кнопка «Ускорить»
+                // Флагманская кнопка очистки кэша (формулировки честные — без booster-claims, правила App Store)
                 Button(action: boost) {
                     HStack(spacing: 10) {
-                        Image(systemName: boostDone ? "checkmark.circle.fill" : "bolt.fill")
+                        Image(systemName: boostDone ? "checkmark.circle.fill" : "sparkles")
                             .font(.title3.bold())
-                        Text(boostDone ? "Готово — кэш очищен" : (boosting ? "Ускоряю…" : "Ускорить — как новый"))
+                        Text(boostDone ? "Готово — кэш очищен" : (boosting ? "Очищаю…" : "Освободить кэш"))
                             .font(.headline)
                     }
                     .foregroundStyle(Color(red: 0.04, green: 0.08, blue: 0.06))
@@ -38,6 +38,10 @@ struct DashboardView: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(boosting)
+
+                // Фирменный анимированный глобус KRYLAN
+                GlobeView()
+                    .frame(maxWidth: .infinity)
 
                 // Health-герой
                 VStack(spacing: 0) {

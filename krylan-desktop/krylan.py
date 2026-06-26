@@ -26,6 +26,14 @@ HOME = os.path.expanduser("~")
 # ---------- палитра ----------
 BG0, SIDEBAR, GLASS, TRACK, TEXT, MUTED = "#11151d", "#0e1219", "#222b3a", "#333d4e", "#eef2f8", "#8a94a6"
 GREEN, BLUE, YELLOW, RED, PURPLE = "#37d39a", "#4b8cf9", "#f6bb45", "#f2685f", "#a78bfa"
+CYAN = "#22d3ee"
+
+def _blend(h1, h2, t):
+    """Линейная интерполяция двух hex-цветов (#rrggbb) в hex. t∈[0,1]."""
+    t = 0.0 if t < 0 else 1.0 if t > 1 else t
+    a = (int(h1[1:3],16), int(h1[3:5],16), int(h1[5:7],16))
+    b = (int(h2[1:3],16), int(h2[3:5],16), int(h2[5:7],16))
+    return "#%02x%02x%02x" % tuple(int(a[i]+(b[i]-a[i])*t) for i in range(3))
 
 def load_color(p): return krylan_core.load_color(p, GREEN, YELLOW, RED)
 
@@ -554,6 +562,48 @@ class Krylan(tk.Tk):
         c.create_text(cx,cy-3, text=val, fill=TEXT, font=("Segoe UI", 18, "bold"))
         c.create_text(cx,cy+r+14, text=label, fill=MUTED, font=("Segoe UI", 10))
 
+    # ---------- фирменный глобус (вращающаяся каркасная планета) ----------
+    def _globe(self, c, cx, cy, r, fr):
+        # пульс-сердцебиение
+        ph = (fr * 0.03) % 1.0
+        puls = math.exp(-((ph-0.16)**2)/0.004) + 0.6*math.exp(-((ph-0.34)**2)/0.004)
+        puls = max(0.0, puls)
+        # ореол: несколько слабых овалов
+        for k in range(4):
+            rr = r + k*4 + puls*7
+            col = _blend(CYAN, BG0, 0.55 + k*0.11)
+            c.create_oval(cx-rr, cy-rr, cx+rr, cy+rr, outline=col, width=1)
+        # кольцо-импульс на ударе
+        if puls > 0.15:
+            ri = r + 8 + puls*16
+            c.create_oval(cx-ri, cy-ri, cx+ri, cy+ri,
+                          outline=_blend(CYAN, BG0, 0.25), width=2)
+        # тёмная сфера + яркий лимб на ударе
+        c.create_oval(cx-r, cy-r, cx+r, cy+r,
+                      fill=_blend(BG0, CYAN, 0.12),
+                      outline=_blend(CYAN, BG0, max(0.0, 0.7-puls*0.6)), width=2)
+        # параллели
+        for lat in (-0.66, -0.33, 0.0, 0.33, 0.66):
+            rx = r * math.sqrt(1 - lat*lat); yy = cy - r*lat
+            c.create_oval(cx-rx, yy-rx*0.18, cx+rx, yy+rx*0.18,
+                          outline=_blend(CYAN, BG0, 0.45), width=1)
+        # меридианы (вращаются)
+        phase = fr * 0.04
+        for k in range(6):
+            ang = phase + k*math.pi/6
+            rx = abs(r * math.cos(ang))
+            c.create_oval(cx-rx, cy-r, cx+rx, cy+r,
+                          outline=_blend(CYAN, BG0, 0.40), width=1)
+        # узлы-«города»: розовые точки на передней полусфере
+        for i in range(7):
+            na = phase + i * (2*math.pi/7)
+            if math.sin(na) > -0.1:
+                lat = -0.55 + i*0.18
+                px = cx + r*0.92 * math.cos(na) * math.sqrt(max(0.0, 1-lat*lat))
+                py = cy - r*0.92 * lat
+                d = 2.3 + puls*1.6
+                c.create_oval(px-d, py-d, px+d, py+d, fill="#ff66d4", outline="")
+
     def show_dash(self):
         tk.Label(self.main, text=L("Дашборд"), bg=BG0, fg=TEXT, font=("Segoe UI", 20, "bold")).pack(anchor="w", padx=24, pady=(18,0))
         tk.Label(self.main, text=L("Система: {os} · в реальном времени").format(os=os_label()), bg=BG0, fg=MUTED, font=("Segoe UI", 10)).pack(anchor="w", padx=24, pady=(0,8))
@@ -588,7 +638,14 @@ class Krylan(tk.Tk):
         for i,(col,text) in enumerate(adv):
             c.create_oval(40, ay0+30+i*22, 50, ay0+40+i*22, fill=col, outline=col)
             c.create_text(60, ay0+35+i*22, anchor="w", fill=TEXT, font=("Segoe UI", 11), text=text)
-        c.configure(scrollregion=(0,0,W,ay0+ah+16))
+        # фирменный глобус — герой-элемент по центру под рекомендациями
+        gy0 = ay0 + ah + 22
+        gr = 64
+        gcy = gy0 + gr + 16
+        self._globe(c, W//2, gcy, gr, getattr(self, "fr", 0))
+        c.create_text(W//2, gcy+gr+22, fill=MUTED, font=("Segoe UI", 9, "bold"),
+                      text="KRYLAN · " + L("Дай устройству крылья"))
+        c.configure(scrollregion=(0,0,W,gcy+gr+40))
 
     # ---------- очистка ----------
     def show_clean(self):
@@ -1135,6 +1192,7 @@ class Krylan(tk.Tk):
             time.sleep(1.2)
 
     def _animate(self):
+        self.fr = getattr(self, "fr", 0) + 1
         if self.page=="dash" and hasattr(self,"cv") and self.cv.winfo_exists():
             for k in self.disp: self.disp[k] += (self.tgt[k]-self.disp[k])*0.25
             self._draw_dash()

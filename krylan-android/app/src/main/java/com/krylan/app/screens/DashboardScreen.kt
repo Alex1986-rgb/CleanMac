@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.krylan.app.SystemInfo
 import com.krylan.app.ui.Brand
+import com.krylan.app.ui.GlobeView
 import com.krylan.app.ui.RingGauge
 import kotlinx.coroutines.delay
 
@@ -93,6 +94,20 @@ fun DashboardScreen(ctx: Context) {
             "Очищает только кэш этого приложения. Системные файлы и данные не трогаем.",
             color = Brand.muted, fontSize = 11.sp
         )
+
+        // Фирменный анимированный глобус KRYLAN
+        Card(
+            colors = CardDefaults.cardColors(containerColor = Brand.glass),
+            shape = RoundedCornerShape(20.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Box(
+                Modifier.fillMaxWidth().height(220.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                GlobeView(Modifier.fillMaxSize())
+            }
+        }
 
         // Health-герой
         Card(
