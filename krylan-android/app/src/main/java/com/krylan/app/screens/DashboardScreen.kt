@@ -37,7 +37,7 @@ import com.krylan.app.ui.RingGauge
 import kotlinx.coroutines.delay
 
 @Composable
-fun DashboardScreen(ctx: Context) {
+fun DashboardScreen(ctx: Context, onNavigate: (Int) -> Unit = {}) {
     var tick by remember { mutableIntStateOf(0) }
     LaunchedEffect(Unit) { while (true) { delay(3000); tick++ } }
 
@@ -94,6 +94,9 @@ fun DashboardScreen(ctx: Context) {
             "Очищает только кэш этого приложения. Системные файлы и данные не трогаем.",
             color = Brand.muted, fontSize = 11.sp
         )
+
+        // Умные подсказки с реальными счётчиками и переходом на нужную вкладку.
+        SmartSuggestions(ctx, onNavigate)
 
         // Фирменный анимированный глобус KRYLAN
         Card(

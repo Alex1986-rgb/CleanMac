@@ -94,6 +94,50 @@ class TestFindDuplicates(unittest.TestCase):
         self.assertEqual(extras, [])
 
 
+class TestBrokenFiles(unittest.TestCase):
+    def test_finds_zero_and_symlink(self):
+        home = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, home, ignore_errors=True)
+        dl = os.path.join(home, "Downloads")
+        os.makedirs(dl)
+        # пустой файл (0 байт)
+        empty = os.path.join(dl, "empty.txt")
+        open(empty, "w").close()
+        # нормальный файл с содержимым
+        normal = os.path.join(dl, "normal.txt")
+        with open(normal, "w") as f:
+            f.write("hello")
+        # битый симлинк → несуществующая цель
+        broken = os.path.join(dl, "broken.lnk")
+        os.symlink(os.path.join(dl, "no-such-target"), broken)
+
+        orig = krylan.HOME
+        krylan.HOME = home
+        try:
+            res = krylan.find_broken_files()
+        finally:
+            krylan.HOME = orig
+
+        kinds = {(k, os.path.basename(p)) for k, p in res}
+        self.assertIn(("zero", "empty.txt"), kinds)
+        self.assertIn(("symlink", "broken.lnk"), kinds)
+        # нормальный файл не трогаем
+        self.assertFalse(any(os.path.basename(p) == "normal.txt" for _, p in res))
+
+    def test_ignores_hidden_and_valid_symlink(self):
+        base = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, base, ignore_errors=True)
+        # скрытый пустой файл — пропускается
+        open(os.path.join(base, ".hidden"), "w").close()
+        # рабочий симлинк на существующий файл — не битый
+        target = os.path.join(base, "real.txt")
+        with open(target, "w") as f:
+            f.write("data")
+        os.symlink(target, os.path.join(base, "good.lnk"))
+        res = krylan.find_broken_files([base])
+        self.assertEqual(res, [])
+
+
 class TestOldDownloads(unittest.TestCase):
     def test_age_filter(self):
         home = tempfile.mkdtemp()

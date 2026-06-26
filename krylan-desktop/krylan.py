@@ -198,6 +198,36 @@ def find_empty_dirs(bases=None):
                 empties.append(root)
     return empties
 
+def find_broken_files(bases=None):
+    """Битые и пустые файлы в пользовательских каталогах.
+    Возвращает список кортежей (kind, path), где kind ∈ {"zero","symlink"}:
+      • "zero"    — файлы нулевого размера (0 байт), НЕ скрытые;
+      • "symlink" — битые символические ссылки (islink, но цель отсутствует).
+    Пропускаем скрытые каталоги (на ".") и системные служебные папки.
+    Без побочных эффектов — пригодно для юнит-тестов."""
+    bases = bases or [os.path.join(HOME, d) for d in ("Desktop", "Documents", "Downloads")]
+    skip = {".git", "node_modules", ".Trash", "Library", "AppData", ".cache"}
+    found = []
+    for base in bases:
+        if not os.path.isdir(base): continue
+        for root, dirs, files in os.walk(base):
+            # не спускаемся в скрытые и системные каталоги
+            dirs[:] = [d for d in dirs if not d.startswith(".") and d not in skip]
+            for fn in files:
+                if fn.startswith("."): continue
+                fp = os.path.join(root, fn)
+                try:
+                    if os.path.islink(fp):
+                        # битая ссылка: цель не существует
+                        if not os.path.exists(fp):
+                            found.append(("symlink", fp))
+                        continue
+                    if os.path.isfile(fp) and os.path.getsize(fp) == 0:
+                        found.append(("zero", fp))
+                except OSError:
+                    pass
+    return found
+
 def find_duplicates(bases=None):
     """Точные дубликаты (размер → md5) в пользовательских папках.
     Возвращает (groups, extras, wasted)."""
@@ -864,7 +894,8 @@ class Krylan(tk.Tk):
         bar = tk.Frame(self.main, bg=BG0); bar.pack(fill="x", padx=22)
         for lbl, cmd in [("⚙️ Автозагрузка", self.t_startup), ("👯 Дубликаты", self.t_dupes), ("📦 Крупные файлы", self.t_large),
                          ("🗺 Карта диска", self.t_diskmap), ("🧳 Деинсталлятор", self.t_uninstall),
-                         ("📂 Пустые папки", self.t_empty), ("📈 Что выросло", self.t_growth),
+                         ("📂 Пустые папки", self.t_empty), ("🧩 Битые файлы", self.t_broken),
+                         ("📈 Что выросло", self.t_growth),
                          ("🔒 Приватность", self.t_privacy), ("🩺 Диск", self.t_smart),
                          ("🔄 Обновления", self.t_updates), ("📄 Отчёт", self.t_report)]:
             self._btn(bar, lbl, GLASS, cmd).pack(side="left", padx=4)
@@ -1149,6 +1180,34 @@ class Krylan(tk.Tk):
             except Exception: pass
         messagebox.showinfo("KRYLAN", f"В Корзину: {ok} папок."); self.t_empty()
 
+    def t_broken(self):
+        self._out("🧩 Ищу битые и пустые файлы…"); threading.Thread(target=self._broken_w, daemon=True).start()
+
+    def _broken_w(self):
+        items = find_broken_files()
+        zero = [p for k, p in items if k == "zero"]
+        links = [p for k, p in items if k == "symlink"]
+        lines = [f"🧩  Битые и пустые файлы: {len(items)} "
+                 f"(пустых {len(zero)}, битых ссылок {len(links)})\n\n"]
+        label = {"zero": "пусто ", "symlink": "ссылка"}
+        for k, p in items[:60]:
+            lines.append(f"  [{label[k]}]  {p.replace(HOME,'~')}\n")
+        if len(items) > 60:
+            lines.append(f"  …и ещё {len(items)-60}\n")
+        if not items:
+            lines.append("  битых и пустых файлов не найдено.\n")
+        lines.append("\nПустые файлы (0 байт) и битые символические ссылки бесполезны. Уйдут в Корзину.\n")
+        files = [p for _, p in items]
+        self.q.put(("broken", "".join(lines), files))
+
+    def _broken_clean(self, files):
+        if not files or not messagebox.askyesno("KRYLAN", f"Переместить {len(files)} битых/пустых файлов в Корзину?"): return
+        ok = 0
+        for p in files:
+            try: send2trash(p); ok += 1
+            except Exception: pass
+        messagebox.showinfo("KRYLAN", f"В Корзину: {ok} файлов."); self.t_broken()
+
     def t_smart(self):
         self._out("🩺 Читаю состояние диска…")
         threading.Thread(target=lambda: self.q.put(("tout", disk_health_report(), None)), daemon=True).start()
@@ -1237,6 +1296,12 @@ class Krylan(tk.Tk):
                         if b:
                             self._btn(self.t_action, f"📂 Удалить пустые папки ({len(b)})", RED,
                                       lambda ds=b: self._empty_clean(ds)).pack(side="left", pady=4)
+                elif kind == "broken":
+                    if self.page == "tools":
+                        self._out(a)
+                        if b:
+                            self._btn(self.t_action, f"🧩 Удалить битые/пустые ({len(b)})", RED,
+                                      lambda fs=b: self._broken_clean(fs)).pack(side="left", pady=4)
         except queue.Empty: pass
         except Exception: pass
         self.after(120, self._poll)

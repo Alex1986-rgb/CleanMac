@@ -85,7 +85,9 @@ private fun Root() {
     ) { inner ->
         androidx.compose.foundation.layout.Box(Modifier.padding(inner)) {
             when (tab) {
-                Tab.Dashboard -> DashboardScreen(ctx)
+                Tab.Dashboard -> DashboardScreen(ctx) { index ->
+                    Tab.entries.getOrNull(index)?.let { tab = it }
+                }
                 Tab.Storage   -> StorageScreen(ctx)
                 Tab.Cleanup   -> CleanupScreen(ctx)
                 Tab.Media     -> MediaHubScreen(ctx)
