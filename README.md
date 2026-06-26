@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="icon_1024.png" width="128" alt="KRYLAN CleanMac"/>
+<img src="docs/icon.png" width="128" alt="KRYLAN CleanMac"/>
 
 # 🪽 KRYLAN · CleanMac
 
@@ -12,7 +12,7 @@
 **Экосистема KRYLAN:** macOS · **Windows · Linux** (доступно) · iPhone · Android (в разработке).
 **Создатель:** Кырлан Александр Сергеевич.
 
-![version](https://img.shields.io/badge/version-2.0.0-37d39a)
+![version](https://img.shields.io/badge/version-2.41.0-37d39a)
 ![platform](https://img.shields.io/badge/macOS-11%2B-blue)
 ![license](https://img.shields.io/badge/license-MIT-purple)
 

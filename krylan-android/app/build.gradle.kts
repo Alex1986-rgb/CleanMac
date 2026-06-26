@@ -13,14 +13,14 @@ val keystoreProps = Properties().apply {
 
 android {
     namespace = "com.krylan.app"
-    compileSdk = 34
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "com.krylan.app"
         minSdk = 26
-        targetSdk = 34
-        versionCode = 7
-        versionName = "0.7.0"
+        targetSdk = 35
+        versionCode = 8
+        versionName = "0.8.0"
     }
 
     signingConfigs {

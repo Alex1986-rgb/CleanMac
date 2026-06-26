@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Обязательно для Mac App Store: приложение в песочнице. -->
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+	<!-- Доступ к медиатеке (поиск дубликатов фото). -->
+	<key>com.apple.security.personal-information.photos-library</key>
+	<true/>
+	<!-- Доступ к контактам (поиск дубликатов контактов). -->
+	<key>com.apple.security.personal-information.addressbook</key>
+	<true/>
+	<!-- Чтение файлов, выбранных пользователем (очистка). -->
+	<key>com.apple.security.files.user-selected.read-write</key>
+	<true/>
+</dict>
+</plist>

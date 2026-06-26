@@ -12,7 +12,10 @@ import psutil
 from send2trash import send2trash
 
 # Общий модуль экосистемы (единый источник истины для human/load_color).
-# Лежит в корне репозитория — добавляем родительский каталог в путь.
+# Рядом лежит вендорная копия (krylan_core.py) — этого достаточно для
+# standalone-сборки (PyInstaller подхватит её автоматически). При запуске из
+# дерева репозитория предпочитаем корневой оригинал, чтобы логика не расходилась.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import krylan_core
 

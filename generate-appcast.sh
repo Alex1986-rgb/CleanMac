@@ -17,7 +17,8 @@ echo "    <link>$URL</link>"
 echo '    <description>«Дай устройству крылья» — обновления KRYLAN CleanMac.</description>'
 echo '    <language>ru</language>'
 gh api "repos/$REPO/releases" --jq '.[] | select(.draft==false) |
-  "    <item>\n      <title>\(.tag_name)</title>\n      <sparkle:version>\(.tag_name|ltrimstr("v"))</sparkle:version>\n      <sparkle:shortVersionString>\(.tag_name|ltrimstr("v"))</sparkle:shortVersionString>\n      <pubDate>\(.published_at)</pubDate>\n      <enclosure url=\"\(.assets[] | select(.name|endswith(".dmg")) | .browser_download_url)\" sparkle:version=\"\(.tag_name|ltrimstr("v"))\" type=\"application/octet-stream\" length=\"\(.assets[] | select(.name|endswith(".dmg")) | .size)\"/>\n    </item>"' 2>/dev/null
+  (first(.assets[] | select(.name|endswith(".dmg")))) as $dmg | select($dmg != null) | .tag_name as $t | ($t|ltrimstr("v")) as $v |
+  "    <item>\n      <title>\($t)</title>\n      <sparkle:version>\($v)</sparkle:version>\n      <sparkle:shortVersionString>\($v)</sparkle:shortVersionString>\n      <pubDate>\(.published_at)</pubDate>\n      <enclosure url=\"\($dmg.browser_download_url)\" sparkle:version=\"\($v)\" type=\"application/octet-stream\" length=\"\($dmg.size)\"/>\n    </item>"' 2>/dev/null
 echo '  </channel>'
 echo '</rss>'
 } > "$OUT"

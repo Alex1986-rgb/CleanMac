@@ -7,6 +7,16 @@
 > Версии `vX.Y.Z` относятся к флагману **CleanMac (macOS)**. Кросс-платформенные приложения
 > KRYLAN (Desktop, iOS, Android) имеют собственные версии и отмечены в записях соответствующей даты.
 
+## [2.41.0] — 2026-06-27
+### Экосистема — готовность к релизу на всех платформах
+- **CI/CD (GitHub Actions):** `ci.yml` — компиляция и юнит-тесты (CleanMac + KRYLAN Desktop + сборка Android debug) на каждый push; `release.yml` — сборка по тегу `vX.Y.Z` (macOS DMG + Windows .exe + Linux-бинарь) с автоприкреплением к релизу.
+- **Android:** добавлены лаунчер-иконки (adaptive + 5 плотностей + round + monochrome) и иконка 512×512 для Play; `compileSdk`/`targetSdk` 34 → 35, AGP 8.5 → 8.6 (требование Google Play); `versionName` 0.8.0.
+- **KRYLAN Desktop:** сборка стала самодостаточной — `krylan_core` вендорится рядом, импорт устойчив (standalone .exe/.app/бинарь больше не падает с `ModuleNotFoundError`).
+- **iOS + macOS (SwiftUI):** добавлен `KRYLAN-macOS.entitlements` (App Sandbox + Photos + Contacts) для Mac App Store; полный macOS app-icon set (10 размеров); версии Info.plist из `MARKETING_VERSION` (1.0.0). Сборка iOS и macOS проверена `xcodebuild` — BUILD SUCCEEDED.
+- **Версии и лендинг:** согласованы VERSION / README / docs-бейдж; ссылки .ipa/.apk на лендинге переведены на `releases/latest` (больше не 404).
+
+> Версии 2.34.0–2.40.0 — итеративная полировка HUD-дашборда CleanMac, см. [GitHub Releases](https://github.com/Alex1986-rgb/CleanMac/releases).
+
 ## [2.33.0] — 2026-06-24
 ### Изменено (CleanMac) — HUD/sci-fi редизайн дашборда
 - **Навигационно-синяя HUD-палитра** (navy) с неоновыми акцентами вместо чёрной.
