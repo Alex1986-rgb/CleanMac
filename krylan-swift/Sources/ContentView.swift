@@ -50,9 +50,24 @@ enum Section: String, CaseIterable, Identifiable {
 struct ContentView: View {
     @State private var selection: Section? = .dashboard
     @StateObject private var monitor = SystemMonitor()
+    #if os(iOS)
+    // Онбординг показывается только при первом запуске (iOS).
+    @AppStorage("krylan.onboarded") private var onboarded = false
+    #endif
 
     var body: some View {
+        #if os(iOS)
+        Group {
+            if onboarded {
+                content
+            } else {
+                OnboardingView(onDone: { onboarded = true })
+            }
+        }
+        .onAppear { monitor.start() }
+        #else
         content.onAppear { monitor.start() }
+        #endif
     }
 
     @ViewBuilder private func screen(_ s: Section) -> some View {
