@@ -259,6 +259,56 @@ def find_duplicates(bases=None):
     wasted = sum(s*(len(g)-1) for s, g in groups)
     return groups, extras, wasted
 
+# ---------- похожие изображения (perceptual hash / dHash) ----------
+SIMILAR_EXTS = (".jpg", ".jpeg", ".png", ".heic", ".webp", ".bmp", ".gif")
+
+def dhash(image, size=8):
+    """Difference hash изображения PIL.Image → int.
+    grayscale → resize(size+1, size) → сравнение соседних пикселей по строкам."""
+    img = image.convert("L").resize((size + 1, size))
+    px = img.load()
+    bits = 0
+    for row in range(size):
+        for col in range(size):
+            bits = (bits << 1) | (1 if px[col, row] > px[col + 1, row] else 0)
+    return bits
+
+def hamming(a, b):
+    """Расстояние Хэмминга двух int."""
+    return bin(a ^ b).count("1")
+
+def find_similar_images(bases=None, threshold=10):
+    """Группы похожих (near-duplicate) изображений по dHash.
+    Возвращает список групп — каждая список путей (≥2). Pillow импортируется лениво."""
+    from PIL import Image
+    bases = bases or [os.path.join(HOME, d) for d in ("Desktop", "Documents", "Downloads", "Pictures")]
+    items = []  # (path, hash)
+    for base in bases:
+        if not os.path.isdir(base): continue
+        for root, _, files in os.walk(base):
+            for fn in files:
+                if not fn.lower().endswith(SIMILAR_EXTS): continue
+                fp = os.path.join(root, fn)
+                try:
+                    with Image.open(fp) as im:
+                        h = dhash(im)
+                    items.append((fp, h))
+                except Exception:
+                    continue  # битые/нечитаемые пропускаем
+    groups, used = [], set()
+    for i in range(len(items)):
+        if i in used: continue
+        fp_i, h_i = items[i]
+        grp = [fp_i]
+        for j in range(i + 1, len(items)):
+            if j in used: continue
+            fp_j, h_j = items[j]
+            if hamming(h_i, h_j) <= threshold:
+                grp.append(fp_j); used.add(j)
+        if len(grp) >= 2:
+            used.add(i); groups.append(sorted(grp))
+    return groups
+
 # ---------- следы браузеров (Privacy Cleaner) ----------
 def running_browsers():
     """Названия запущенных браузеров (по процессам psutil)."""
@@ -1025,7 +1075,7 @@ class Krylan(tk.Tk):
     def show_tools(self):
         tk.Label(self.main, text=L("Инструменты"), bg=BG0, fg=TEXT, font=("Segoe UI", 20, "bold")).pack(anchor="w", padx=24, pady=(18,8))
         bar = tk.Frame(self.main, bg=BG0); bar.pack(fill="x", padx=22)
-        for lbl, cmd in [("⚙️ Автозагрузка", self.t_startup), ("👯 Дубликаты", self.t_dupes), ("📦 Крупные файлы", self.t_large),
+        for lbl, cmd in [("⚙️ Автозагрузка", self.t_startup), ("👯 Дубликаты", self.t_dupes), ("🖼 Похожие фото", self.t_similar), ("📦 Крупные файлы", self.t_large),
                          ("🗺 Карта диска", self.t_diskmap), ("🧳 Деинсталлятор", self.t_uninstall),
                          ("📂 Пустые папки", self.t_empty), ("🧩 Битые файлы", self.t_broken),
                          ("📈 Что выросло", self.t_growth),
@@ -1154,6 +1204,29 @@ class Krylan(tk.Tk):
             try: send2trash(p); ok += 1
             except Exception: pass
         messagebox.showinfo("KRYLAN", f"В Корзину: {ok} файлов."); self.t_dupes()
+
+    def t_similar(self):
+        self._out("🖼 Ищу похожие фото…"); threading.Thread(target=self._similar_w, daemon=True).start()
+
+    def _similar_w(self):
+        try:
+            from PIL import Image  # noqa: F401
+        except ImportError:
+            self.q.put(("tout", "🖼  Похожие фото\n\n  Не установлен Pillow.\n  Установите: pip install Pillow\n", None)); return
+        groups = find_similar_images()
+        extras = [p for g in groups for p in g[1:]]
+        t = f"🖼  Похожие фото: групп {len(groups)}, лишних {len(extras)}\n\n"
+        for g in groups[:20]:
+            t += f"  похожих ×{len(g)}:\n" + "".join(f"      {p.replace(HOME,'~')}\n" for p in g) + "\n"
+        self.q.put(("similar", t if groups else "  похожих фото нет.\n", extras))
+
+    def _trash_similar(self, extras):
+        if not extras or not messagebox.askyesno("KRYLAN", f"Удалить {len(extras)} лишних похожих фото в Корзину?\n(в каждой группе остаётся первое)"): return
+        ok = 0
+        for p in extras:
+            try: send2trash(p); ok += 1
+            except Exception: pass
+        messagebox.showinfo("KRYLAN", f"В Корзину: {ok} файлов."); self.t_similar()
 
     def t_diskmap(self):
         self._out("🗺 Считаю размеры папок…"); threading.Thread(target=self._diskmap_w, daemon=True).start()
@@ -1417,6 +1490,12 @@ class Krylan(tk.Tk):
                         if b:
                             self._btn(self.t_action, f"🗑 Удалить {len(b)} лишних копий", RED,
                                       lambda ex=b: self._trash_dupes(ex)).pack(side="left", pady=4)
+                elif kind == "similar":
+                    if self.page == "tools":
+                        self._out(a)
+                        if b:
+                            self._btn(self.t_action, f"🗑 Удалить {len(b)} лишних похожих", RED,
+                                      lambda ex=b: self._trash_similar(ex)).pack(side="left", pady=4)
                 elif kind == "privacy":
                     if self.page == "tools":
                         self._out(a)

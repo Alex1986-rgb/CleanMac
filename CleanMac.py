@@ -7,7 +7,7 @@ KRYLAN · CleanMac — оптимизатор для macOS со «стеклян
 Дашборд с диаграммами, автопилот, очистка в Корзину, инструменты,
 проверка обновлений (GitHub) и Pro-каркас. Запуск: framework-python 3.12.
 """
-import os, time, shutil, hashlib, threading, queue, subprocess, collections, math, re, json, random
+import os, time, shutil, hashlib, threading, queue, subprocess, collections, math, re, json, random, fcntl
 import sys
 import urllib.request
 try:
@@ -493,6 +493,69 @@ def stat_disk():
     except Exception: st = os.statvfs("/")
     total = st.f_blocks*st.f_frsize; free = st.f_bavail*st.f_frsize
     return ((total-free)/total*100 if total else 0), free, total
+
+
+def disk_benchmark(path=None, size_mb=128):
+    """Безопасный бенчмарк скорости диска (read/write).
+
+    Пишет временный файл size_mb МБ блоками по 4 МБ, измеряет время записи,
+    затем заново открывает файл и читает целиком — измеряет время чтения.
+    Временный файл всегда удаляется (finally). Возвращает dict:
+        {"write_mbps": float, "read_mbps": float, "size_mb": int}
+    либо {"error": "..."} при нехватке места/прав/иной ошибке.
+    """
+    import tempfile
+    size_mb = max(1, int(size_mb))
+    block = 4 * 1024 * 1024            # 4 МБ
+    total = size_mb * 1024 * 1024
+    chunk = b"\0" * block
+    # каталог: рядом с HOME, если доступен на запись; иначе системный temp
+    if path:
+        tmpdir = path
+    else:
+        tmpdir = HOME if os.path.isdir(HOME) and os.access(HOME, os.W_OK) else tempfile.gettempdir()
+    fd, fpath = None, None
+    try:
+        fd, fpath = tempfile.mkstemp(prefix=".cleanmac_bench_", dir=tmpdir)
+        os.close(fd); fd = None
+        # --- запись ---
+        written = 0
+        t0 = time.perf_counter()
+        with open(fpath, "wb", buffering=0) as f:
+            while written < total:
+                n = min(block, total - written)
+                f.write(chunk if n == block else chunk[:n])
+                written += n
+            f.flush(); os.fsync(f.fileno())
+        wt = time.perf_counter() - t0
+        # --- сброс кэша чтения: F_NOCACHE на свежем дескрипторе ---
+        read_bytes = 0
+        t1 = time.perf_counter()
+        with open(fpath, "rb", buffering=0) as f:
+            try: fcntl.fcntl(f.fileno(), getattr(fcntl, "F_NOCACHE", 48), 1)
+            except Exception: pass
+            while True:
+                d = f.read(block)
+                if not d: break
+                read_bytes += len(d)
+        rt = time.perf_counter() - t1
+        mb = total / (1024 * 1024)
+        return {
+            "write_mbps": round(mb / wt, 1) if wt > 0 else 0.0,
+            "read_mbps":  round(mb / rt, 1) if rt > 0 else 0.0,
+            "size_mb":    size_mb,
+        }
+    except OSError as e:
+        return {"error": f"{e.__class__.__name__}: {e}"}
+    except Exception as e:
+        return {"error": str(e)}
+    finally:
+        try:
+            if fd is not None: os.close(fd)
+        except Exception: pass
+        try:
+            if fpath and os.path.exists(fpath): os.remove(fpath)
+        except Exception: pass
 
 _bc = {"health": 0, "cycles": 0, "cond": "—", "t": 0}
 def stat_batt():
@@ -1625,6 +1688,13 @@ class CleanMac(tk.Tk):
             b=tk.Label(bar, text=label, bg=(BLUE if self._disk_mode==key else GLASS_HI), fg="white" if self._disk_mode==key else TEXT,
                        font=("SF Pro Text",11,"bold"), padx=10, pady=5, cursor="pointinghand")
             b.pack(side="left", padx=(0,6)); b.bind("<Button-1>", lambda e,k=key: (setattr(self,"_disk_mode",k), self._render_disk(rows)))
+        self.bench_btn=tk.Label(bar, text="🏁 Бенчмарк диска", bg=GREEN, fg="white",
+                                font=("SF Pro Text",11,"bold"), padx=10, pady=5, cursor="pointinghand")
+        self.bench_btn.pack(side="right"); self.bench_btn.bind("<Button-1>", lambda e: self._bench_start())
+        self.bench_lbl=tk.Label(self.tpanel, text="🏁 Тест скорости SSD/HDD: запись и чтение ~128 МБ во временный файл "
+                                "(удаляется сразу). Занимает пару секунд.",
+                                bg=BG0, fg=MUTED, font=("SF Pro Text",11), wraplength=620, justify="left", anchor="w")
+        self.bench_lbl.pack(anchor="w", pady=(6,0))
         cv=tk.Canvas(self.tpanel, bg=GLASS, highlightthickness=0); cv.pack(fill="both", expand=True, pady=(6,8))
         pal=[BLUE,GREEN,PURPLE,YELLOW,CYAN,RED]
         def draw(e=None):
@@ -1653,6 +1723,41 @@ class CleanMac(tk.Tk):
                     cv.tag_bind(tag,"<Button-1>", lambda e,pp=p: run(["/usr/bin/open",pp]))
                 cv.configure(scrollregion=(0,0,W,H))
         cv.bind("<Configure>", draw); draw()
+
+    def _bench_start(self):
+        try:
+            self.bench_btn.configure(text="⏳ Тестирую…", bg=GLASS_HI)
+            self.bench_lbl.configure(text="⏳ Идёт бенчмарк: пишу и читаю ~128 МБ во временный файл… пара секунд.", fg=TEXT)
+        except Exception: pass
+        threading.Thread(target=self._bench_w, daemon=True).start()
+
+    def _bench_w(self):
+        res = disk_benchmark(size_mb=128)
+        self.q.put(("bench", res, None))
+
+    @staticmethod
+    def _bench_verdict(mbps):
+        if mbps >= 1500: return "🟢 отличный NVMe SSD"
+        if mbps >= 500:  return "🟢 быстрый SSD"
+        if mbps >= 100:  return "🟡 SSD начального уровня / внешний диск"
+        return "🔴 медленный (HDD или перегруженный диск)"
+
+    def _render_bench(self, res):
+        if not hasattr(self, "bench_btn"): return
+        try: self.bench_btn.configure(text="🏁 Бенчмарк диска", bg=GREEN)
+        except Exception: pass
+        if not res or "error" in (res or {}):
+            self.bench_lbl.configure(
+                text="⚠️ Не удалось выполнить бенчмарк: " + (res.get("error","нет данных") if res else "нет данных") +
+                     " (проверьте свободное место и права).", fg=RED)
+            return
+        w, r = res.get("write_mbps",0), res.get("read_mbps",0)
+        self.bench_lbl.configure(
+            text=(f"🏁 Бенчмарк диска ({res.get('size_mb',128)} МБ):\n"
+                  f"   ✍️ Запись: {w} МБ/с  —  {self._bench_verdict(w)}\n"
+                  f"   📖 Чтение: {r} МБ/с  —  {self._bench_verdict(r)}\n"
+                  "Ориентир: >1500 МБ/с — отличный SSD, 100–500 — норма, <100 — медленный/HDD."),
+            fg=GREEN if min(w, r) >= 500 else (YELLOW if min(w, r) >= 100 else RED))
 
     # --- Обслуживание ---
     def _t_maintain(self):
@@ -2177,6 +2282,7 @@ class CleanMac(tk.Tk):
                     if sub=="large": self._render_large(data)
                     elif sub=="dupes": self._render_dupes(data)
                 elif kind=="disk" and self.page=="tools": self._render_disk(a)
+                elif kind=="bench" and self.page=="tools": self._render_bench(a)
                 elif kind=="trash_info" and self.page=="tools": self._render_trash_info(a)
                 elif kind=="maintdone":
                     try: self._mrez.configure(text="✅ Готово: "+a.replace("★","").strip())

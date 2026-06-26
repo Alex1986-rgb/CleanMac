@@ -2,8 +2,11 @@
 package com.krylan.app.screens
 
 import android.app.Activity
+import android.app.PendingIntent
 import android.content.Context
+import android.content.IntentSender
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -70,24 +73,122 @@ private fun MediaPermissionGate(ctx: Context, content: @Composable () -> Unit) {
     }
 }
 
-/** Системный диалог удаления выбранных uri (Android 11+); ниже — прямое удаление. */
-@Composable
-private fun rememberDeleter(ctx: Context, onDone: () -> Unit): (List<MediaFile>) -> Unit {
-    val launcher = rememberLauncherForActivityResult(
-        ActivityResultContracts.StartIntentSenderForResult()
-    ) { result -> if (result.resultCode == Activity.RESULT_OK) onDone() }
+/**
+ * Контроллер действий над медиа: безопасное удаление «в корзину» (Android 11+, обратимо)
+ * с возможностью «Отменить», плюс fallback на необратимое удаление до API 30.
+ * Держит [statusText] для текстового баннера и [canUndo] для кнопки отмены.
+ */
+private class MediaActions(
+    /** Запуск системного запроса корзины: trashTo=true — в корзину, false — восстановить. */
+    private val launchTrash: (uris: List<Uri>, trashTo: Boolean) -> Unit,
+    /** Необратимое удаление (fallback на API < 30 либо явный выбор). */
+    private val launchDelete: (List<MediaFile>) -> Unit,
+    val supportsTrash: Boolean,
+) {
+    var statusText by mutableStateOf<String?>(null)
+    var canUndo by mutableStateOf(false)
+        private set
 
-    return { files ->
-        if (files.isNotEmpty()) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                val pi = MediaStore.createDeleteRequest(ctx.contentResolver, files.map { it.uri })
-                launcher.launch(IntentSenderRequest.Builder(pi.intentSender).build())
-            } else {
-                files.forEach { runCatching { ctx.contentResolver.delete(it.uri, null, null) } }
-                onDone()
-            }
+    // Последняя партия uri, перемещённая в корзину — для «Отменить».
+    private var lastTrashed: List<Uri> = emptyList()
+
+    /** Основное действие кнопки «Удалить»: в корзину (если поддерживается) либо удалить. */
+    fun remove(files: List<MediaFile>) {
+        if (files.isEmpty()) return
+        if (supportsTrash) {
+            lastTrashed = files.map { it.uri }
+            launchTrash(lastTrashed, true)
+        } else {
+            launchDelete(files)
         }
     }
+
+    /** Отмена последнего перемещения в корзину — восстановление тех же uri. */
+    fun undo() {
+        if (canUndo && lastTrashed.isNotEmpty()) launchTrash(lastTrashed, false)
+    }
+
+    /** Вызывается после успешного системного запроса «в корзину». */
+    fun onTrashed(count: Int) {
+        statusText = "Перемещено в корзину: $count"
+        canUndo = true
+    }
+
+    /** Вызывается после успешного восстановления из корзины. */
+    fun onRestored() {
+        statusText = "Восстановлено из корзины"
+        canUndo = false
+        lastTrashed = emptyList()
+    }
+
+    /** Сброс баннера. */
+    fun clearStatus() {
+        statusText = null
+    }
+}
+
+/**
+ * Готовит контроллер действий: один StartIntentSenderForResult обслуживает удаление,
+ * перемещение в корзину и восстановление. На API < 30 системной корзины нет —
+ * удаляем напрямую (необратимо). [onDone] перезагружает список после успеха.
+ */
+@Composable
+private fun rememberMediaActions(ctx: Context, onDone: () -> Unit): MediaActions {
+    val supportsTrash = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
+
+    // Что именно подтверждает пользователь в системном диалоге — для верного баннера.
+    var pendingOp by remember { mutableStateOf<PendingOp>(PendingOp.None) }
+    val actionsRef = remember { mutableStateOf<MediaActions?>(null) }
+
+    val launcher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartIntentSenderForResult()
+    ) { result ->
+        val op = pendingOp
+        pendingOp = PendingOp.None
+        if (result.resultCode == Activity.RESULT_OK) {
+            when (op) {
+                is PendingOp.Trash -> actionsRef.value?.onTrashed(op.count)
+                PendingOp.Restore -> actionsRef.value?.onRestored()
+                PendingOp.Delete, PendingOp.None -> { /* удаление: баннер не нужен */ }
+            }
+            onDone()
+        }
+    }
+
+    fun launchSender(sender: IntentSender) {
+        launcher.launch(IntentSenderRequest.Builder(sender).build())
+    }
+
+    val launchTrash: (List<Uri>, Boolean) -> Unit = trash@{ uris, trashTo ->
+        if (uris.isEmpty() || !supportsTrash) return@trash
+        val pi: PendingIntent = MediaStoreUtils.trashRequest(ctx, uris, trash = trashTo)
+        pendingOp = if (trashTo) PendingOp.Trash(uris.size) else PendingOp.Restore
+        launchSender(pi.intentSender)
+    }
+
+    val launchDelete: (List<MediaFile>) -> Unit = del@{ files ->
+        if (files.isEmpty()) return@del
+        if (supportsTrash) {
+            val pi = MediaStore.createDeleteRequest(ctx.contentResolver, files.map { it.uri })
+            pendingOp = PendingOp.Delete
+            launchSender(pi.intentSender)
+        } else {
+            files.forEach { runCatching { ctx.contentResolver.delete(it.uri, null, null) } }
+            onDone()
+        }
+    }
+
+    val actions = remember { MediaActions(launchTrash, launchDelete, supportsTrash) }
+    actionsRef.value = actions
+    return actions
+}
+
+/** Какую операцию пользователь подтверждает в системном диалоге. */
+private sealed interface PendingOp {
+    data object None : PendingOp
+    data object Delete : PendingOp
+    data class Trash(val count: Int) : PendingOp
+    data object Restore : PendingOp
 }
 
 /** Хаб «Медиа»: Крупные · Дубли · Скриншоты · Загрузки. */
@@ -129,25 +230,58 @@ private fun GenericMediaScreen(ctx: Context, title: String, loader: (Context) ->
     MediaPermissionGate(ctx) {
         var reload by remember { mutableIntStateOf(0) }
         val files = remember(reload, title) { loader(ctx) }
-        val deleter = rememberDeleter(ctx) { reload++ }
+        val actions = rememberMediaActions(ctx) { reload++ }
         val total = files.sumOf { it.size }
+        // Действие на строке: безопасно — «В корзину» (API 30+), иначе «Удалить».
+        val rowLabel = if (actions.supportsTrash) "В корзину" else "Удалить"
 
-        LazyColumn(
-            Modifier.fillMaxSize().background(Brand.bg0),
-            contentPadding = PaddingValues(20.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            item {
-                Text("$title · ${files.size} · ${SystemInfo.fmtSize(total)}",
-                    color = Brand.muted, fontSize = 13.sp,
-                    modifier = Modifier.padding(bottom = 4.dp))
+        Column(Modifier.fillMaxSize().background(Brand.bg0)) {
+            TrashBanner(actions)
+            LazyColumn(
+                Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(20.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                item {
+                    Text("$title · ${files.size} · ${SystemInfo.fmtSize(total)}",
+                        color = Brand.muted, fontSize = 13.sp,
+                        modifier = Modifier.padding(bottom = 4.dp))
+                }
+                items(files, key = { it.id }) { f ->
+                    FileRow(f, actionLabel = rowLabel) { actions.remove(listOf(f)) }
+                }
+                if (files.isEmpty()) item {
+                    Text("Ничего не найдено.", color = Brand.muted, fontSize = 14.sp)
+                }
             }
-            items(files, key = { it.id }) { f ->
-                FileRow(f, actionLabel = "Удалить") { deleter(listOf(f)) }
+        }
+    }
+}
+
+/**
+ * Текстовый баннер статуса последней операции с кнопкой «Отменить».
+ * Material3 Scaffold/SnackbarHost в этих экранах нет — используем лёгкий текстовый статус,
+ * чтобы не тащить лишнюю обвязку.
+ */
+@Composable
+private fun TrashBanner(actions: MediaActions) {
+    val status = actions.statusText ?: return
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .background(Brand.glass)
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text(status, color = Brand.text, fontSize = 13.sp, modifier = Modifier.weight(1f))
+        if (actions.canUndo) {
+            TextButton(onClick = { actions.undo() }) {
+                Text("Отменить", color = Brand.green, fontWeight = FontWeight.Bold, fontSize = 13.sp)
             }
-            if (files.isEmpty()) item {
-                Text("Ничего не найдено.", color = Brand.muted, fontSize = 14.sp)
-            }
+        }
+        TextButton(onClick = { actions.clearStatus() }) {
+            Text("Скрыть", color = Brand.muted, fontSize = 13.sp)
         }
     }
 }
@@ -157,14 +291,17 @@ fun DuplicatesScreen(ctx: Context) {
     MediaPermissionGate(ctx) {
         var reload by remember { mutableIntStateOf(0) }
         val groups = remember(reload) { MediaStoreUtils.duplicateGroups(ctx) }
-        val deleter = rememberDeleter(ctx) { reload++ }
+        val actions = rememberMediaActions(ctx) { reload++ }
         val wastedBytes = groups.sumOf { g -> g.first().size * (g.size - 1) }
+        val dupLabelPrefix = if (actions.supportsTrash) "В корзину лишние" else "Удалить лишние"
 
-        LazyColumn(
-            Modifier.fillMaxSize().background(Brand.bg0),
-            contentPadding = PaddingValues(20.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
+        Column(Modifier.fillMaxSize().background(Brand.bg0)) {
+            TrashBanner(actions)
+            LazyColumn(
+                Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(20.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
             item {
                 Card(
                     colors = CardDefaults.cardColors(containerColor = Brand.glass),
@@ -187,14 +324,15 @@ fun DuplicatesScreen(ctx: Context) {
                     Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text(g.first().name, color = Brand.text, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                         Text("${g.size} копии · ${SystemInfo.fmtSize(g.first().size)} каждая", color = Brand.muted, fontSize = 12.sp)
-                        TextButton(onClick = { deleter(g.drop(1)) }) {
-                            Text("Удалить лишние (${g.size - 1})", color = Brand.red, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        TextButton(onClick = { actions.remove(g.drop(1)) }) {
+                            Text("$dupLabelPrefix (${g.size - 1})", color = Brand.red, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                         }
                     }
                 }
             }
             if (groups.isEmpty()) item {
                 Text("Дубликаты не найдены — отлично!", color = Brand.green, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            }
             }
         }
     }

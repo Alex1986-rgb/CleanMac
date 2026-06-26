@@ -336,5 +336,83 @@ class TestFocusCandidates(unittest.TestCase):
         self.assertEqual([c["name"] for c in cand], ["Other"])
 
 
+class TestSimilarImages(unittest.TestCase):
+    """Похожие изображения (perceptual hash / dHash)."""
+
+    def setUp(self):
+        try:
+            from PIL import Image  # noqa: F401
+        except ImportError:
+            self.skipTest("Pillow не установлен")
+
+    def _make(self, path, fill, mods=None):
+        from PIL import Image
+        im = Image.new("RGB", (64, 64), fill)
+        px = im.load()
+        # градиент, чтобы dhash был содержательным (не нулевым)
+        for y in range(64):
+            for x in range(64):
+                px[x, y] = ((x * 4) % 256, (y * 4) % 256, fill[2])
+        for (mx, my, mc) in (mods or []):
+            px[mx, my] = mc
+        im.save(path)
+        return im
+
+    def test_dhash_returns_int(self):
+        im = self._make(os.path.join(tempfile.mkdtemp(), "a.png"), (10, 20, 30))
+        h = krylan.dhash(im)
+        self.assertIsInstance(h, int)
+
+    def test_hamming(self):
+        self.assertEqual(krylan.hamming(0b1010, 0b1010), 0)
+        self.assertEqual(krylan.hamming(0b1010, 0b1011), 1)
+        self.assertEqual(krylan.hamming(0b0000, 0b1111), 4)
+
+    def test_close_small_distance_far_large(self):
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        # два почти одинаковых (отличаются парой пикселей)
+        a = self._make(os.path.join(d, "a.png"), (10, 20, 30))
+        b = self._make(os.path.join(d, "b.png"), (10, 20, 30),
+                       mods=[(1, 1, (0, 0, 0)), (2, 2, (255, 255, 255))])
+        # явно другое — другой узор
+        from PIL import Image
+        c_img = Image.new("RGB", (64, 64))
+        cpx = c_img.load()
+        for y in range(64):
+            for x in range(64):
+                cpx[x, y] = ((y * 8) % 256, 255 - (x * 4) % 256, 128)
+        c_img.save(os.path.join(d, "c.png"))
+        ha, hb, hc = krylan.dhash(a), krylan.dhash(b), krylan.dhash(c_img)
+        self.assertLessEqual(krylan.hamming(ha, hb), 10)
+        self.assertGreater(krylan.hamming(ha, hc), 10)
+
+    def test_find_similar_images_groups(self):
+        home = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, home, ignore_errors=True)
+        desktop = os.path.join(home, "Desktop")
+        os.makedirs(desktop)
+        self._make(os.path.join(desktop, "a.png"), (10, 20, 30))
+        self._make(os.path.join(desktop, "b.png"), (10, 20, 30),
+                   mods=[(1, 1, (0, 0, 0)), (2, 2, (255, 255, 255))])
+        from PIL import Image
+        c_img = Image.new("RGB", (64, 64))
+        cpx = c_img.load()
+        for y in range(64):
+            for x in range(64):
+                cpx[x, y] = ((y * 8) % 256, 255 - (x * 4) % 256, 128)
+        c_img.save(os.path.join(desktop, "c.png"))
+        old_home = krylan.HOME
+        krylan.HOME = home
+        try:
+            groups = krylan.find_similar_images(threshold=10)
+        finally:
+            krylan.HOME = old_home
+        # ровно одна группа из двух близких
+        self.assertEqual(len(groups), 1)
+        names = {os.path.basename(p) for p in groups[0]}
+        self.assertEqual(names, {"a.png", "b.png"})
+
+
 if __name__ == "__main__":
     unittest.main()

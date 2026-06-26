@@ -199,5 +199,29 @@ class TestBrewParser(unittest.TestCase):
         self.assertEqual(cm.parse_brew_outdated("", "формула"), [])
 
 
+class TestDiskBenchmark(unittest.TestCase):
+    """Бенчмарк диска: пишет/читает маленький temp-файл и удаляет его."""
+    def test_small_run_and_cleanup(self):
+        tmp = tempfile.mkdtemp()
+        before = set(os.listdir(tmp))
+        res = cm.disk_benchmark(path=tmp, size_mb=1)
+        self.assertNotIn("error", res, f"неожиданная ошибка: {res.get('error')}")
+        self.assertEqual(res["size_mb"], 1)
+        self.assertGreater(res["write_mbps"], 0)
+        self.assertGreater(res["read_mbps"], 0)
+        # temp-файл удалён (finally) — каталог в исходном состоянии
+        self.assertEqual(set(os.listdir(tmp)), before)
+
+    def test_error_on_bad_path(self):
+        res = cm.disk_benchmark(path="/no/such/dir/xyz", size_mb=1)
+        self.assertIn("error", res)
+
+    def test_verdict_thresholds(self):
+        self.assertIn("🟢", cm.CleanMac._bench_verdict(2000))
+        self.assertIn("🟢", cm.CleanMac._bench_verdict(600))
+        self.assertIn("🟡", cm.CleanMac._bench_verdict(200))
+        self.assertIn("🔴", cm.CleanMac._bench_verdict(50))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

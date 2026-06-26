@@ -1,6 +1,7 @@
 // Крупные файлы и медиа-дубликаты через MediaStore (scoped storage, без root).
 package com.krylan.app
 
+import android.app.PendingIntent
 import android.content.ContentUris
 import android.content.Context
 import android.net.Uri
@@ -50,6 +51,22 @@ object MediaStoreUtils {
             android.Manifest.permission.READ_MEDIA_VIDEO,
             android.Manifest.permission.READ_MEDIA_AUDIO,
         ) else arrayOf(android.Manifest.permission.READ_EXTERNAL_STORAGE)
+
+    /**
+     * Системный запрос «Корзина» для медиа (Android 11+/API 30 R).
+     * trash=true  — переместить uri в системную корзину (обратимо);
+     * trash=false — восстановить uri из корзины.
+     * Вызывающий обязан проверить Build.VERSION.SDK_INT >= R перед вызовом:
+     * createTrashRequest появился только в API 30, на более ранних версиях
+     * системной корзины нет (используйте createDeleteRequest / delete).
+     * Возвращает PendingIntent; .intentSender передавайте в StartIntentSenderForResult.
+     */
+    fun trashRequest(ctx: Context, uris: List<Uri>, trash: Boolean): PendingIntent {
+        require(Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            "createTrashRequest требует Android 11 (API 30)"
+        }
+        return MediaStore.createTrashRequest(ctx.contentResolver, uris, trash)
+    }
 
     /** Топ крупных медиа-файлов, по убыванию размера. */
     fun largeFiles(ctx: Context, limit: Int = 100): List<MediaFile> =
