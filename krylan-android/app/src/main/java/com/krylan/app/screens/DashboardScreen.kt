@@ -63,7 +63,8 @@ fun DashboardScreen(ctx: Context) {
     ) {
         Text("Состояние в реальном времени", color = Brand.muted, fontSize = 14.sp)
 
-        // Флагманская кнопка «Ускорить» (очистка своего кэша — единственное безопасное на Android)
+        // Флагманская кнопка очистки кэша (единственное безопасное на Android 11+).
+        // Формулировки честные — без «boost RAM / ускорить в N раз» (политика Google Play).
         var boosting by remember { mutableStateOf(false) }
         var boostFreed by remember { mutableLongStateOf(-1L) }
         Box(
@@ -82,12 +83,16 @@ fun DashboardScreen(ctx: Context) {
             Text(
                 when {
                     boostFreed >= 0 -> "✓ Готово — освобождено ${SystemInfo.fmtSize(boostFreed)}"
-                    boosting -> "Ускоряю…"
-                    else -> "⚡  Ускорить — как новый"
+                    boosting -> "Очищаю…"
+                    else -> "🧹  Освободить кэш"
                 },
                 color = Color(0xFF0B1410), fontSize = 16.sp, fontWeight = FontWeight.Bold
             )
         }
+        Text(
+            "Очищает только кэш этого приложения. Системные файлы и данные не трогаем.",
+            color = Brand.muted, fontSize = 11.sp
+        )
 
         // Health-герой
         Card(

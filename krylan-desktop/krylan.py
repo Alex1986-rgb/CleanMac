@@ -19,7 +19,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import krylan_core
 
-VERSION = "1.10.0"
+VERSION = "1.11.0"
 SYSTEM = platform.system()           # Windows / Darwin / Linux
 HOME = os.path.expanduser("~")
 
@@ -307,6 +307,81 @@ def disk_health_report():
     if du.percent > 90:
         lines.append("  ⚠️ Меньше 10% свободного места замедляет систему — освободите диск.\n")
     return "".join(lines)
+
+# ---------- Software Updater: устаревшие приложения через нативный менеджер ----------
+# Только ЧТЕНИЕ списка. Обновление пользователь запускает сам (команда-подсказка).
+def parse_brew_outdated(text):
+    """`brew outdated --verbose` → [(имя, текущая, новая)]."""
+    out = []
+    for ln in text.splitlines():
+        ln = ln.strip()
+        if not ln or "<" not in ln:
+            continue
+        left, new = ln.rsplit("<", 1)
+        left, new = left.strip(), new.strip()
+        if "(" in left and ")" in left:
+            name = left.split("(")[0].strip()
+            cur = left[left.find("(") + 1:left.find(")")].strip()
+        else:
+            parts = left.split()
+            name = parts[0] if parts else left
+            cur = parts[1] if len(parts) > 1 else "?"
+        if name:
+            out.append((name, cur, new))
+    return out
+
+def parse_apt_upgradable(text):
+    """`apt list --upgradable` → [(имя, текущая, новая)]."""
+    out = []
+    for ln in text.splitlines():
+        ln = ln.strip()
+        if "/" not in ln or "[upgradable from:" not in ln:
+            continue
+        name = ln.split("/", 1)[0].strip()
+        parts = ln.split()
+        new = parts[1] if len(parts) > 1 else "?"
+        cur = ln.split("[upgradable from:", 1)[1].strip(" ]")
+        out.append((name, cur, new))
+    return out
+
+def parse_winget_upgrade(text):
+    """`winget upgrade` (табличный вывод) → [(имя, текущая, новая)]."""
+    import re
+    lines = [l for l in text.splitlines() if l.strip()]
+    start = 0
+    for i, l in enumerate(lines):
+        s = l.strip()
+        if s and set(s) <= set("- "):   # строка-разделитель из дефисов
+            start = i + 1
+            break
+    out = []
+    for l in lines[start:]:
+        cols = re.split(r"\s{2,}", l.strip())
+        if len(cols) >= 4:
+            name, _id, cur, new = cols[0], cols[1], cols[2], cols[3]
+            if cur and new and cur != new and not cur.lower().startswith("version"):
+                out.append((name, cur, new))
+    return out
+
+def list_updates():
+    """Список устаревших приложений через менеджер пакетов ОС.
+    Возвращает (manager|None, items, hint). Команды только читают состояние."""
+    import subprocess
+    try:
+        if SYSTEM == "Darwin":
+            r = subprocess.run(["brew", "outdated", "--verbose"], capture_output=True, text=True, timeout=90)
+            return ("Homebrew", parse_brew_outdated(r.stdout), "Обновить всё:  brew upgrade")
+        if SYSTEM == "Windows":
+            r = subprocess.run(["winget", "upgrade"], capture_output=True, text=True, timeout=120)
+            return ("winget", parse_winget_upgrade(r.stdout), "Обновить всё:  winget upgrade --all")
+        if SYSTEM == "Linux":
+            r = subprocess.run(["apt", "list", "--upgradable"], capture_output=True, text=True, timeout=90)
+            return ("apt", parse_apt_upgradable(r.stdout), "Обновить всё:  sudo apt upgrade")
+    except FileNotFoundError:
+        return (None, [], "Менеджер пакетов не найден (brew / winget / apt).")
+    except Exception as e:
+        return (None, [], f"Не удалось проверить обновления: {e}")
+    return (None, [], "ОС не поддерживается.")
 
 # ---------- headless-очистка (для планировщика) ----------
 def clean_caches_headless(dry=False):
@@ -696,7 +771,8 @@ class Krylan(tk.Tk):
         for lbl, cmd in [("⚙️ Автозагрузка", self.t_startup), ("👯 Дубликаты", self.t_dupes), ("📦 Крупные файлы", self.t_large),
                          ("🗺 Карта диска", self.t_diskmap), ("🧳 Деинсталлятор", self.t_uninstall),
                          ("📂 Пустые папки", self.t_empty), ("📈 Что выросло", self.t_growth),
-                         ("🔒 Приватность", self.t_privacy), ("🩺 Диск", self.t_smart)]:
+                         ("🔒 Приватность", self.t_privacy), ("🩺 Диск", self.t_smart),
+                         ("🔄 Обновления", self.t_updates)]:
             self._btn(bar, lbl, GLASS, cmd).pack(side="left", padx=4)
         self._dupe_extras = []
         self.t_action = tk.Frame(self.main, bg=BG0); self.t_action.pack(fill="x", padx=24, pady=(8,0))
@@ -733,6 +809,23 @@ class Krylan(tk.Tk):
             ad = os.path.join(HOME, ".config/autostart")
             for f in (sorted(os.listdir(ad)) if os.path.isdir(ad) else []): lines.append(f"  • {f}\n")
             lines.append("\nОтключить: удалите .desktop из ~/.config/autostart.\n")
+        self.q.put(("tout", "".join(lines), None))
+
+    def t_updates(self):
+        self._out("🔄 Проверяю обновления приложений…"); threading.Thread(target=self._updates_w, daemon=True).start()
+
+    def _updates_w(self):
+        mgr, items, hint = list_updates()
+        if mgr is None:
+            self.q.put(("tout", "🔄  Обновления приложений\n\n  " + hint + "\n", None)); return
+        lines = [f"🔄  Обновления приложений ({mgr})\n\n"]
+        if not items:
+            lines.append("  ✓ Все приложения актуальны.\n")
+        else:
+            lines.append(f"  Найдено обновлений: {len(items)}\n\n")
+            for name, cur, new in items[:50]:
+                lines.append(f"  • {name}\n      {cur}  →  {new}\n")
+            lines.append(f"\n  {hint}\n")
         self.q.put(("tout", "".join(lines), None))
 
     def t_large(self):

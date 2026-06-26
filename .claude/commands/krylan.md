@@ -7,28 +7,33 @@ description: Автономно продолжать и доделывать п�
 
 ## Где проект
 - Каталог: `~/mac-optimizer/cleaner/` — начни с `cd ~/mac-optimizer/cleaner`
-- GitHub (публичный): `Alex1986-rgb/CleanMac` — пушь рабочие изменения сразу
-- Сначала прочитай: `ROADMAP.md`, `DESIGN.md`, `README.md`
+- GitHub (публичный): `Alex1986-rgb/CleanMac`, ветка `main` — пушь рабочие изменения сразу
+- Сначала прочитай: **`COMPETITORS.md`** (план «быть лучше лидеров»), `ROADMAP.md`, `DESIGN.md`, `README.md`
+- Версии (на 2026-06): экосистема **2.41.0**; CleanMac `VERSION`/`CleanMac.py`=2.41.0; Desktop `krylan-desktop/krylan.py`=1.11.0; iOS/macOS MARKETING_VERSION=1.0.0; Android versionName=0.8.0.
 
 ## Экосистема (4 приложения)
-| Папка | Платформа | Технология |
-|---|---|---|
-| `.` (корень) | macOS — **CleanMac** | Python/tkinter |
-| `krylan-desktop/` | **Windows · macOS · Linux** | Python + psutil + send2trash |
-| `krylan-swift/` | **iPhone + macOS** | SwiftUI (Xcode, xcodegen) |
-| `krylan-android/` | **Android** | Kotlin + Jetpack Compose |
+| Папка | Платформа | Технология | Статус |
+|---|---|---|---|
+| `.` (корень) | macOS — **CleanMac** | Python/tkinter | зрелое, флагман |
+| `krylan-desktop/` | **Windows · macOS · Linux** | Python + psutil + send2trash | рабочее, + Software Updater |
+| `krylan-swift/` | **iPhone + macOS** | SwiftUI (XcodeGen) | собирается iOS+macOS |
+| `krylan-android/` | **Android** | Kotlin + Jetpack Compose | рабочее, иконки+SDK 35 готовы |
 
 ## Миссия
-1. **Доделать функционал на всех платформах** — как Auslogics BoostSpeed / CleanMyMac, НО только безопасные функции (НЕ чистить реестр, НЕ дефрагментировать SSD — это вредно).
-2. **Модернизировать дизайн** на каждом устройстве — современно, со стеклом, кольцами, единая палитра из `DESIGN.md`.
-3. **Функционал под характер устройства:**
-   - **Desktop (Win/Mac/Linux):** дашборд, очистка кэшей, диспетчер процессов, автозагрузка, дубликаты, крупные файлы, карта диска, обслуживание, деинсталлятор, сеть.
-   - **iPhone:** дашборд (Health+кольца), хранилище, батарея, очистка своего кэша, фото-дубли (PhotoKit), дубли контактов (Contacts), советы.
-   - **Android:** хранилище, кэш своего приложения, крупные файлы (SAF), медиа-дубли (MediaStore).
+1. **Быть ЛУЧШЕ конкурентов** (CleanMyMac/DaisyDisk/Sensei · CCleaner/Auslogics/Czkawka · Gemini Photos · SD Maid/Files by Google) — по приоритетам из **`COMPETITORS.md`**.
+2. **Только безопасные функции:** НЕ чистить реестр «для скорости», НЕ дефраг SSD, НЕ fake-booster, НЕ misleading-формулировки. Принцип бренда: **«ты решаешь — системное под защитой»** (обратимость, dry-run, честные цифры).
+3. **Модернизировать дизайн** под тренды 2026: Liquid Glass (Apple), Material 3 Expressive (Android), единая палитра из `DESIGN.md`.
+
+## Приоритеты сейчас (из COMPETITORS.md — бери отсюда)
+- **macOS:** Smart Care (1 клик), sunburst-карта диска, меню-бар спутник (`menubar.py`/rumps), термо/бенчмарк.
+- **Desktop:** Health Report (HTML), похожие изображения (perceptual hash), обратимый Focus Mode. *(Software Updater уже сделан.)*
+- **iOS:** swipe-разбор фото, точный прогноз освобождаемого места, honest-onboarding. *(неполные контакты уже сделаны.)*
+- **Android:** smart-подсказки на дашборде, корзина/undo (`createTrashRequest`), CorpseFinder-lite. *(честные формулировки уже сделаны.)*
 
 ## Как проверять (обязательно перед коммитом)
-- **Python (CleanMac / KRYLAN Desktop):** `python3 -m py_compile файл.py`; запусти и при возможности сними скриншот; для CleanMac прогоняй `python3 -m unittest tests.test_cleanmac`. Используй framework-python: `/Library/Frameworks/Python.framework/Versions/3.12/bin/python3`.
-- **SwiftUI (iPhone) — Xcode и симулятор УЖЕ настроены:**
+- **Python (CleanMac / Desktop):** framework-python `/Library/Frameworks/Python.framework/Versions/3.12/bin/python3`.
+  `… -m py_compile файл.py`; `… -m unittest tests.test_cleanmac` (30 тестов); `cd krylan-desktop && … -m unittest test_krylan` (20 тестов). Новую чистую логику покрывай тестами.
+- **SwiftUI — Xcode и симулятор настроены:**
   ```bash
   cd krylan-swift && xcodegen generate
   xcodebuild -project KRYLAN.xcodeproj -scheme KRYLAN-iOS -sdk iphonesimulator -configuration Debug CODE_SIGNING_ALLOWED=NO build
@@ -37,18 +42,23 @@ description: Автономно продолжать и доделывать п�
   xcrun simctl install booted "$APP"; xcrun simctl terminate booted com.krylan.app; xcrun simctl launch booted com.krylan.app
   sleep 5; xcrun simctl io booted screenshot /tmp/k.png   # затем Read /tmp/k.png и оцени дизайн глазами
   ```
-  Итерируй дизайн по скриншоту. macOS-таргет: `-scheme KRYLAN-macOS -destination 'platform=macOS'`.
-- **Android:** правь Kotlin, проверяй структуру (полная сборка — в Android Studio у пользователя).
+  macOS-таргет: `-scheme KRYLAN-macOS -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO build`.
+- **Android:** правь Kotlin; локально SDK нет — компиляцию проверяет CI (`ci.yml`, job `android: assembleDebug`). Держи код компилируемым.
 
-## Известные TODO (начни с них)
-1. **Фикс iOS-дашборда:** контент в `krylan-swift/Sources/DashboardView.swift` рендерится ШИРЕ экрана и обрезается слева/справа (нав-бар и таб-бар центрируются нормально, проблема в ScrollView/VStack). Проверяй скриншотом симулятора, пока кольца ПАМЯТЬ/ДИСК/БАТАРЕЯ и карточки не встанут ровно.
-2. Перенести больше функций desktop-версии на остальные платформы по их возможностям.
-3. Полировать дизайн каждого приложения по `DESIGN.md`.
+## Гочи окружения (важно)
+- **Алиасы шеллов перекрывают coreutils:** `sed`→`sd`, `du`→`dust`, `cat` иногда. Для правок файлов используй инструменты Edit/Write/Read, не `sed`.
+- **Сабагенты:** модель по умолчанию недоступна — запускай Agent с `model: opus`. WebSearch/WebFetch в среде могут падать (бэкенд haiku) — агенты обходят через `curl` или знания.
+- **Git push `.github/workflows` отклоняется:** у токена нет scope `workflow`. Решение: `gh auth refresh -h github.com -s workflow` (интерактивно) затем push, ЛИБО добавить файлы через веб-UI GitHub. CI-коммит держи локально впереди origin, если scope нет.
+- `icon_1024.png` в `.gitignore` — для README/доков ссылайся на трекаемый `docs/icon.png`.
+
+## Инфраструктура (готова)
+- **CI:** `.github/workflows/ci.yml` (тесты+Android debug на push), `release.yml` (по тегу `vX.Y.Z` → macOS DMG + Windows .exe + Linux, `--paths . --hidden-import krylan_core`).
+- **Релиз:** `git tag vX.Y.Z && git push origin vX.Y.Z` → CI соберёт артефакты. После сборки обнови `Casks/cleanmac.rb` (version+sha256) и перегенерируй appcast: `bash generate-appcast.sh`.
 
 ## Рабочий цикл
-Бери пункт из ROADMAP → реализуй → проверь сборкой/скриншотом → исправь до рабочего вида → `git add -A && git commit && git push` → бери следующий. Версии CleanMac бампай в `CleanMac.py` (VERSION) и `VERSION`, при релизе — `gh release create vX.Y.Z`.
+Бери пункт из `COMPETITORS.md`/`ROADMAP.md` → реализуй → проверь сборкой/тестами/скриншотом → исправь до рабочего вида → бамп версии (где уместно) → `git add -A && git commit && git push`. Дойдя до релиза — тег `vX.Y.Z`.
 
 ## Чего НЕ делать (это только пользователь)
-Создавать аккаунты разработчика, проводить оплату, подавать в App Store / Google Play, подписывать Developer ID. Всё под это уже подготовлено (`sign_and_notarize.sh`, `store/listing.md`, `ci-release.yml.txt`).
+Создавать аккаунты разработчика, проводить оплату, подавать в App Store / Google Play, подписывать Developer ID / Android keystore. Всё под это подготовлено (`sign_and_notarize.sh`, `store/listing.md`, entitlements, CI).
 
-Начинай: `cd ~/mac-optimizer/cleaner`, прочитай ROADMAP.md и продолжай доводить проект.
+Начинай: `cd ~/mac-optimizer/cleaner`, прочитай `COMPETITORS.md` и продолжай доводить проект, делая его лучше конкурентов.

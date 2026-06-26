@@ -167,3 +167,37 @@ class TestPrivacyTargets(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class TestSoftwareUpdater(unittest.TestCase):
+    def test_brew_outdated_paren(self):
+        txt = "wget (1.21.3) < 1.21.4\nnode (20.1.0) < 20.2.0\n"
+        self.assertEqual(krylan.parse_brew_outdated(txt),
+                         [("wget", "1.21.3", "1.21.4"), ("node", "20.1.0", "20.2.0")])
+
+    def test_brew_outdated_plain(self):
+        txt = "git 2.39.0 < 2.40.0\n"
+        self.assertEqual(krylan.parse_brew_outdated(txt), [("git", "2.39.0", "2.40.0")])
+
+    def test_brew_empty(self):
+        self.assertEqual(krylan.parse_brew_outdated(""), [])
+
+    def test_apt_upgradable(self):
+        txt = ("Listing...\n"
+               "vim/jammy-updates 2:8.2.3995 amd64 [upgradable from: 2:8.2.3000]\n"
+               "curl/jammy 7.81.0 amd64 [upgradable from: 7.80.0]\n")
+        self.assertEqual(krylan.parse_apt_upgradable(txt),
+                         [("vim", "2:8.2.3000", "2:8.2.3995"), ("curl", "7.80.0", "7.81.0")])
+
+    def test_apt_ignores_header(self):
+        self.assertEqual(krylan.parse_apt_upgradable("Listing...\n"), [])
+
+    def test_winget_upgrade(self):
+        txt = ("Name              Id                 Version   Available  Source\n"
+               "-------------------------------------------------------------------\n"
+               "Mozilla Firefox   Mozilla.Firefox    120.0     121.0      winget\n"
+               "7-Zip             7zip.7zip          22.01     23.01      winget\n")
+        self.assertEqual(krylan.parse_winget_upgrade(txt),
+                         [("Mozilla Firefox", "120.0", "121.0"), ("7-Zip", "22.01", "23.01")])
+
+    def test_winget_no_separator(self):
+        self.assertEqual(krylan.parse_winget_upgrade("garbage line only\n"), [])
