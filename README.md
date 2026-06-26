@@ -109,9 +109,9 @@
 
 ## Установка
 
-**Homebrew** (после публичного релиза):
+**Homebrew** (каск прямо из репозитория):
 ```bash
-brew install --cask Alex1986-rgb/tap/cleanmac
+brew install --cask https://raw.githubusercontent.com/Alex1986-rgb/CleanMac/main/Casks/cleanmac.rb
 ```
 
 **Готовый `.dmg`** — на странице [Releases](https://github.com/Alex1986-rgb/CleanMac/releases).

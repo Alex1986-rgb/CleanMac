@@ -1076,7 +1076,7 @@ class CleanMac(tk.Tk):
         self._bri_lvl=int(round((cur if cur is not None else 0.75)*100/25)*25) or 25
         self.bri_btn=self._btn(head, f"☀ {self._bri_lvl}%", YELLOW, self._brightness_cycle)
         self.bri_btn.pack(side="right", padx=(8,2))
-        self.boost_btn=self._btn(head, L("⚡ Ускорить — сделать как новый"), GREEN, self._boost_now)
+        self.boost_btn=self._btn(head, L("⚡ Ускорить — очистить и разгрузить"), GREEN, self._boost_now)
         self.boost_btn.pack(side="right")
         self.cv = tk.Canvas(self.main, bg=BG0, highlightthickness=0)
         self.cv.pack(fill="both", expand=True, padx=14, pady=(0,12))
@@ -2380,25 +2380,38 @@ class CleanMac(tk.Tk):
         except Exception as e:
             messagebox.showerror("CleanMac", f"Не удалось перезапустить: {e}\nЗакройте и откройте приложение вручную.")
 
-    def _check_update(self, manual=False):
+    def _fetch_url(self, url, headers):
+        """GET с откатом контекста SSL (для замороженной сборки без системных CA)."""
         import ssl
-        url=f"https://raw.githubusercontent.com/{REPO}/main/VERSION"
-        req=urllib.request.Request(url, headers={"User-Agent":"CleanMac"})
-        latest=None
-        # сначала с проверкой сертификата; для замороженной сборки без CA — fallback
         contexts=[None]
         try:
             import certifi; contexts.append(ssl.create_default_context(cafile=certifi.where()))
         except Exception: pass
         contexts.append(ssl._create_unverified_context())
+        req=urllib.request.Request(url, headers=headers)
         for ctx in contexts:
             try:
                 kw={"timeout":6}
                 if ctx is not None: kw["context"]=ctx
-                latest=urllib.request.urlopen(req, **kw).read().decode().strip()
-                if latest: break
+                return urllib.request.urlopen(req, **kw).read().decode()
             except Exception:
                 continue
+        return None
+
+    def _check_update(self, manual=False):
+        import json
+        # Сравниваем с последним ОПУБЛИКОВАННЫМ релизом (то, что реально можно скачать),
+        # а не с файлом VERSION в main — иначе обещали бы версию, которой нет в Releases.
+        latest=None
+        data=self._fetch_url(f"https://api.github.com/repos/{REPO}/releases/latest",
+                             {"User-Agent":"CleanMac","Accept":"application/vnd.github+json"})
+        if data:
+            try: latest=(json.loads(data).get("tag_name") or "").lstrip("v").strip() or None
+            except Exception: latest=None
+        if not latest:   # откат: файл VERSION в main
+            raw=self._fetch_url(f"https://raw.githubusercontent.com/{REPO}/main/VERSION",
+                                {"User-Agent":"CleanMac"})
+            latest=raw.strip() if raw else None
         if latest and ver_tuple(latest) > ver_tuple(VERSION):
             self.q.put(("update", f"⬆️ Доступна версия {latest} (у вас {VERSION})", None))
         elif latest and manual:
@@ -2477,7 +2490,7 @@ class CleanMac(tk.Tk):
                 elif kind=="boosted":
                     try: self.boost_btn.configure(text="  ✓ Готово  ")
                     except Exception: pass
-                    self.after(1800, lambda: self.boost_btn.configure(text=L("⚡ Ускорить — сделать как новый")) if hasattr(self,"boost_btn") else None)
+                    self.after(1800, lambda: self.boost_btn.configure(text=L("⚡ Ускорить — очистить и разгрузить")) if hasattr(self,"boost_btn") else None)
                     steps="\n".join("• "+s for s in (b or []))
                     messagebox.showinfo("CleanMac",
                         f"🚀 Готово! Компьютер ускорен.\n\nОсвобождено всего: ~{human(a)}\n\n{steps}\n\n"
