@@ -264,5 +264,77 @@ class TestHtmlReport(unittest.TestCase):
         self.assertIn("</html>", html)
 
 
+class TestFocusCandidates(unittest.TestCase):
+    """Режим фокуса — чистый фильтр кандидатов на обратимую паузу."""
+
+    def _procs(self):
+        # имена из чёрного списка обеих ОС + обычные приложения
+        return [
+            {"name": "Telegram", "pid": 101, "cpu": 3.0, "mem": 500 * 1024 * 1024},
+            {"name": "Google Chrome", "pid": 102, "cpu": 12.0, "mem": 900 * 1024 * 1024},
+            {"name": "Spotify", "pid": 103, "cpu": 1.0, "mem": 300 * 1024 * 1024},
+            {"name": "kernel_task", "pid": 1, "cpu": 5.0, "mem": 100 * 1024 * 1024},
+            {"name": "WindowServer", "pid": 90, "cpu": 8.0, "mem": 200 * 1024 * 1024},
+            {"name": "Finder", "pid": 91, "cpu": 0.5, "mem": 120 * 1024 * 1024},
+            {"name": "python", "pid": 200, "cpu": 0.0, "mem": 50 * 1024 * 1024},
+            {"name": "Python", "pid": 201, "cpu": 0.0, "mem": 50 * 1024 * 1024},
+            {"name": "explorer.exe", "pid": 300, "cpu": 0.0, "mem": 80 * 1024 * 1024},
+            {"name": "System", "pid": 4, "cpu": 0.0, "mem": 10 * 1024 * 1024},
+            {"name": "MyApp", "pid": 999, "cpu": 0.0, "mem": 0},   # сам KRYLAN (self_pid)
+        ]
+
+    def test_blacklist_and_self_excluded(self):
+        cand = krylan.focus_candidates(self._procs(), self_pid=999)
+        names = {c["name"] for c in cand}
+        pids = {c["pid"] for c in cand}
+        # системные имена отфильтрованы (на любой ОС жёстко чёрные)
+        for bad in ("kernel_task", "WindowServer", "Finder", "python", "Python"):
+            self.assertNotIn(bad, names, f"{bad} не должен быть кандидатом")
+        # свой PID исключён
+        self.assertNotIn(999, pids)
+        self.assertNotIn("MyApp", names)
+        # обычные приложения остаются
+        self.assertIn("Telegram", names)
+        self.assertIn("Google Chrome", names)
+        self.assertIn("Spotify", names)
+
+    def test_sorted_by_mem_desc(self):
+        cand = krylan.focus_candidates(self._procs(), self_pid=999)
+        mems = [c["mem"] for c in cand]
+        self.assertEqual(mems, sorted(mems, reverse=True))
+        # самый тяжёлый — Chrome (900 МБ)
+        self.assertEqual(cand[0]["name"], "Google Chrome")
+
+    def test_case_insensitive_blacklist(self):
+        procs = [{"name": "FINDER", "pid": 5, "cpu": 0, "mem": 1},
+                 {"name": "LaunchD", "pid": 6, "cpu": 0, "mem": 2}]
+        cand = krylan.focus_candidates(procs, self_pid=999)
+        self.assertEqual(cand, [])
+
+    def test_skips_records_without_name_or_pid(self):
+        procs = [{"name": "", "pid": 10, "cpu": 0, "mem": 5},
+                 {"name": "NoPid", "pid": None, "cpu": 0, "mem": 5},
+                 {"name": "Good", "pid": 11, "cpu": 0, "mem": 5}]
+        cand = krylan.focus_candidates(procs, self_pid=999)
+        self.assertEqual([c["name"] for c in cand], ["Good"])
+
+    def test_accepts_namedtuple_like_objects(self):
+        from collections import namedtuple
+        Proc = namedtuple("Proc", "name pid cpu mem")
+        procs = [Proc("Chrome", 1, 5.0, 800),
+                 Proc("Finder", 2, 1.0, 100),
+                 Proc("Notes", 3, 0.5, 400)]
+        cand = krylan.focus_candidates(procs, self_pid=999)
+        names = [c.name for c in cand]
+        self.assertEqual(names, ["Chrome", "Notes"])   # Finder отфильтрован, сортировка по mem
+
+    def test_default_self_pid_uses_getpid(self):
+        # запись с текущим PID процесса-теста должна быть отфильтрована
+        procs = [{"name": "Self", "pid": os.getpid(), "cpu": 0, "mem": 999},
+                 {"name": "Other", "pid": os.getpid() + 1, "cpu": 0, "mem": 1}]
+        cand = krylan.focus_candidates(procs)   # self_pid не передан → os.getpid()
+        self.assertEqual([c["name"] for c in cand], ["Other"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -316,6 +316,59 @@ def disk_advice(disk_pct, ram_pct, batt_pct=None):
         out.append((GREEN, "Система в порядке — критичных проблем нет."))
     return out
 
+# ---------- Режим фокуса (обратимая пауза процессов) ----------
+# Жёсткий чёрный список: эти процессы НИКОГДА не приостанавливаем — пауза
+# системного процесса способна «заморозить» рабочий стол или весь сеанс.
+FOCUS_BLACKLIST_UNIX = (
+    "kernel_task", "launchd", "WindowServer", "loginwindow",
+    "systemd", "Finder", "Dock", "python", "Python",
+)
+FOCUS_BLACKLIST_WINDOWS = (
+    "System", "csrss.exe", "wininit.exe", "winlogon.exe",
+    "services.exe", "explorer.exe", "python.exe",
+)
+
+def focus_blacklist():
+    """Чёрный список имён для текущей ОС (нижний регистр для сравнения)."""
+    base = FOCUS_BLACKLIST_WINDOWS if SYSTEM == "Windows" else FOCUS_BLACKLIST_UNIX
+    return {n.lower() for n in base}
+
+def _proc_field(p, key):
+    """Достаёт поле из dict / namedtuple / объекта (name, pid, cpu, mem)."""
+    if isinstance(p, dict):
+        return p.get(key)
+    return getattr(p, key, None)
+
+def focus_candidates(procs, self_pid=None):
+    """Чистый фильтр кандидатов на «паузу» Режима фокуса.
+
+    Вход: список процессов. Каждый элемент — dict ИЛИ namedtuple/объект
+    с полями: name (str), pid (int), cpu (float, %), mem (int, байты RSS).
+    psutil здесь НЕ вызывается — функция полностью тестируема.
+
+    Исключаются: процессы из чёрного списка (по имени, без учёта регистра),
+    сам KRYLAN (self_pid; по умолчанию os.getpid()), записи без имени/pid.
+    Возвращает список тех же элементов, отсортированный по убыванию
+    (mem, cpu) — самые тяжёлые первыми.
+    """
+    if self_pid is None:
+        self_pid = os.getpid()
+    bl = focus_blacklist()
+    out = []
+    for p in procs:
+        name = _proc_field(p, "name")
+        pid = _proc_field(p, "pid")
+        if not name or pid is None:
+            continue
+        if int(pid) == int(self_pid):
+            continue
+        if str(name).lower() in bl:
+            continue
+        out.append(p)
+    out.sort(key=lambda p: (_proc_field(p, "mem") or 0, _proc_field(p, "cpu") or 0),
+             reverse=True)
+    return out
+
 def disk_health_report():
     import subprocess
     lines = ["🩺  Здоровье диска\n\n"]
@@ -549,9 +602,12 @@ class Krylan(tk.Tk):
         self.tgt = dict(self.disp)
         self.info = {}
         self.found = {}
+        self._paused = set()           # PID приостановленных (Режим фокуса)
         self._build(); self.nav("dash")
         threading.Thread(target=self._sampler, daemon=True).start()
         self.after(80, self._poll); self.after(33, self._animate)
+        # при закрытии окна никого не оставляем «замороженным»
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
 
     def _build(self):
         side = tk.Frame(self, bg=SIDEBAR, width=200); side.pack(side="left", fill="y"); side.pack_propagate(False)
@@ -853,13 +909,23 @@ class Krylan(tk.Tk):
     # ---------- процессы (диспетчер задач) ----------
     def show_procs(self):
         tk.Label(self.main, text=L("Процессы"), bg=BG0, fg=TEXT, font=("Segoe UI", 20, "bold")).pack(anchor="w", padx=24, pady=(18,2))
-        tk.Label(self.main, text=L("Топ по памяти. «Завершить» закрывает выбранный процесс."), bg=BG0, fg=MUTED, font=("Segoe UI", 10)).pack(anchor="w", padx=24, pady=(0,8))
+        tk.Label(self.main, text=L("Топ по памяти. «Завершить» закрывает выбранный процесс."), bg=BG0, fg=MUTED, font=("Segoe UI", 10)).pack(anchor="w", padx=24, pady=(0,2))
+        tk.Label(self.main, text="🎯 Режим фокуса: «⏸ Пауза» обратимо приостанавливает приложение, «▶ Возобновить всё» — возвращает работу.",
+                 bg=BG0, fg=PURPLE, font=("Segoe UI", 9)).pack(anchor="w", padx=24, pady=(0,8))
         head = tk.Frame(self.main, bg=BG0); head.pack(fill="x", padx=26)
-        tk.Label(head, text="Процесс", bg=BG0, fg=MUTED, font=("Segoe UI", 10, "bold"), anchor="w", width=28).pack(side="left")
+        tk.Label(head, text="Процесс", bg=BG0, fg=MUTED, font=("Segoe UI", 10, "bold"), anchor="w", width=26).pack(side="left")
         tk.Label(head, text="ОЗУ", bg=BG0, fg=MUTED, font=("Segoe UI", 10, "bold"), width=10).pack(side="left")
         tk.Label(head, text="CPU", bg=BG0, fg=MUTED, font=("Segoe UI", 10, "bold"), width=8).pack(side="left")
-        self.proc_box = tk.Frame(self.main, bg=GLASS); self.proc_box.pack(fill="both", expand=True, padx=24, pady=(4,14))
+        self.proc_box = tk.Frame(self.main, bg=GLASS); self.proc_box.pack(fill="both", expand=True, padx=24, pady=(4,6))
+        bar = tk.Frame(self.main, bg=BG0); bar.pack(fill="x", padx=24, pady=(0,12))
+        self.focus_lbl = tk.Label(bar, text="", bg=BG0, fg=PURPLE, font=("Segoe UI", 11, "bold")); self.focus_lbl.pack(side="left")
+        self._btn(bar, "▶ Возобновить всё", GREEN, self._resume_all).pack(side="right")
         self._procs_refresh()
+
+    def _focus_label(self):
+        if hasattr(self, "focus_lbl") and self.focus_lbl.winfo_exists():
+            n = len(self._paused)
+            self.focus_lbl.configure(text=(f"⏸ На паузе: {n}" if n else "Ничего не приостановлено"))
 
     def _procs_refresh(self):
         if self.page != "procs" or not self.proc_box.winfo_exists(): return
@@ -870,20 +936,87 @@ class Krylan(tk.Tk):
                 rows.append((rss, p.info.get("cpu_percent") or 0, p.info["pid"], p.info["name"] or "?"))
             except Exception: pass
         rows.sort(reverse=True)
+        # безопасные кандидаты на паузу (через чистую функцию)
+        cand = focus_candidates([{"name": name, "pid": pid, "cpu": cpu, "mem": rss}
+                                 for rss, cpu, pid, name in rows])
+        safe_pids = {c["pid"] for c in cand}
         for w in self.proc_box.winfo_children(): w.destroy()
         for rss, cpu, pid, name in rows[:14]:
-            r = tk.Frame(self.proc_box, bg=GLASS); r.pack(fill="x", padx=8, pady=1)
-            tk.Label(r, text=name[:30], bg=GLASS, fg=TEXT, font=("Segoe UI", 11), anchor="w", width=28).pack(side="left")
-            tk.Label(r, text=human(rss), bg=GLASS, fg=MUTED, font=("Segoe UI", 10), width=10).pack(side="left")
-            tk.Label(r, text=f"{cpu:.0f}%", bg=GLASS, fg=load_color(min(100, cpu)), font=("Segoe UI", 10), width=7).pack(side="left")
+            paused = pid in self._paused
+            rbg = _blend(GLASS, PURPLE, 0.18) if paused else GLASS
+            r = tk.Frame(self.proc_box, bg=rbg); r.pack(fill="x", padx=8, pady=1)
+            label = (name[:24] + ("  ⏸" if paused else ""))
+            tk.Label(r, text=label, bg=rbg, fg=(PURPLE if paused else TEXT), font=("Segoe UI", 11), anchor="w", width=26).pack(side="left")
+            tk.Label(r, text=human(rss), bg=rbg, fg=MUTED, font=("Segoe UI", 10), width=10).pack(side="left")
+            tk.Label(r, text=f"{cpu:.0f}%", bg=rbg, fg=load_color(min(100, cpu)), font=("Segoe UI", 10), width=7).pack(side="left")
             b = tk.Label(r, text=L("Завершить"), bg=RED, fg="white", font=("Segoe UI", 9, "bold"), padx=8, pady=2, cursor="hand2")
             b.pack(side="right"); b.bind("<Button-1>", lambda e, pp=pid, nn=name: self._kill_proc(pp, nn))
+            # «⏸ Пауза» только для безопасных кандидатов
+            if pid in safe_pids:
+                pb = tk.Label(r, text="⏸ Пауза", bg=PURPLE, fg="white", font=("Segoe UI", 9, "bold"), padx=8, pady=2, cursor="hand2")
+                pb.pack(side="right", padx=(0,6)); pb.bind("<Button-1>", lambda e, pp=pid, nn=name: self._pause_proc(pp, nn))
+        self._focus_label()
         self.after(2500, self._procs_refresh)
+
+    def _is_pausable(self, pid, name):
+        """Финальная проверка безопасности перед suspend (защита и в UI, и тут)."""
+        if int(pid) == os.getpid(): return False
+        return str(name).lower() not in focus_blacklist()
+
+    def _pause_proc(self, pid, name):
+        if not self._is_pausable(pid, name):
+            messagebox.showwarning("KRYLAN", f"«{name}» — системный процесс, пауза запрещена."); return
+        if not messagebox.askyesno(
+                "KRYLAN — Режим фокуса",
+                f"Приостановить «{name}» (PID {pid})?\n\n"
+                "⚠️ Это обратимо ЗАМОРОЗИТ приложение до возобновления — "
+                "оно перестанет отвечать, пока вы не нажмёте «▶ Возобновить всё».\n\n"
+                "Несохранённые данные в нём станут недоступны до возобновления."):
+            return
+        try:
+            psutil.Process(pid).suspend()
+            self._paused.add(pid)
+        except psutil.NoSuchProcess:
+            messagebox.showinfo("KRYLAN", f"Процесс «{name}» уже завершён.")
+        except psutil.AccessDenied:
+            # нет прав (root/чужой пользователь) — тихо пропускаем, без падения
+            messagebox.showinfo("KRYLAN", f"Недостаточно прав, чтобы приостановить «{name}» — пропущено.")
+        except Exception as e:
+            messagebox.showerror("KRYLAN", f"Не удалось приостановить: {e}")
+        self._focus_label()
+        self._procs_refresh()
+
+    def _resume_all(self, silent=False):
+        """Возобновить все приостановленные процессы. Безопасно вызывать всегда."""
+        resumed = 0
+        for pid in list(self._paused):
+            try:
+                psutil.Process(pid).resume()
+                resumed += 1
+            except psutil.NoSuchProcess:
+                pass            # процесс уже исчез — просто убираем из набора
+            except psutil.AccessDenied:
+                pass            # нет прав — тихо пропускаем
+            except Exception:
+                pass
+            self._paused.discard(pid)
+        if not silent:
+            if resumed:
+                messagebox.showinfo("KRYLAN", f"▶ Возобновлено процессов: {resumed}.")
+            else:
+                messagebox.showinfo("KRYLAN", "Приостановленных процессов нет.")
+        self._focus_label()
+
+    def _on_close(self):
+        # никого не оставляем «замороженным» после выхода
+        self._resume_all(silent=True)
+        self.destroy()
 
     def _kill_proc(self, pid, name):
         if not messagebox.askyesno("KRYLAN", f"Завершить процесс «{name}» (PID {pid})?"): return
         try:
             psutil.Process(pid).terminate()
+            self._paused.discard(pid)
         except Exception as e:
             messagebox.showerror("KRYLAN", f"Не удалось завершить: {e}")
         self._procs_refresh()

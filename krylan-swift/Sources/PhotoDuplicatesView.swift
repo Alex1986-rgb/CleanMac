@@ -18,6 +18,7 @@ enum PhotoScanMode: String, CaseIterable, Identifiable {
     case exact  = "Дубли"
     case series = "Серии"
     case blurry = "Размытые"
+    case live   = "Live Photos"
     var id: String { rawValue }
 }
 
@@ -42,6 +43,7 @@ final class PhotoScanner: ObservableObject {
                 case .exact:  self.runExact()
                 case .series: self.runSeries()
                 case .blurry: self.runBlurry()
+                case .live:   self.runLive()
                 }
             }
         }
@@ -142,6 +144,25 @@ final class PhotoScanner: ObservableObject {
         }
     }
 
+    /// Live Photos: фото со связанным видеотреком — занимают ~2× места (кадр + видео).
+    /// Отбираем по mediaSubtypes.photoLive, показываем по 1 кадру (как .blurry).
+    private func runLive() {
+        scanning = true
+        status = "Ищу Live Photos…"
+        let opts = PHFetchOptions()
+        opts.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
+        opts.fetchLimit = 1000   // ограничиваем для производительности
+        let fetch = PHAsset.fetchAssets(with: .image, options: opts)
+        var liveAssets: [PHAsset] = []
+        fetch.enumerateObjects { a, _, _ in
+            if a.mediaSubtypes.contains(.photoLive) { liveAssets.append(a) }
+        }
+        groups = liveAssets.prefix(200).map { DupGroup(assets: [$0]) }
+        scanning = false
+        status = groups.isEmpty ? "Live Photos не найдено"
+                                : "Live Photos: \(groups.count) (занимают ~2× места)"
+    }
+
     /// Вариация Лапласиана grayscale-миниатюры (классический показатель резкости).
     nonisolated static func laplacianVariance(_ cg: CGImage) -> Double? {
         let w = 96, h = 96
@@ -221,12 +242,13 @@ struct PhotoDuplicatesView: View {
                     Text(scanner.status).font(.subheadline.bold()).foregroundStyle(Brand.green)
                 }
 
-                if scanner.mode == .blurry {
+                if scanner.mode == .blurry || scanner.mode == .live {
                     ForEach(scanner.groups) { group in
                         HStack(spacing: 12) {
                             if let asset = group.assets.first { AssetThumb(asset: asset) }
                             VStack(alignment: .leading, spacing: 3) {
-                                Text("Размытый кадр").font(.subheadline.bold()).foregroundStyle(Brand.text)
+                                Text(scanner.mode == .live ? "Live Photo" : "Размытый кадр")
+                                    .font(.subheadline.bold()).foregroundStyle(Brand.text)
                                 if let d = group.assets.first?.creationDate {
                                     Text(d.formatted(date: .abbreviated, time: .shortened))
                                         .font(.caption2).foregroundStyle(Brand.muted)
