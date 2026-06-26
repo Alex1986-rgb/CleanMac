@@ -2364,6 +2364,13 @@ class CleanMac(tk.Tk):
 
     def _self_update_w(self):
         repo = os.path.dirname(os.path.abspath(__file__))
+        # Самообновление через git pull работает только при запуске из исходников.
+        # Установленный .app (frozen) или папка без .git так обновить нельзя —
+        # открываем страницу релизов, чтобы скачать свежий .dmg.
+        is_git = os.path.isdir(os.path.join(repo, ".git")) and not getattr(sys, "frozen", False)
+        if not is_git:
+            self.q.put(("selfupdate_dmg", None, None))
+            return
         before = run(["git","-C",repo,"rev-parse","--short","HEAD"], 15).strip()
         run(["git","-C",repo,"pull","--ff-only","--autostash"], 60)
         after = run(["git","-C",repo,"rev-parse","--short","HEAD"], 15).strip()
@@ -2539,6 +2546,13 @@ class CleanMac(tk.Tk):
                             self._do_restart()
                     else:
                         messagebox.showinfo("CleanMac", f"У вас уже последняя версия ({newver}).")
+                elif kind=="selfupdate_dmg":
+                    self.status("")
+                    run(["/usr/bin/open", f"https://github.com/{REPO}/releases/latest"])
+                    messagebox.showinfo("CleanMac",
+                        "Это установленная версия (.app) — обновить её через git нельзя.\n\n"
+                        "Открыл страницу релизов: скачайте свежий CleanMac.dmg и перетащите "
+                        "приложение в «Программы», заменив старое.")
         except queue.Empty: pass
         except Exception: pass
         self.after(120, self._poll)
