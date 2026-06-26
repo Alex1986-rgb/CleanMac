@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!-- Чтение медиа для поиска крупных файлов и дубликатов -->
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
@@ -12,6 +13,11 @@
          Для Google Play на QUERY_ALL_PACKAGES нужна декларация (категория: app management). -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
     <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
+
+    <!-- Особый доступ (Usage Access) для вкладки «Неиспользуемые»: давно не открывавшиеся
+         приложения. Это не runtime-permission — выдаётся вручную в системных настройках. -->
+    <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions" />
 
     <!-- Уведомление «хранилище заполнено» (Android 13+) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />

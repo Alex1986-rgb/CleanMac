@@ -287,6 +287,93 @@ def path_size(p):
     try: return int(run(["/usr/bin/du", "-sk", p], 60).split("\t")[0]) * 1024
     except Exception: return 0
 
+def _scan_size(path):
+    """Размер каталога/файла в байтах через os.walk (без перехода по симлинкам).
+    Чистая функция (без subprocess) — быстрая и тестируемая на temp-деревьях."""
+    if os.path.islink(path):
+        return 0
+    if os.path.isfile(path):
+        try: return os.path.getsize(path)
+        except OSError: return 0
+    total = 0
+    for root, dirs, files in os.walk(path, topdown=True, followlinks=False):
+        # не уходим в симлинки-каталоги
+        dirs[:] = [d for d in dirs if not os.path.islink(os.path.join(root, d))]
+        for f in files:
+            fp = os.path.join(root, f)
+            try:
+                if not os.path.islink(fp):
+                    total += os.path.getsize(fp)
+            except OSError:
+                pass
+    return total
+
+
+def dir_tree(path, depth=2, min_frac=0.01, total=None, top_n=12):
+    """Рекурсивно собирает дерево размеров подкаталогов до глубины ``depth``.
+
+    Возвращает dict ``{name, path, size, children:[...]}``. Чистая функция
+    (только файловая система), пригодна для тестов и для фонового воркера.
+
+    - Недоступное пропускается (try/except).
+    - Симлинки не раскрываются (os.path.islink) — защита от циклов.
+    - Дети меньше ``min_frac`` от ``total`` сворачиваются в узел «Прочее».
+    - Оставляется не более ``top_n`` крупнейших детей (+ «Прочее»),
+      чтобы sunburst не порождал тысячи дуг.
+
+    ``total`` — база для отсечки min_frac; если None, берётся размер корня.
+    """
+    path = os.path.abspath(path)
+    name = os.path.basename(path.rstrip("/")) or path
+
+    # Лист (достигли предела глубины или это файл/симлинк) — без детей.
+    if depth <= 0 or os.path.islink(path) or not os.path.isdir(path):
+        return {"name": name, "path": path, "size": _scan_size(path), "children": []}
+
+    # Размеры прямых потомков.
+    entries = []
+    try:
+        names = os.listdir(path)
+    except OSError:
+        names = []
+    for child in names:
+        cp = os.path.join(path, child)
+        try:
+            if os.path.islink(cp):
+                continue  # симлинки не учитываем и не раскрываем
+            sz = _scan_size(cp)
+        except OSError:
+            continue
+        if sz > 0:
+            entries.append((sz, cp, child))
+
+    node_size = sum(sz for sz, _, _ in entries)
+    base = total if total is not None else node_size
+    cutoff = base * min_frac if base else 0
+
+    entries.sort(reverse=True)  # по размеру, убыв.
+
+    kept, rest_size = [], 0
+    for sz, cp, child in entries:
+        if sz < cutoff or len(kept) >= top_n:
+            rest_size += sz
+        else:
+            kept.append((sz, cp, child))
+
+    children = []
+    for sz, cp, child in kept:
+        if os.path.isdir(cp) and depth - 1 > 0:
+            children.append(dir_tree(cp, depth - 1, min_frac, base, top_n))
+        else:
+            children.append({"name": child, "path": cp, "size": sz, "children": []})
+
+    if rest_size > 0:
+        children.append({"name": "Прочее", "path": path, "size": rest_size,
+                         "children": [], "is_rest": True})
+
+    return {"name": name, "path": path, "size": node_size, "children": children}
+
+
 def app_running(name):
     return name.lower() in run(["/bin/ps", "-axo", "comm"]).lower()
 
@@ -1683,7 +1770,7 @@ class CleanMac(tk.Tk):
         bar=tk.Frame(self.tpanel, bg=BG0); bar.pack(fill="x")
         def setmode(m,):
             self._disk_mode=m; self._render_disk(rows)
-        for key,label in [("tree","🟦 Treemap"),("bars","📊 Бары")]:
+        for key,label in [("tree","🟦 Treemap"),("bars","📊 Бары"),("sun","☀️ Sunburst")]:
             m=key
             b=tk.Label(bar, text=label, bg=(BLUE if self._disk_mode==key else GLASS_HI), fg="white" if self._disk_mode==key else TEXT,
                        font=("SF Pro Text",11,"bold"), padx=10, pady=5, cursor="pointinghand")
@@ -1695,6 +1782,8 @@ class CleanMac(tk.Tk):
                                 "(удаляется сразу). Занимает пару секунд.",
                                 bg=BG0, fg=MUTED, font=("SF Pro Text",11), wraplength=620, justify="left", anchor="w")
         self.bench_lbl.pack(anchor="w", pady=(6,0))
+        if self._disk_mode=="sun":
+            self._render_sunburst(rows); return
         cv=tk.Canvas(self.tpanel, bg=GLASS, highlightthickness=0); cv.pack(fill="both", expand=True, pady=(6,8))
         pal=[BLUE,GREEN,PURPLE,YELLOW,CYAN,RED]
         def draw(e=None):
@@ -1723,6 +1812,128 @@ class CleanMac(tk.Tk):
                     cv.tag_bind(tag,"<Button-1>", lambda e,pp=p: run(["/usr/bin/open",pp]))
                 cv.configure(scrollregion=(0,0,W,H))
         cv.bind("<Configure>", draw); draw()
+
+    # --- Sunburst (кольцевая карта папок, фирменная фича а-ля DaisyDisk) ---
+    def _render_sunburst(self, rows):
+        """Контейнер режима Sunburst: кнопки + холст. Дерево строится в фоне."""
+        # стартовая папка — HOME, если ещё не выбрана
+        if not getattr(self, "_sun_path", None):
+            self._sun_path = HOME
+        info = tk.Label(self.tpanel,
+                        text="☀️ Кольцевая карта: центр — папка, кольца — вложенные каталоги. "
+                             "Клик по сектору — провалиться внутрь, клик в центр — на уровень вверх.",
+                        bg=BG0, fg=MUTED, font=("SF Pro Text",11), wraplength=620, justify="left", anchor="w")
+        info.pack(anchor="w", pady=(6,2))
+        cv=tk.Canvas(self.tpanel, bg=GLASS, highlightthickness=0)
+        cv.pack(fill="both", expand=True, pady=(4,8))
+        self._sun_cv=cv; self._sun_rows=rows; self._sun_tree=None
+        cv.bind("<Configure>", lambda e: self._draw_sunburst())
+        self._sun_status(cv, "Считаю размеры…")
+        threading.Thread(target=self._sun_w, args=(self._sun_path,), daemon=True).start()
+
+    def _sun_status(self, cv, text):
+        cv.delete("all")
+        W=cv.winfo_width() or 600; H=cv.winfo_height() or 360
+        cv.create_text(W/2, H/2, fill=MUTED, font=("SF Pro Text",13,"bold"), text="⏳ "+text)
+
+    def _sun_w(self, path):
+        """Фоновый воркер: строит dir_tree (медленно — НЕ в UI-потоке)."""
+        try:
+            tree = dir_tree(path, depth=2, min_frac=0.012, top_n=12)
+        except Exception:
+            tree = {"name": os.path.basename(path) or path, "path": path, "size": 0, "children": []}
+        self.q.put(("sunburst", tree, None))
+
+    def _on_sun_tree(self, tree):
+        """Колбэк из очереди (UI-поток): дерево готово — рисуем."""
+        if self.page!="tools" or getattr(self,"_disk_mode",None)!="sun": return
+        self._sun_tree=tree
+        if getattr(self,"_sun_cv",None) and self._sun_cv.winfo_exists():
+            self._draw_sunburst()
+
+    @staticmethod
+    def _sun_layout(tree, max_depth=2):
+        """Чистая раскладка дерева в дуги: список (depth, start, extent, node).
+
+        Углы — в градусах CCW от 3 часов (как у tkinter create_arc).
+        Дети распределяются по углу пропорционально размеру в пределах
+        сектора родителя. Тестируемо без Canvas."""
+        arcs=[]
+        def walk(node, start, extent, depth):
+            if depth>max_depth: return
+            kids=[c for c in node.get("children",[]) if c.get("size",0)>0]
+            ssum=sum(c["size"] for c in kids) or 1
+            a=start
+            for c in kids:
+                ext=extent*c["size"]/ssum
+                arcs.append((depth, a, ext, c))
+                walk(c, a, ext, depth+1)
+                a+=ext
+        walk(tree, 0, 360, 1)
+        return arcs
+
+    def _draw_sunburst(self):
+        cv=getattr(self,"_sun_cv",None); tree=getattr(self,"_sun_tree",None)
+        if not cv or not cv.winfo_exists(): return
+        if tree is None:
+            self._sun_status(cv, "Считаю размеры…"); return
+        cv.delete("all")
+        W=cv.winfo_width() or 600; H=cv.winfo_height() or 360
+        cx, cy = W/2, H/2
+        R = max(60, min(W, H)/2 - 30)
+        ring = R/3.0                      # центр + 2 кольца
+        r0 = ring                         # радиус центрального круга
+        pal=[BLUE,CYAN,GREEN,PURPLE,YELLOW]
+        total = tree.get("size",0) or 1
+        nm=os.path.basename(tree["path"].rstrip("/")) or tree["path"]
+        up = os.path.dirname(tree["path"].rstrip("/"))
+
+        arcs=self._sun_layout(tree, max_depth=2)
+        # Рисуем от ВНЕШНЕГО кольца к внутреннему: pieslice depth=2 (до r0+2*ring)
+        # перекрывается pieslice depth=1 (до r0+ring), затем центр-круг (r0).
+        # Так образуются аккуратные кольца без отдельной «маски».
+        for depth in (2, 1):
+            radius = r0 + ring*depth
+            for di,(d, a, ext, c) in enumerate(arcs):
+                if d!=depth or ext<0.6: continue
+                base = pal[0] if depth==1 else pal[2]
+                col=_blend(base, BG0, 0.06 + 0.14*(di%4))
+                tag=f"sun_{depth}_{di}"
+                cv.create_arc(cx-radius, cy-radius, cx+radius, cy+radius,
+                              start=a, extent=ext, style="pieslice",
+                              fill=col, outline=GLASS, width=2, tags=(tag,))
+                if ext>=16:   # подпись только для крупных секторов
+                    mid=math.radians(a+ext/2)
+                    lr=r0 + ring*(depth-0.5)
+                    lx=cx+lr*math.cos(mid); ly=cy-lr*math.sin(mid)
+                    label="прочее" if c.get("is_rest") else (os.path.basename(c["path"].rstrip("/")) or c["name"])
+                    cv.create_text(lx, ly-6, fill="white", font=("SF Pro Text",9,"bold"),
+                                   text=label[:14], tags=(tag,))
+                    cv.create_text(lx, ly+6, fill="white", font=("SF Pro Text",8),
+                                   text=human(c["size"]), tags=(tag,))
+                if not c.get("is_rest") and os.path.isdir(c["path"]):
+                    cv.tag_bind(tag,"<Button-1>", lambda e,p=c["path"]: self._sun_navigate(p))
+
+        # центральный круг поверх колец (даёт «дырку» = кольцевая карта)
+        cv.create_oval(cx-r0, cy-r0, cx+r0, cy+r0,
+                       fill=_blend(BG0,CYAN,0.18), outline=_blend(CYAN,"#ffffff",0.2), width=2,
+                       tags=("sun_center",))
+        cv.create_text(cx, cy-7, fill=TEXT, font=("SF Pro Text",12,"bold"),
+                       text=nm[:18], tags=("sun_center",))
+        cv.create_text(cx, cy+10, fill=CYAN, font=("SF Pro Text",10),
+                       text=human(total), tags=("sun_center",))
+        if up and up != tree["path"]:
+            cv.create_text(cx, cy+r0-12, fill=MUTED, font=("SF Pro Text",9), text="↑ вверх",
+                           tags=("sun_center",))
+            cv.tag_bind("sun_center","<Button-1>", lambda e,p=up: self._sun_navigate(p))
+
+    def _sun_navigate(self, path):
+        """Провалиться/подняться: перестроить дерево от новой папки (в фоне)."""
+        if not path or not os.path.isdir(path): return
+        self._sun_path=path; self._sun_tree=None
+        cv=getattr(self,"_sun_cv",None)
+        if cv and cv.winfo_exists(): self._sun_status(cv, "Считаю размеры…")
+        threading.Thread(target=self._sun_w, args=(path,), daemon=True).start()
 
     def _bench_start(self):
         try:
@@ -2282,6 +2493,7 @@ class CleanMac(tk.Tk):
                     if sub=="large": self._render_large(data)
                     elif sub=="dupes": self._render_dupes(data)
                 elif kind=="disk" and self.page=="tools": self._render_disk(a)
+                elif kind=="sunburst" and self.page=="tools": self._on_sun_tree(a)
                 elif kind=="bench" and self.page=="tools": self._render_bench(a)
                 elif kind=="trash_info" and self.page=="tools": self._render_trash_info(a)
                 elif kind=="maintdone":

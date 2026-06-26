@@ -223,5 +223,72 @@ class TestDiskBenchmark(unittest.TestCase):
         self.assertIn("🔴", cm.CleanMac._bench_verdict(50))
 
 
+class TestDirTree(unittest.TestCase):
+    """dir_tree: дерево размеров подкаталогов для sunburst-карты."""
+
+    def _mkfile(self, path, nbytes):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "wb") as f:
+            f.write(b"\0" * nbytes)
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        # big/ = 10000 байт (a.bin), small/ = 100 байт (b.bin)
+        self._mkfile(os.path.join(self.tmp, "big", "a.bin"), 10000)
+        self._mkfile(os.path.join(self.tmp, "big", "nested", "c.bin"), 4000)
+        self._mkfile(os.path.join(self.tmp, "small", "b.bin"), 100)
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_root_and_children_sizes(self):
+        t = cm.dir_tree(self.tmp, depth=2, min_frac=0.0, top_n=12)
+        self.assertEqual(t["size"], 14100)         # 10000 + 4000 + 100
+        kids = {c["name"]: c["size"] for c in t["children"]}
+        self.assertEqual(kids.get("big"), 14000)   # 10000 + 4000 (nested)
+        self.assertEqual(kids.get("small"), 100)
+
+    def test_depth_collects_grandchildren(self):
+        t = cm.dir_tree(self.tmp, depth=2, min_frac=0.0, top_n=12)
+        big = next(c for c in t["children"] if c["name"] == "big")
+        names = {c["name"] for c in big["children"]}
+        self.assertIn("a.bin", names)
+        self.assertIn("nested", names)             # каталог-внук раскрыт
+
+    def test_min_frac_collapses_small_into_rest(self):
+        # порог 0.1 от total (14100) = 1410 байт; small (100) уходит в «Прочее»
+        t = cm.dir_tree(self.tmp, depth=2, min_frac=0.1, top_n=12)
+        names = {c["name"] for c in t["children"]}
+        self.assertNotIn("small", names)
+        rest = [c for c in t["children"] if c.get("is_rest")]
+        self.assertTrue(rest, "ожидался узел «Прочее» для мелких детей")
+        self.assertEqual(rest[0]["size"], 100)
+
+    def test_top_n_limits_children(self):
+        for i in range(20):
+            self._mkfile(os.path.join(self.tmp, f"d{i:02d}", "f.bin"), 1000 + i)
+        t = cm.dir_tree(self.tmp, depth=1, min_frac=0.0, top_n=5)
+        real = [c for c in t["children"] if not c.get("is_rest")]
+        self.assertLessEqual(len(real), 5)
+
+    def test_symlink_not_followed(self):
+        target = os.path.join(self.tmp, "big")
+        link = os.path.join(self.tmp, "link_to_big")
+        try:
+            os.symlink(target, link)
+        except (OSError, NotImplementedError):
+            self.skipTest("симлинки недоступны в этой ФС")
+        t = cm.dir_tree(self.tmp, depth=2, min_frac=0.0, top_n=20)
+        names = {c["name"] for c in t["children"]}
+        self.assertNotIn("link_to_big", names)     # симлинк пропущен
+
+    def test_sun_layout_extents_sum(self):
+        t = cm.dir_tree(self.tmp, depth=2, min_frac=0.0, top_n=12)
+        arcs = cm.CleanMac._sun_layout(t, max_depth=2)
+        ring1 = [a for a in arcs if a[0] == 1]
+        self.assertAlmostEqual(sum(ext for _, _, ext, _ in ring1), 360.0, places=3)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
