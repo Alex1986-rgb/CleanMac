@@ -5,7 +5,7 @@ KRYLAN Desktop — кросс-платформенный оптимизатор:
 «Дай устройству крылья». Создатель: Кырлан Александр Сергеевич.
 Зависимости: psutil, send2trash.  Запуск: python krylan.py
 """
-import os, sys, platform, threading, queue, math, hashlib
+import os, sys, platform, threading, queue, math, hashlib, json
 import tkinter as tk
 from tkinter import messagebox
 import psutil
@@ -60,6 +60,13 @@ I18N = {
     "📦 Крупные файлы": "📦 Large files", "🗺 Карта диска": "🗺 Disk map",
     "🧳 Деинсталлятор": "🧳 Uninstaller", "📂 Пустые папки": "📂 Empty folders",
     "📈 Что выросло": "📈 What grew", "🔒 Приватность": "🔒 Privacy", "🩺 Диск": "🩺 Disk",
+    "🧩 Расширения браузеров": "🧩 Browser extensions",
+    "🧩 Читаю расширения браузеров…": "🧩 Reading browser extensions…",
+    "🧩  Расширения браузеров (только просмотр)": "🧩  Browser extensions (read-only)",
+    "  расширений не найдено.\n": "  no extensions found.\n",
+    "Всего расширений: {n}.": "Total extensions: {n}.",
+    "KRYLAN ничего не удаляет. Отключить лишние можно в самом браузере: меню → «Расширения».":
+        "KRYLAN deletes nothing. You can disable unwanted ones in the browser itself: menu → “Extensions”.",
     "РЕКОМЕНДАЦИИ": "RECOMMENDATIONS",
     "ОЗУ": "RAM", "ДИСК": "DISK", "БАТАРЕЯ": "BATTERY",
     "ОС: {os}": "OS: {os}",
@@ -690,6 +697,118 @@ def privacy_targets():
         for item, fn in [("История", "places.sqlite"), ("Cookies", "cookies.sqlite")]:
             t.append(("Firefox", item, os.path.join(prof, fn)))
     return [(b, i, p) for b, i, p in t if os.path.isfile(p)]
+
+# ---------- расширения браузеров (read-only) ----------
+def parse_chromium_extension(manifest_dict, messages_dict=None):
+    """Имя Chromium-расширения из manifest.json.
+
+    Поле name может быть локализованной ссылкой вида "__MSG_appName__" —
+    тогда раскрываем её из messages.json (_locales/<lang>/messages.json),
+    структура которого: {"appName": {"message": "..."}}.
+    Чистая, без I/O — полностью тестируема.
+    """
+    name = ""
+    if isinstance(manifest_dict, dict):
+        name = (manifest_dict.get("name") or "").strip()
+    if not name:
+        return ""
+    if name.startswith("__MSG_") and name.endswith("__"):
+        key = name[len("__MSG_"):-len("__")]
+        if isinstance(messages_dict, dict):
+            entry = messages_dict.get(key) or messages_dict.get(key.lower())
+            if isinstance(entry, dict):
+                msg = (entry.get("message") or "").strip()
+                if msg:
+                    return msg
+        return key  # graceful: показываем ключ, если перевод не найден
+    return name
+
+def _chromium_ext_profiles():
+    """Базовые папки User Data Chromium-браузеров: [(браузер, путь)]."""
+    if SYSTEM == "Darwin":
+        sup = os.path.join(HOME, "Library/Application Support")
+        return [("Chrome", os.path.join(sup, "Google/Chrome")),
+                ("Edge",   os.path.join(sup, "Microsoft Edge")),
+                ("Brave",  os.path.join(sup, "BraveSoftware/Brave-Browser"))]
+    if SYSTEM == "Windows":
+        local = os.environ.get("LOCALAPPDATA", os.path.join(HOME, "AppData", "Local"))
+        return [("Chrome", os.path.join(local, "Google", "Chrome", "User Data")),
+                ("Edge",   os.path.join(local, "Microsoft", "Edge", "User Data")),
+                ("Brave",  os.path.join(local, "BraveSoftware", "Brave-Browser", "User Data"))]
+    return [("Chrome", os.path.join(HOME, ".config/google-chrome")),
+            ("Edge",   os.path.join(HOME, ".config/microsoft-edge")),
+            ("Brave",  os.path.join(HOME, ".config/BraveSoftware/Brave-Browser"))]
+
+def _read_json(path):
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+def _chromium_ext_name(ext_dir, ext_id):
+    """Имя расширения по папке <id> (берём самую свежую версию). Graceful."""
+    try:
+        versions = [v for v in os.listdir(ext_dir)
+                    if os.path.isdir(os.path.join(ext_dir, v))]
+    except OSError:
+        return ext_id
+    for ver in sorted(versions, reverse=True):
+        vdir = os.path.join(ext_dir, ver)
+        man = _read_json(os.path.join(vdir, "manifest.json"))
+        if not isinstance(man, dict):
+            continue
+        messages = None
+        name = (man.get("name") or "").strip()
+        if name.startswith("__MSG_"):
+            default_locale = (man.get("default_locale") or "en")
+            for loc in (default_locale, "en", "en_US"):
+                mp = os.path.join(vdir, "_locales", loc, "messages.json")
+                messages = _read_json(mp)
+                if messages:
+                    break
+        resolved = parse_chromium_extension(man, messages)
+        if resolved:
+            return resolved
+    return ext_id
+
+def list_browser_extensions():
+    """Установленные расширения браузеров: [(браузер, имя, id)]. Read-only, graceful."""
+    import glob
+    out = []
+    seen = set()
+    # Chromium-семейство: <UserData>/<Profile>/Extensions/<id>/<version>/manifest.json
+    for browser, base in _chromium_ext_profiles():
+        if not os.path.isdir(base):
+            continue
+        for ext_root in glob.glob(os.path.join(base, "*", "Extensions")):
+            if not os.path.isdir(ext_root):
+                continue
+            for ext_id in sorted(os.listdir(ext_root)):
+                ext_dir = os.path.join(ext_root, ext_id)
+                if not os.path.isdir(ext_dir):
+                    continue
+                key = (browser, ext_id)
+                if key in seen:
+                    continue
+                seen.add(key)
+                out.append((browser, _chromium_ext_name(ext_dir, ext_id), ext_id))
+    # Firefox: <profile>/extensions/*.xpi — имя/id из имени файла (упрощённо)
+    if SYSTEM == "Darwin":
+        ff = os.path.join(HOME, "Library/Application Support/Firefox/Profiles")
+    elif SYSTEM == "Windows":
+        roam = os.environ.get("APPDATA", os.path.join(HOME, "AppData", "Roaming"))
+        ff = os.path.join(roam, "Mozilla", "Firefox", "Profiles")
+    else:
+        ff = os.path.join(HOME, ".mozilla/firefox")
+    for xpi in glob.glob(os.path.join(ff, "*", "extensions", "*.xpi")):
+        ext_id = os.path.splitext(os.path.basename(xpi))[0]
+        key = ("Firefox", ext_id)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(("Firefox", ext_id, ext_id))
+    return out
 
 # ---------- здоровье диска ----------
 def disk_advice(disk_pct, ram_pct, batt_pct=None):
@@ -1946,7 +2065,7 @@ class Krylan(tk.Tk):
                          ("🗺 Карта диска", self.t_diskmap), ("🧳 Деинсталлятор", self.t_uninstall),
                          ("📂 Пустые папки", self.t_empty), ("🧩 Битые файлы", self.t_broken),
                          ("📈 Что выросло", self.t_growth),
-                         ("🔒 Приватность", self.t_privacy), ("🩺 Диск", self.t_smart),
+                         ("🔒 Приватность", self.t_privacy), ("🧩 Расширения браузеров", self.t_extensions), ("🩺 Диск", self.t_smart),
                          ("🔄 Обновления", self.t_updates), ("📄 Отчёт", self.t_report)]:
             self._btn(bar, L(lbl), GLASS, cmd).pack(side="left", padx=4)
         self._dupe_extras = []
@@ -2208,6 +2327,28 @@ class Krylan(tk.Tk):
         for p in files:
             if safe_trash(p): ok += 1
         messagebox.showinfo("KRYLAN", L("В Корзину: {n} файлов.").format(n=ok)); self.t_privacy()
+
+    def t_extensions(self):
+        self._out(L("🧩 Читаю расширения браузеров…")); threading.Thread(target=self._extensions_w, daemon=True).start()
+
+    def _extensions_w(self):
+        exts = list_browser_extensions()
+        lines = [L("🧩  Расширения браузеров (только просмотр)") + "\n\n"]
+        if not exts:
+            lines.append(L("  расширений не найдено.\n"))
+        else:
+            by_browser = {}
+            for browser, name, ext_id in exts:
+                by_browser.setdefault(browser, []).append((name, ext_id))
+            for browser in sorted(by_browser):
+                items = sorted(by_browser[browser], key=lambda x: x[0].lower())
+                lines.append(f"  {browser} ({len(items)}):\n")
+                for name, ext_id in items:
+                    lines.append(f"    • {name}\n        id: {ext_id}\n")
+                lines.append("\n")
+            lines.append("  " + L("Всего расширений: {n}.").format(n=len(exts)) + "\n")
+        lines.append("\n" + L("KRYLAN ничего не удаляет. Отключить лишние можно в самом браузере: меню → «Расширения».") + "\n")
+        self.q.put(("tout", "".join(lines), None))
 
     def t_growth(self):
         self._out(L("📈 Сравниваю с прошлой проверкой…")); threading.Thread(target=self._growth_w, daemon=True).start()

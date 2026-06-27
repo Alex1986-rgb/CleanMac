@@ -532,5 +532,100 @@ class TestFindBrokenFiles(unittest.TestCase):
         self.assertEqual(cm.find_broken_files([os.path.join(self.tmp, "nope")]), [])
 
 
+class TestScanOldDownloads(unittest.TestCase):
+    """scan_old_downloads: топ старых файлов в папке загрузок.
+    Чистая ФС-функция — без перехода по симлинкам, с пропуском защищённых путей."""
+
+    DAY = 86400
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.now = 1_700_000_000.0  # фиксируем «сейчас» для детерминизма
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _mkfile(self, rel, nbytes, age_days):
+        p = os.path.join(self.tmp, rel)
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, "wb") as f:
+            f.write(b"\0" * nbytes)
+        mt = self.now - age_days * self.DAY
+        os.utime(p, (mt, mt))
+        return p
+
+    def test_finds_old_skips_recent(self):
+        old = self._mkfile("old_big.zip", 5_000_000, age_days=200)
+        self._mkfile("fresh.zip", 9_000_000, age_days=3)   # свежий — не попадает
+        res = cm.scan_old_downloads(self.tmp, min_days=90, top=50, now=self.now)
+        paths = [p for _, p, _ in res]
+        self.assertIn(old, paths)
+        self.assertNotIn(os.path.join(self.tmp, "fresh.zip"), paths)
+        # размер и возраст вернулись корректно
+        size, path, age = res[0]
+        self.assertEqual(path, old)
+        self.assertEqual(size, 5_000_000)
+        self.assertGreaterEqual(age, 199)
+
+    def test_sorted_by_size_desc(self):
+        self._mkfile("a.bin", 1000, age_days=120)
+        self._mkfile("b.bin", 8000, age_days=120)
+        self._mkfile("c.bin", 4000, age_days=120)
+        res = cm.scan_old_downloads(self.tmp, min_days=90, now=self.now)
+        sizes = [s for s, _, _ in res]
+        self.assertEqual(sizes, sorted(sizes, reverse=True))
+        self.assertEqual(sizes, [8000, 4000, 1000])
+
+    def test_symlink_file_skipped(self):
+        target = self._mkfile("realtarget.bin", 3000, age_days=300)
+        link = os.path.join(self.tmp, "old_link.bin")
+        try:
+            os.symlink(target, link)
+        except (OSError, NotImplementedError):
+            self.skipTest("симлинки недоступны")
+        # делаем сам линк «старым» — но он не должен попасть в результат
+        res = cm.scan_old_downloads(self.tmp, min_days=90, now=self.now)
+        paths = [p for _, p, _ in res]
+        self.assertIn(target, paths)
+        self.assertNotIn(link, paths)
+
+    def test_symlink_dir_not_followed(self):
+        outside = tempfile.mkdtemp()
+        try:
+            big = os.path.join(outside, "outside_big.bin")
+            with open(big, "wb") as f:
+                f.write(b"\0" * 7000)
+            mt = self.now - 250 * self.DAY
+            os.utime(big, (mt, mt))
+            link = os.path.join(self.tmp, "dirlink")
+            try:
+                os.symlink(outside, link)
+            except (OSError, NotImplementedError):
+                self.skipTest("симлинки недоступны")
+            res = cm.scan_old_downloads(self.tmp, min_days=90, now=self.now)
+            paths = [p for _, p, _ in res]
+            # внутрь симлинка-каталога не заходим
+            self.assertFalse(any(p.startswith(link) for p in paths))
+            self.assertNotIn(big, paths)
+        finally:
+            import shutil
+            shutil.rmtree(outside, ignore_errors=True)
+
+    def test_missing_base_returns_empty(self):
+        self.assertEqual(cm.scan_old_downloads(os.path.join(self.tmp, "nope"), now=self.now), [])
+
+    def test_empty_base_returns_empty(self):
+        self.assertEqual(cm.scan_old_downloads("", now=self.now), [])
+
+    def test_top_limit(self):
+        for i in range(5):
+            self._mkfile(f"f{i}.bin", 1000 * (i + 1), age_days=120)
+        res = cm.scan_old_downloads(self.tmp, min_days=90, top=2, now=self.now)
+        self.assertEqual(len(res), 2)
+        # топ-2 по размеру: 5000, 4000
+        self.assertEqual([s for s, _, _ in res], [5000, 4000])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

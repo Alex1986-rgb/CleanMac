@@ -966,5 +966,100 @@ class TestScheduleNoScheduler(unittest.TestCase):
         self.assertFalse(krylan.schedule_disable())
 
 
+class TestParseChromiumExtension(unittest.TestCase):
+    def test_plain_name(self):
+        man = {"name": "uBlock Origin", "version": "1.0"}
+        self.assertEqual(krylan.parse_chromium_extension(man), "uBlock Origin")
+
+    def test_name_with_whitespace(self):
+        man = {"name": "  Dark Reader  "}
+        self.assertEqual(krylan.parse_chromium_extension(man), "Dark Reader")
+
+    def test_msg_resolved_from_messages(self):
+        man = {"name": "__MSG_appName__", "default_locale": "en"}
+        msgs = {"appName": {"message": "Awesome Extension"}}
+        self.assertEqual(krylan.parse_chromium_extension(man, msgs), "Awesome Extension")
+
+    def test_msg_case_insensitive_key(self):
+        man = {"name": "__MSG_appName__"}
+        msgs = {"appname": {"message": "Lower Key Ext"}}
+        self.assertEqual(krylan.parse_chromium_extension(man, msgs), "Lower Key Ext")
+
+    def test_msg_without_messages_falls_back_to_key(self):
+        man = {"name": "__MSG_extName__"}
+        self.assertEqual(krylan.parse_chromium_extension(man, None), "extName")
+
+    def test_msg_missing_entry_falls_back_to_key(self):
+        man = {"name": "__MSG_extName__"}
+        self.assertEqual(krylan.parse_chromium_extension(man, {"other": {"message": "x"}}), "extName")
+
+    def test_no_name(self):
+        self.assertEqual(krylan.parse_chromium_extension({"version": "1.0"}), "")
+
+    def test_empty_name(self):
+        self.assertEqual(krylan.parse_chromium_extension({"name": "   "}), "")
+
+    def test_non_dict_manifest(self):
+        self.assertEqual(krylan.parse_chromium_extension(None), "")
+
+
+class TestListBrowserExtensions(unittest.TestCase):
+    def test_returns_list_and_graceful(self):
+        # На любой ОС без падений; элементы — кортежи из 3 строк.
+        res = krylan.list_browser_extensions()
+        self.assertIsInstance(res, list)
+        for item in res:
+            self.assertEqual(len(item), 3)
+            browser, name, ext_id = item
+            self.assertIsInstance(browser, str)
+            self.assertIsInstance(name, str)
+            self.assertIsInstance(ext_id, str)
+
+    def test_reads_real_chromium_layout(self):
+        # Создаём фейковый профиль Chrome и проверяем разбор имени из manifest.
+        import json
+        base = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, base, ignore_errors=True)
+        ext_id = "abcdefghijklmnopabcdefghijklmnop"
+        vdir = os.path.join(base, "Default", "Extensions", ext_id, "2.1.0")
+        os.makedirs(vdir)
+        with open(os.path.join(vdir, "manifest.json"), "w", encoding="utf-8") as f:
+            json.dump({"name": "Test Ext", "version": "2.1.0"}, f)
+
+        orig = krylan._chromium_ext_profiles
+        orig_system = krylan.SYSTEM
+        krylan._chromium_ext_profiles = lambda: [("Chrome", base)]
+        krylan.SYSTEM = "NoSuchOS"  # отключаем Firefox-ветку (пути не существуют)
+        try:
+            res = krylan.list_browser_extensions()
+        finally:
+            krylan._chromium_ext_profiles = orig
+            krylan.SYSTEM = orig_system
+        self.assertIn(("Chrome", "Test Ext", ext_id), res)
+
+    def test_msg_name_resolved_from_locales(self):
+        import json
+        base = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, base, ignore_errors=True)
+        ext_id = "msgextidmsgextidmsgextidmsgextid"
+        vdir = os.path.join(base, "Default", "Extensions", ext_id, "1.0")
+        os.makedirs(os.path.join(vdir, "_locales", "en"))
+        with open(os.path.join(vdir, "manifest.json"), "w", encoding="utf-8") as f:
+            json.dump({"name": "__MSG_appName__", "default_locale": "en"}, f)
+        with open(os.path.join(vdir, "_locales", "en", "messages.json"), "w", encoding="utf-8") as f:
+            json.dump({"appName": {"message": "Localized Name"}}, f)
+
+        orig = krylan._chromium_ext_profiles
+        orig_system = krylan.SYSTEM
+        krylan._chromium_ext_profiles = lambda: [("Chrome", base)]
+        krylan.SYSTEM = "NoSuchOS"
+        try:
+            res = krylan.list_browser_extensions()
+        finally:
+            krylan._chromium_ext_profiles = orig
+            krylan.SYSTEM = orig_system
+        self.assertIn(("Chrome", "Localized Name", ext_id), res)
+
+
 if __name__ == "__main__":
     unittest.main()

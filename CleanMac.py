@@ -308,6 +308,47 @@ def _scan_size(path):
                 pass
     return total
 
+def scan_old_downloads(base, min_days=90, top=200, now=None):
+    """Старые файлы в папке загрузок: топ по размеру среди файлов старше ``min_days``.
+
+    Возвращает отсортированный по убыванию размера список кортежей
+    ``(size, path, age_days)``. Чистая ФС-функция (без subprocess/GUI) —
+    тестируется на temp-дереве.
+
+    Безопасность:
+      * НЕ переходит по симлинкам-каталогам и НЕ считает симлинки-файлы
+        (их размер/возраст обманчив, а удалять чужую цель нельзя);
+      * пропускает защищённые/системные пути (``is_protected``);
+      * «возраст» — по дате изменения (mtime) в днях, как в UI.
+    Каталоги не возвращаются — только обычные файлы, чтобы удаление в Корзину
+    било точечно по реальным загрузкам, а не по вложенным папкам.
+    """
+    if now is None:
+        now = time.time()
+    if not base or not os.path.isdir(base):
+        return []
+    cutoff = float(min_days) * 86400
+    out = []
+    for root, dirs, files in os.walk(base, topdown=True, followlinks=False):
+        # не уходим в симлинки-каталоги
+        dirs[:] = [d for d in dirs if not os.path.islink(os.path.join(root, d))]
+        for f in files:
+            fp = os.path.join(root, f)
+            try:
+                if os.path.islink(fp):           # симлинк-файл не трогаем
+                    continue
+                st = os.lstat(fp)
+                age_sec = now - st.st_mtime
+                if age_sec < cutoff:
+                    continue
+                if is_protected(fp):             # страховка от системных путей
+                    continue
+                out.append((st.st_size, fp, int(age_sec / 86400)))
+            except OSError:
+                pass
+    out.sort(reverse=True)
+    return out[:top] if top else out
+
 
 def dir_tree(path, depth=2, min_frac=0.01, total=None, top_n=12):
     """Рекурсивно собирает дерево размеров подкаталогов до глубины ``depth``.
@@ -1837,6 +1878,7 @@ class CleanMac(tk.Tk):
                  ).pack(anchor="w", padx=24, pady=(16,8))
         self.tool_chips={}
         chips=[("startup","⚙️ Автозагрузка"),("large","📦 Крупные файлы"),
+               ("olddl","🕒 Старые загрузки"),
                ("dupes","👯 Дубликаты"),("uninstall","🧩 Деинсталлятор"),
                ("disk","🗺 Карта диска"),("maintain","🩺 Обслуживание"),
                ("shots","📸 Скриншоты"),("shred","🔥 Шредер"),
@@ -1862,7 +1904,7 @@ class CleanMac(tk.Tk):
         for k,b in self.tool_chips.items(): b.configure(bg=(BLUE if k==key else GLASS), fg=("white" if k==key else TEXT))
         for w in self.tpanel.winfo_children(): w.destroy()
         self._lv=[]
-        {"startup":self._t_startup,"large":self._t_large,"dupes":self._t_dupes,
+        {"startup":self._t_startup,"large":self._t_large,"olddl":self._t_olddl,"dupes":self._t_dupes,
          "uninstall":self._t_uninstall,"disk":self._t_disk,"maintain":self._t_maintain,
          "shots":self._t_shots,"shred":self._t_shred,"updater":self._t_updater,
          "leftovers":self._t_leftovers,"history":self._t_history,
@@ -1986,6 +2028,42 @@ class CleanMac(tk.Tk):
         if not shown: tk.Label(inner, text="  Ничего не найдено.", bg=GLASS, fg=MUTED).pack(anchor="w", padx=8, pady=8)
         self._actionbar(f"Показано: {len(shown)} (~{human(sum(s for s,_,_ in shown))}) · старые отмечены",
                         lambda: self._trash_sel(lambda: self._tool('large')))
+
+    # --- Старые загрузки ---
+    def _t_olddl(self):
+        self._ptitle("Старые загрузки", "Файлы в ~/Downloads старше выбранного срока. Отметьте лишние → в Корзину.")
+        if not hasattr(self, "_olddl_days"): self._olddl_days = 90
+        tk.Label(self.tpanel, text="🔎 Сканирую…", bg=BG0, fg=MUTED, font=("SF Pro Text",11)).pack(anchor="w")
+        days = self._olddl_days
+        threading.Thread(target=lambda: self._olddl_w(days), daemon=True).start()
+
+    def _olddl_w(self, days):
+        rows = scan_old_downloads(os.path.join(HOME, "Downloads"), min_days=days, top=200)
+        self.q.put(("tool", ("olddl", rows), None))
+
+    def _render_olddl(self, rows):
+        for w in self.tpanel.winfo_children(): w.destroy()
+        self._lv = []
+        days = getattr(self, "_olddl_days", 90)
+        self._ptitle("Старые загрузки",
+                     f"Файлы в ~/Downloads старше {days} дн. Возраст — по дате изменения. Отметьте лишние → в Корзину.")
+        bar = tk.Frame(self.tpanel, bg=BG0); bar.pack(fill="x", pady=(0,4))
+        tk.Label(bar, text="Старше:", bg=BG0, fg=MUTED, font=("SF Pro Text",11)).pack(side="left", padx=(0,6))
+        for d in (30, 90, 180, 365):
+            lbl = {30:"30 дн", 90:"90 дн", 180:"6 мес", 365:"1 год"}[d]
+            sel = (d == days)
+            ch = tk.Label(bar, text=lbl, bg=(BLUE if sel else GLASS_HI), fg=("white" if sel else TEXT),
+                          font=("SF Pro Text",11,"bold"), padx=10, pady=5, cursor="pointinghand")
+            ch.pack(side="left", padx=3)
+            ch.bind("<Button-1>", lambda e, dd=d: (setattr(self, "_olddl_days", dd), self._t_olddl()))
+        inner = self._scrollarea()
+        for s, fp, age in rows:
+            agetxt = f"{age//365} г" if age >= 365 else (f"{age} дн" if age > 0 else "сегодня")
+            self._checkrow(inner, fp, f"{fp.replace(HOME,'~')}   ·   {agetxt}", s)
+        if not rows:
+            tk.Label(inner, text="  Старых загрузок не найдено.", bg=GLASS, fg=MUTED).pack(anchor="w", padx=8, pady=8)
+        self._actionbar(f"Найдено: {len(rows)} (~{human(sum(s for s,_,_ in rows))})",
+                        lambda: self._trash_sel(lambda: self._tool('olddl')))
 
     # --- Дубликаты ---
     def _t_dupes(self):
@@ -2882,6 +2960,7 @@ class CleanMac(tk.Tk):
                 elif kind=="tool" and self.page=="tools":
                     sub,data=a
                     if sub=="large": self._render_large(data)
+                    elif sub=="olddl": self._render_olddl(data)
                     elif sub=="dupes": self._render_dupes(data)
                 elif kind=="disk" and self.page=="tools": self._render_disk(a)
                 elif kind=="sunburst" and self.page=="tools": self._on_sun_tree(a)

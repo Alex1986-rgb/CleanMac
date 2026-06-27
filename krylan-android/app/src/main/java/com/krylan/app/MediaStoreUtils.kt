@@ -72,6 +72,11 @@ object MediaStoreUtils {
     fun largeFiles(ctx: Context, limit: Int = 100): List<MediaFile> =
         query(ctx, sort = "${MediaStore.Files.FileColumns.SIZE} DESC", limit = limit)
 
+    /** Крупные видеофайлы из коллекции Video, по убыванию размера. */
+    fun videos(ctx: Context, limit: Int = 200): List<MediaFile> =
+        query(ctx, sort = "${MediaStore.Files.FileColumns.SIZE} DESC", limit = limit,
+              collection = MediaStore.Video.Media.EXTERNAL_CONTENT_URI)
+
     /** Скриншоты: по относительному пути (API 29+) или по DATA (старые версии). */
     fun screenshots(ctx: Context, limit: Int = 500): List<MediaFile> {
         val (sel, args) = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
