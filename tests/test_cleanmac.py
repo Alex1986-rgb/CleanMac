@@ -290,5 +290,113 @@ class TestDirTree(unittest.TestCase):
         self.assertAlmostEqual(sum(ext for _, _, ext, _ in ring1), 360.0, places=3)
 
 
+class TestScanSize(unittest.TestCase):
+    """_scan_size: размер через os.walk без перехода по симлинкам (чистая ФС-функция)."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _mkfile(self, rel, nbytes):
+        p = os.path.join(self.tmp, rel)
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, "wb") as f:
+            f.write(b"\0" * nbytes)
+        return p
+
+    def test_file_size(self):
+        p = self._mkfile("a.bin", 321)
+        self.assertEqual(cm._scan_size(p), 321)
+
+    def test_dir_recursive_sum(self):
+        self._mkfile("x/a.bin", 1000)
+        self._mkfile("x/y/b.bin", 234)
+        self.assertEqual(cm._scan_size(os.path.join(self.tmp, "x")), 1234)
+
+    def test_missing_path_is_zero(self):
+        self.assertEqual(cm._scan_size(os.path.join(self.tmp, "nope")), 0)
+
+    def test_symlink_file_not_counted(self):
+        target = self._mkfile("real.bin", 500)
+        link = os.path.join(self.tmp, "link.bin")
+        try:
+            os.symlink(target, link)
+        except (OSError, NotImplementedError):
+            self.skipTest("симлинки недоступны")
+        # симлинк сам по себе → 0 (не разыменовываем)
+        self.assertEqual(cm._scan_size(link), 0)
+
+    def test_symlink_dir_not_followed(self):
+        self._mkfile("d/inside.bin", 800)
+        link = os.path.join(self.tmp, "dlink")
+        try:
+            os.symlink(os.path.join(self.tmp, "d"), link)
+        except (OSError, NotImplementedError):
+            self.skipTest("симлинки недоступны")
+        # каталог-симлинк не раскрывается
+        self.assertEqual(cm._scan_size(link), 0)
+
+
+class TestColorHelpers(unittest.TestCase):
+    """Чистая цветовая математика: _blend, _lighten, col_for (семафор)."""
+
+    def test_blend_endpoints(self):
+        self.assertEqual(cm._blend("#123456", "#abcdef", 0.0), "#123456")
+        self.assertEqual(cm._blend("#123456", "#abcdef", 1.0), "#abcdef")
+
+    def test_blend_midpoint(self):
+        self.assertEqual(cm._blend("#000000", "#ffffff", 0.5), "#7f7f7f")
+
+    def test_blend_output_format(self):
+        out = cm._blend("#2fe5a0", "#091327", 0.4)
+        self.assertEqual(len(out), 7)
+        self.assertTrue(out.startswith("#"))
+        int(out[1:], 16)  # валидный hex — не бросает
+
+    def test_lighten_toward_white(self):
+        # осветление чёрного на 50% даёт средне-серый
+        self.assertEqual(cm._lighten("#000000", 0.5), "#7f7f7f")
+        # белый не светлеет дальше белого
+        self.assertEqual(cm._lighten("#ffffff", 0.3), "#ffffff")
+
+    def test_col_for_normal_thresholds(self):
+        # col_for(p): чем выше p, тем «хуже» (для нагрузки). v = 100 - p.
+        self.assertEqual(cm.col_for(30), cm.GREEN)    # v=70 ≥ 50
+        self.assertEqual(cm.col_for(60), cm.YELLOW)   # v=40 ∈ [25,50)
+        self.assertEqual(cm.col_for(80), cm.RED)      # v=20 < 25
+
+    def test_col_for_inverted(self):
+        # inv=True: значение само по себе «хорошее» (здоровье/батарея).
+        self.assertEqual(cm.col_for(80, inv=True), cm.GREEN)
+        self.assertEqual(cm.col_for(40, inv=True), cm.YELLOW)
+        self.assertEqual(cm.col_for(10, inv=True), cm.RED)
+
+    def test_col_for_boundaries(self):
+        self.assertEqual(cm.col_for(50), cm.GREEN)    # v=50 ровно граница GREEN
+        self.assertEqual(cm.col_for(75), cm.YELLOW)   # v=25 ровно граница YELLOW
+
+
+class TestLocalization2(unittest.TestCase):
+    """L(): в RU возвращает оригинал; перевод существует в TR для известных ключей."""
+
+    def test_L_passthrough_unknown(self):
+        # неизвестный ключ всегда возвращается как есть, в любом языке
+        self.assertEqual(cm.L("ОченьРедкаяСтрока"), "ОченьРедкаяСтрока")
+
+    def test_L_respects_current_lang(self):
+        orig = cm.LANG
+        try:
+            cm.LANG = "ru"
+            self.assertEqual(cm.L("Дашборд"), "Дашборд")   # RU → оригинал
+            cm.LANG = "en"
+            self.assertEqual(cm.L("Дашборд"), "Dashboard")  # EN → перевод
+            self.assertEqual(cm.L("НетВСловаре"), "НетВСловаре")  # нет перевода → как есть
+        finally:
+            cm.LANG = orig
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

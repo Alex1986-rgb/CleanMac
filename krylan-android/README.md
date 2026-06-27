@@ -1,27 +1,71 @@
-# 🪽 KRYLAN — Android каркас (Kotlin + Jetpack Compose)
+# 🪽 KRYLAN — Android (Kotlin + Jetpack Compose)
 
-Стартовый каркас Android-версии KRYLAN. Создатель: **Кырлан Александр Сергеевич**.
+**Дай устройству крылья.** Android-версия KRYLAN: наведение порядка в хранилище
+и медиатеке честными средствами платформы. Версия **0.8.0**.
+Создатель: **Кырлан Александр Сергеевич**.
 
 > Android 11+ закрыл доступ к чужим кэшам, а Google Play банит «бустеры».
-> Поэтому версия про **хранилище, память, батарею, крупные файлы и медиа-дубли**
-> в доступном пользователю хранилище.
+> Поэтому KRYLAN работает в **доступном пользователю хранилище**: крупные файлы,
+> медиа-дубли, скриншоты, загрузки, медиа мессенджеров — и **неиспользуемые
+> приложения**. Честные формулировки, без booster-обещаний.
 
-## Как открыть
-1. Установи **Android Studio**.
-2. `Open` → выбери папку `krylan-android/`.
+## Принцип «только безопасное»
+Удаление медиа идёт через системную **корзину MediaStore** (`createTrashRequest`,
+Android 11+): файлы не стираются сразу, есть **undo** — восстановление из корзины.
+Подтверждение удаления показывает сама система.
+
+## Возможности
+- **Дашборд** — хранилище, память, батарея + анимированный глобус, smart-подсказки.
+- **Хранилище** — разбор занятого места по типам (`storageBreakdown`).
+- **Очистка кэша** — кэш собственного приложения.
+- **Медиа-хаб** — вкладки:
+  - **Крупные** файлы;
+  - **Дубли** (группировка по `duplicateGroups`);
+  - **Скриншоты**;
+  - **Загрузки**;
+  - **Медиа мессенджеров**.
+  Удаление выбранного — в корзину, с кнопкой **«Восстановить»** (undo).
+- **Приложения** — менеджер установленных приложений и вкладка
+  **«Неиспользуемые»** — давно не открывавшиеся, по данным **UsageStatsManager**.
+- **Виджет диска** на главный экран (Glance / `glance-appwidget`).
+- Периодическая проверка хранилища (`StorageCheckWorker`) + уведомление.
+
+## Сборка / запуск
+1. Установите **Android Studio**.
+2. `Open` → выберите папку `krylan-android/`.
 3. Gradle Sync (Android Studio сам докачает `gradle-wrapper.jar` и SDK),
-   выбери эмулятор/устройство, ▶ Run.
+   выберите эмулятор/устройство, ▶ Run.
 
-> Конфигурация готова: корневой `build.gradle.kts`, `settings.gradle.kts`,
-> `app/build.gradle.kts`, `gradle.properties` и `gradle/wrapper/`.
+Из командной строки:
+```bash
+cd krylan-android
+./gradlew assembleDebug      # сборка APK
+./gradlew installDebug       # установка на подключённое устройство
+```
 
-## Что внутри
-- `MainActivity.kt` — Compose-дашборд: хранилище, память, батарея
-- `ui/Theme.kt` — палитра и бренд KRYLAN
-- Манифест, Gradle-файлы
+**Параметры сборки:** `applicationId = com.krylan.app`,
+`compileSdk = 35`, `targetSdk = 35`, `minSdk = 26`,
+Compose (BOM 2024.06), Material 3, Glance 1.1. Иконки KRYLAN в комплекте
+(`mipmap-*`, адаптивные `mipmap-anydpi-v26`).
 
-## Что доработать (см. ../ROADMAP.md, раздел 3)
-- Крупные файлы через Storage Access Framework
-- Медиа-дубликаты (MediaStore + хеш)
-- Очистка кэша своего приложения
-- Иконки KRYLAN, локализация, Play Console
+## Разрешения
+- `READ_MEDIA_IMAGES` / `READ_MEDIA_VIDEO` / `READ_MEDIA_AUDIO` — чтение медиатеки;
+- `READ_EXTERNAL_STORAGE` — на старых версиях Android;
+- `QUERY_ALL_PACKAGES`, `REQUEST_DELETE_PACKAGES` — список и удаление приложений;
+- `PACKAGE_USAGE_STATS` — определение неиспользуемых приложений;
+- `POST_NOTIFICATIONS` — уведомления проверки хранилища.
+
+## Структура
+```
+app/src/main/
+├── AndroidManifest.xml
+├── java/com/krylan/app/
+│   ├── MainActivity.kt          # навигация + точка входа
+│   ├── SystemInfo.kt            # метрики устройства
+│   ├── MediaStoreUtils.kt       # медиа, дубли, корзина (createTrashRequest)
+│   ├── StorageCheckWorker.kt    # фоновая проверка хранилища (WorkManager)
+│   ├── screens/                 # Dashboard · Storage · Cleanup · Media · Apps · SmartSuggestions
+│   ├── ui/                      # Theme · GlobeView · Rings
+│   └── widget/DiskWidget.kt     # виджет диска (Glance)
+└── res/                         # иконки (mipmap-*), values, xml
+```

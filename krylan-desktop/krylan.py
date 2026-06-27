@@ -61,6 +61,12 @@ I18N = {
     "🧳 Деинсталлятор": "🧳 Uninstaller", "📂 Пустые папки": "📂 Empty folders",
     "📈 Что выросло": "📈 What grew", "🔒 Приватность": "🔒 Privacy", "🩺 Диск": "🩺 Disk",
     "РЕКОМЕНДАЦИИ": "RECOMMENDATIONS",
+    "ОЗУ": "RAM", "ДИСК": "DISK", "БАТАРЕЯ": "BATTERY",
+    "ОС: {os}": "OS: {os}",
+    "Диск: свободно {free} из {total}": "Disk: {free} free of {total}",
+    "ОЗУ: {total} всего, занято {pct}%": "RAM: {total} total, {pct}% used",
+    "CPU: {cores} ядер": "CPU: {cores} cores",
+    "Сеть: ↓ {down}/с   ↑ {up}/с": "Network: ↓ {down}/s   ↑ {up}/s",
     "Готово к анализу": "Ready to analyze", "Анализ": "Analyze",
     "Топ по памяти. «Завершить» закрывает выбранный процесс.":
         "Top by memory. “End” closes the selected process.",
@@ -69,6 +75,243 @@ I18N = {
         "Full one-click check: caches · trash · old downloads · duplicates.",
     "Временные файлы и кэши. Всё уходит в Корзину (обратимо).":
         "Temporary files and caches. Everything goes to Trash (reversible).",
+    # --- инструменты (кнопки) ---
+    "🖼 Похожие фото": "🖼 Similar photos", "🧩 Битые файлы": "🧩 Broken files",
+    "🔄 Обновления": "🔄 Updates", "📄 Отчёт": "📄 Report",
+    # --- сканер ---
+    "Нажмите «Сканировать всё».": "Press “Scan everything”.",
+    "⏰ Выключить авто-очистку": "⏰ Disable auto-clean",
+    "⏰ Включить авто-очистку": "⏰ Enable auto-clean",
+    "еженедельно, пн 12:00 · кэши → Корзина": "weekly, Mon 12:00 · caches → Trash",
+    "Включить еженедельную авто-очистку кэшей?\nКаждый понедельник в 12:00 содержимое кэшей будет уходить в Корзину.":
+        "Enable weekly cache auto-clean?\nEvery Monday at 12:00 cache contents will be moved to Trash.",
+    "Ускорить компьютер одним кликом?\n\nБезопасно: кэши и временные файлы уйдут в Корзину":
+        "Boost the computer in one click?\n\nSafe: caches and temporary files go to Trash",
+    ", освободится «очищаемое» место": ", “purgeable” space will be freed",
+    ". Дефрагментация SSD НЕ делается — она вредна.":
+        ". No SSD defragmentation is performed — it is harmful.",
+    "🚀 Ускоряю… кэши → Корзина, освобождаю место…":
+        "🚀 Boosting… caches → Trash, freeing space…",
+    "🚀 Сканирую… это может занять минуту-другую.":
+        "🚀 Scanning… this may take a minute or two.",
+    "🧽 Очищаю кэши…": "🧽 Cleaning caches…",
+    "Переместить содержимое кэшей в Корзину?": "Move cache contents to Trash?",
+    "🧽 Кэши → Корзина": "🧽 Caches → Trash",
+    # --- очистка ---
+    "Анализирую…": "Analyzing…", "Очищаю…": "Cleaning…",
+    "Сначала «Анализ».": "Run “Analyze” first.",
+    "Переместить выбранные кэши в Корзину?": "Move the selected caches to Trash?",
+    # --- процессы / режим фокуса ---
+    "🎯 Режим фокуса: «⏸ Пауза» обратимо приостанавливает приложение, «▶ Возобновить всё» — возвращает работу.":
+        "🎯 Focus mode: “⏸ Pause” reversibly suspends an app, “▶ Resume all” brings it back.",
+    "Процесс": "Process",
+    "▶ Возобновить всё": "▶ Resume all",
+    "Ничего не приостановлено": "Nothing suspended",
+    "Приостановленных процессов нет.": "No suspended processes.",
+    "⏸ Пауза": "⏸ Pause",
+    "«{name}» — системный процесс, пауза запрещена.":
+        "“{name}” is a system process; pausing is not allowed.",
+    "KRYLAN — Режим фокуса": "KRYLAN — Focus mode",
+    "Приостановить «{name}» (PID {pid})?\n\n⚠️ Это обратимо ЗАМОРОЗИТ приложение до возобновления — оно перестанет отвечать, пока вы не нажмёте «▶ Возобновить всё».\n\nНесохранённые данные в нём станут недоступны до возобновления.":
+        "Suspend “{name}” (PID {pid})?\n\n⚠️ This will reversibly FREEZE the app until resumed — it will stop responding until you press “▶ Resume all”.\n\nUnsaved data in it will be unavailable until resumed.",
+    "Процесс «{name}» уже завершён.": "Process “{name}” has already ended.",
+    "Недостаточно прав, чтобы приостановить «{name}» — пропущено.":
+        "Insufficient permissions to suspend “{name}” — skipped.",
+    "Не удалось приостановить: {e}": "Could not suspend: {e}",
+    "▶ Возобновлено процессов: {n}.": "▶ Processes resumed: {n}.",
+    "Завершить процесс «{name}» (PID {pid})?": "End process “{name}” (PID {pid})?",
+    "Не удалось завершить: {e}": "Could not end: {e}",
+    # --- инструменты: статусы и заголовки ---
+    "Выберите инструмент.": "Select a tool.",
+    "⚙️ Сканирую автозагрузку…": "⚙️ Scanning startup items…",
+    "🔄 Проверяю обновления приложений…": "🔄 Checking for app updates…",
+    "📄 Собираю отчёт о состоянии…": "📄 Building status report…",
+    "📦 Ищу файлы >100 МБ…": "📦 Looking for files >100 MB…",
+    "👯 Ищу дубликаты…": "👯 Looking for duplicates…",
+    "🖼 Ищу похожие фото…": "🖼 Looking for similar photos…",
+    "🗺 Считаю размеры папок…": "🗺 Measuring folder sizes…",
+    "🧳 Собираю список приложений…": "🧳 Collecting the app list…",
+    "🔒 Ищу следы браузеров…": "🔒 Looking for browser traces…",
+    "📈 Сравниваю с прошлой проверкой…": "📈 Comparing with the last check…",
+    "📂 Ищу пустые папки…": "📂 Looking for empty folders…",
+    "🧩 Ищу битые и пустые файлы…": "🧩 Looking for broken and empty files…",
+    "🩺 Читаю состояние диска…": "🩺 Reading disk status…",
+    # --- кнопки действий в очереди ---
+    "🗑 Удалить {n} лишних копий": "🗑 Delete {n} extra copies",
+    "🗑 Удалить {n} лишних похожих": "🗑 Delete {n} extra similar",
+    "🔒 Очистить следы ({n})": "🔒 Clean traces ({n})",
+    "📂 Удалить пустые папки ({n})": "📂 Delete empty folders ({n})",
+    "🧩 Удалить битые/пустые ({n})": "🧩 Delete broken/empty ({n})",
+    "📥 Старые загрузки → Корзина ({n})": "📥 Old downloads → Trash ({n})",
+    "👯 Дубли → Корзину ({n})": "👯 Duplicates → Trash ({n})",
+    # --- messagebox: общие ---
+    "Удалить {n} лишних копий в Корзину?": "Delete {n} extra copies to Trash?",
+    "Удалить {n} лишних похожих фото в Корзину?\n(в каждой группе остаётся первое)":
+        "Delete {n} extra similar photos to Trash?\n(the first one in each group is kept)",
+    "Переместить {n} старых файлов из Загрузок в Корзину?":
+        "Move {n} old files from Downloads to Trash?",
+    "Переместить {n} файлов следов в Корзину?\nВы выйдете из аккаунтов в браузерах.":
+        "Move {n} trace files to Trash?\nYou will be signed out of your browser accounts.",
+    "Переместить {n} пустых папок в Корзину?": "Move {n} empty folders to Trash?",
+    "Переместить {n} битых/пустых файлов в Корзину?":
+        "Move {n} broken/empty files to Trash?",
+    "В Корзину: {n} файлов.": "To Trash: {n} files.",
+    "В Корзину: {n} папок.": "To Trash: {n} folders.",
+    "В Корзину: {size}.": "To Trash: {size}.",
+    # --- статусы очистки ---
+    "Найдено: {size}": "Found: {size}",
+    "Очищено: {size} → Корзина": "Cleaned: {size} → Trash",
+    "⏸ На паузе: {n}": "⏸ Paused: {n}",
+    # --- disk_advice ---
+    "Диск заполнен на {p}% — запустите Сканер и удалите дубликаты/крупные файлы.":
+        "Disk is {p}% full — run the Scanner and remove duplicates/large files.",
+    "Диск на {p}% — очистите кэши и старые загрузки.":
+        "Disk at {p}% — clean caches and old downloads.",
+    "Память на {p}% — завершите тяжёлые процессы.":
+        "Memory at {p}% — end heavy processes.",
+    "Память на {p}% — близко к пределу.": "Memory at {p}% — close to the limit.",
+    "Низкий заряд ({p}%) — подключите зарядку.":
+        "Low battery ({p}%) — plug in the charger.",
+    "Система в порядке — критичных проблем нет.":
+        "System is fine — no critical issues.",
+    # --- о программе ---
+    "«Дай устройству крылья»": "“Give your device wings”",
+    "Версия {v} · {os}": "Version {v} · {os}",
+    "Создатель: Кырлан Александр Сергеевич":
+        "Creator: Alexander Sergeevich Kyrlan",
+    "Кросс-платформенный оптимизатор: Windows · macOS · Linux.":
+        "Cross-platform optimizer: Windows · macOS · Linux.",
+    "Мониторинг CPU/ОЗУ/диск/батарея и безопасная очистка кэшей":
+        "Monitors CPU/RAM/disk/battery and safely cleans caches",
+    "(всё уходит в Корзину). Часть экосистемы KRYLAN (+iPhone, Android).":
+        "(everything goes to Trash). Part of the KRYLAN ecosystem (+iPhone, Android).",
+    # --- сканер: тексты отчёта ---
+    "🚀  Готово! Компьютер ускорен.": "🚀  Done! The computer is boosted.",
+    "🧽 Кэши и логи → Корзина: {size}": "🧽 Caches and logs → Trash: {size}",
+    "🧊 Освобождено места: {size}": "🧊 Space freed: {size}",
+    "⚡️ Готово — компьютер ускорен": "⚡️ Done — the computer is boosted",
+    "Освобождено всего: ~{size}": "Total freed: ~{size}",
+    "Всё обратимо — очищенное в Корзине. Без дефрага SSD.":
+        "Everything is reversible — cleaned items are in Trash. No SSD defrag.",
+    "🚀  Результат сканирования": "🚀  Scan result",
+    "Кэши и временные файлы:": "Caches and temporary files:",
+    "Корзина: {val}": "Trash: {val}",
+    "Старые загрузки (>6 мес): {size} · {n} шт.":
+        "Old downloads (>6 mo): {size} · {n} items",
+    "Дубликаты: {size} в {n} группах": "Duplicates: {size} in {n} groups",
+    "ИТОГО можно освободить: ~{size}": "TOTAL can be freed: ~{size}",
+    "🧽 Кэши очищены: ~{size} → Корзина.\n\nЗапустите сканирование заново для свежей сводки.":
+        "🧽 Caches cleaned: ~{size} → Trash.\n\nRun the scan again for a fresh summary.",
+    # --- автозагрузка ---
+    "⚙️  Автозагрузка": "⚙️  Startup",
+    "ошибка чтения реестра: {e}": "registry read error: {e}",
+    "Отключить: Диспетчер задач → вкладка «Автозагрузка».":
+        "Disable: Task Manager → “Startup” tab.",
+    "Отключить: переименуйте .plist → .plist.disabled.":
+        "Disable: rename .plist → .plist.disabled.",
+    "Отключить: удалите .desktop из ~/.config/autostart.":
+        "Disable: remove .desktop from ~/.config/autostart.",
+    # --- обновления ---
+    "🔄  Обновления приложений\n\n  {hint}": "🔄  App updates\n\n  {hint}",
+    "🔄  Обновления приложений ({mgr})": "🔄  App updates ({mgr})",
+    "✓ Все приложения актуальны.": "✓ All apps are up to date.",
+    "Найдено обновлений: {n}": "Updates found: {n}",
+    "Обновить всё:  brew upgrade": "Update all:  brew upgrade",
+    "Обновить всё:  winget upgrade --all": "Update all:  winget upgrade --all",
+    "Обновить всё:  sudo apt upgrade": "Update all:  sudo apt upgrade",
+    "Менеджер пакетов не найден (brew / winget / apt).":
+        "Package manager not found (brew / winget / apt).",
+    "Не удалось проверить обновления: {e}": "Could not check for updates: {e}",
+    "ОС не поддерживается.": "OS is not supported.",
+    # --- отчёт ---
+    "📄  Отчёт сохранён\n\n  {path}\n\n  Открыт в браузере.\n\n  Всего в кэшах: {caches}\n  Свободно на диске: {free}":
+        "📄  Report saved\n\n  {path}\n\n  Opened in the browser.\n\n  Total in caches: {caches}\n  Free disk space: {free}",
+    "📄  Не удалось сохранить отчёт: {e}": "📄  Could not save the report: {e}",
+    "KRYLAN — отчёт о состоянии": "KRYLAN — status report",
+    "Сформировано:": "Generated:",
+    "KRYLAN Desktop · только безопасная очистка (всё в Корзину). Создатель: Кырлан Александр Сергеевич.":
+        "KRYLAN Desktop · safe cleanup only (everything to Trash). Creator: Alexander Sergeevich Kyrlan.",
+    "Система": "System", "CPU": "CPU", "Диск": "Disk",
+    "Оперативная память": "Memory",
+    "Кэши (кандидаты на очистку)": "Caches (cleanup candidates)",
+    "Всего в кэшах": "Total in caches",
+    "{pct}% занято ({used} из {total})": "{pct}% used ({used} of {total})",
+    "{pct}% занято · свободно {free} из {total}":
+        "{pct}% used · free {free} of {total}",
+    # --- крупные файлы ---
+    "📦  Крупные файлы (топ-25):": "📦  Large files (top 25):",
+    "  ничего\n": "  nothing\n",
+    # --- дубликаты ---
+    "👯  Дубликаты: групп {n}, освободить ~{size}":
+        "👯  Duplicates: {n} groups, free ~{size}",
+    "  дубликатов нет.\n": "  no duplicates.\n",
+    # --- похожие фото ---
+    "🖼  Похожие фото\n\n  Не установлен Pillow.\n  Установите: pip install Pillow\n":
+        "🖼  Similar photos\n\n  Pillow is not installed.\n  Install: pip install Pillow\n",
+    "🖼  Похожие фото: групп {n}, лишних {extra}":
+        "🖼  Similar photos: {n} groups, {extra} extra",
+    "похожих ×{n}:": "similar ×{n}:",
+    "  похожих фото нет.\n": "  no similar photos.\n",
+    # --- карта диска ---
+    "🗺  Карта диска — домашняя папка (топ-18):":
+        "🗺  Disk map — home folder (top 18):",
+    "Самые тяжёлые папки — кандидаты на разбор в «Крупные файлы».":
+        "The heaviest folders are candidates for review in “Large files”.",
+    # --- деинсталлятор ---
+    "🧳  Деинсталлятор — установленные приложения":
+        "🧳  Uninstaller — installed applications",
+    "Удаление: Параметры → Приложения → выбрать → «Удалить».":
+        "Remove: Settings → Apps → select → “Uninstall”.",
+    "Удаление: перетащите .app из «Программ» в Корзину\n(остатки ищите в ~/Library/Application Support и Caches).":
+        "Remove: drag the .app from “Applications” to Trash\n(look for leftovers in ~/Library/Application Support and Caches).",
+    "Удаление: sudo apt remove <пакет>.": "Remove: sudo apt remove <package>.",
+    "  dpkg не найден — посмотрите менеджер пакетов вашего дистрибутива.\n":
+        "  dpkg not found — check your distribution’s package manager.\n",
+    # --- приватность ---
+    "🔒  Приватность — следы браузеров": "🔒  Privacy — browser traces",
+    "  следов не найдено.\n": "  no traces found.\n",
+    "⚠️ Сначала закройте: {browsers} — иначе файлы заняты.":
+        "⚠️ Close these first: {browsers} — otherwise the files are locked.",
+    "Всего следов: ~{size}. История и cookies уйдут в Корзину (вы выйдете из аккаунтов).":
+        "Total traces: ~{size}. History and cookies go to Trash (you will be signed out).",
+    # --- что выросло ---
+    "📈  Что выросло": "📈  What grew",
+    "Первый снимок сохранён. Запустите ещё раз позже —\nи KRYLAN покажет, какие папки выросли или уменьшились.":
+        "First snapshot saved. Run again later —\nand KRYLAN will show which folders grew or shrank.",
+    "Текущие размеры:": "Current sizes:",
+    "📈  Изменения с прошлой проверки": "📈  Changes since the last check",
+    "  Изменений нет — размеры папок не поменялись.\n":
+        "  No changes — folder sizes are unchanged.\n",
+    "▲ выросло · ▼ уменьшилось. Растущие папки — кандидаты на разбор.":
+        "▲ grew · ▼ shrank. Growing folders are candidates for review.",
+    # --- пустые папки ---
+    "📂  Пустые папки: {n}": "📂  Empty folders: {n}",
+    "…и ещё {n}\n": "…and {n} more\n",
+    "  пустых папок не найдено.\n": "  no empty folders found.\n",
+    "Пустые папки остаются после удаления программ и распаковки архивов. Уйдут в Корзину.":
+        "Empty folders are left after removing apps and extracting archives. They go to Trash.",
+    # --- битые файлы ---
+    "🧩  Битые и пустые файлы: {n} (пустых {zero}, битых ссылок {links})":
+        "🧩  Broken and empty files: {n} (empty {zero}, broken links {links})",
+    "пусто ": "empty ", "ссылка": "link  ",
+    "  битых и пустых файлов не найдено.\n":
+        "  no broken or empty files found.\n",
+    "Пустые файлы (0 байт) и битые символические ссылки бесполезны. Уйдут в Корзину.":
+        "Empty files (0 bytes) and broken symlinks are useless. They go to Trash.",
+    # --- диск (SMART) ---
+    "🩺  Здоровье диска": "🩺  Disk health",
+    "Статус: ": "Status: ",
+    "✅ SMART в норме (Verified)": "✅ SMART is healthy (Verified)",
+    "⚠️ проверьте диск в Дисковой утилите":
+        "⚠️ check the disk in Disk Utility",
+    "Статус «OK» = SMART в норме.": "Status “OK” = SMART is healthy.",
+    "smartctl не найден: sudo apt install smartmontools":
+        "smartctl not found: sudo apt install smartmontools",
+    "не удалось прочитать SMART: {e}": "could not read SMART: {e}",
+    "Занято {pct}% · свободно {free} из {total}":
+        "Used {pct}% · free {free} of {total}",
+    "⚠️ Меньше 10% свободного места замедляет систему — освободите диск.":
+        "⚠️ Less than 10% free space slows the system down — free up the disk.",
 }
 def L(s):
     if LANG == "en":
@@ -353,17 +596,17 @@ def disk_advice(disk_pct, ram_pct, batt_pct=None):
     """Безопасные советы по метрикам. Возвращает [(цвет, текст)]."""
     out = []
     if disk_pct >= 90:
-        out.append((RED, f"Диск заполнен на {int(disk_pct)}% — запустите Сканер и удалите дубликаты/крупные файлы."))
+        out.append((RED, L("Диск заполнен на {p}% — запустите Сканер и удалите дубликаты/крупные файлы.").format(p=int(disk_pct))))
     elif disk_pct >= 80:
-        out.append((YELLOW, f"Диск на {int(disk_pct)}% — очистите кэши и старые загрузки."))
+        out.append((YELLOW, L("Диск на {p}% — очистите кэши и старые загрузки.").format(p=int(disk_pct))))
     if ram_pct >= 85:
-        out.append((RED, f"Память на {int(ram_pct)}% — завершите тяжёлые процессы."))
+        out.append((RED, L("Память на {p}% — завершите тяжёлые процессы.").format(p=int(ram_pct))))
     elif ram_pct >= 70:
-        out.append((YELLOW, f"Память на {int(ram_pct)}% — близко к пределу."))
+        out.append((YELLOW, L("Память на {p}% — близко к пределу.").format(p=int(ram_pct))))
     if batt_pct is not None and 0 < batt_pct <= 20:
-        out.append((YELLOW, f"Низкий заряд ({int(batt_pct)}%) — подключите зарядку."))
+        out.append((YELLOW, L("Низкий заряд ({p}%) — подключите зарядку.").format(p=int(batt_pct))))
     if not out:
-        out.append((GREEN, "Система в порядке — критичных проблем нет."))
+        out.append((GREEN, L("Система в порядке — критичных проблем нет.")))
     return out
 
 # ---------- Режим фокуса (обратимая пауза процессов) ----------
@@ -421,7 +664,7 @@ def focus_candidates(procs, self_pid=None):
 
 def disk_health_report():
     import subprocess
-    lines = ["🩺  Здоровье диска\n\n"]
+    lines = ["🩺  " + L("Здоровье диска") + "\n\n"]
     try:
         if SYSTEM == "Darwin":
             out = subprocess.run(["diskutil", "info", "disk0"], capture_output=True, text=True, timeout=20).stdout
@@ -429,24 +672,24 @@ def disk_health_report():
                 if any(k in row for k in ("SMART", "Device / Media Name", "Disk Size", "Solid State")):
                     lines.append("  " + row.strip() + "\n")
             ok = "Verified" in out
-            lines.append("\n  Статус: " + ("✅ SMART в норме (Verified)\n" if ok else "⚠️ проверьте диск в Дисковой утилите\n"))
+            lines.append("\n  " + L("Статус: ") + (L("✅ SMART в норме (Verified)") if ok else L("⚠️ проверьте диск в Дисковой утилите")) + "\n")
         elif SYSTEM == "Windows":
             out = subprocess.run(["wmic", "diskdrive", "get", "model,status,size"],
                                  capture_output=True, text=True, timeout=20).stdout
             lines += ["  " + r.strip() + "\n" for r in out.splitlines() if r.strip()]
-            lines.append("\n  Статус «OK» = SMART в норме.\n")
+            lines.append("\n  " + L("Статус «OK» = SMART в норме.") + "\n")
         else:
             r = subprocess.run(["smartctl", "-H", "/dev/sda"], capture_output=True, text=True, timeout=20)
             if r.returncode in (0, 4) and r.stdout:
                 lines += ["  " + x + "\n" for x in r.stdout.splitlines()[-4:]]
             else:
-                lines.append("  smartctl не найден: sudo apt install smartmontools\n")
+                lines.append("  " + L("smartctl не найден: sudo apt install smartmontools") + "\n")
     except Exception as e:
-        lines.append(f"  не удалось прочитать SMART: {e}\n")
+        lines.append("  " + L("не удалось прочитать SMART: {e}").format(e=e) + "\n")
     du = psutil.disk_usage(HOME if SYSTEM != "Windows" else os.environ.get("SystemDrive", "C:") + "\\")
-    lines.append(f"\n  Занято {du.percent:.0f}% · свободно {human(du.free)} из {human(du.total)}\n")
+    lines.append("\n  " + L("Занято {pct}% · свободно {free} из {total}").format(pct=f"{du.percent:.0f}", free=human(du.free), total=human(du.total)) + "\n")
     if du.percent > 90:
-        lines.append("  ⚠️ Меньше 10% свободного места замедляет систему — освободите диск.\n")
+        lines.append("  " + L("⚠️ Меньше 10% свободного места замедляет систему — освободите диск.") + "\n")
     return "".join(lines)
 
 # ---------- Software Updater: устаревшие приложения через нативный менеджер ----------
@@ -511,18 +754,18 @@ def list_updates():
     try:
         if SYSTEM == "Darwin":
             r = subprocess.run(["brew", "outdated", "--verbose"], capture_output=True, text=True, timeout=90)
-            return ("Homebrew", parse_brew_outdated(r.stdout), "Обновить всё:  brew upgrade")
+            return ("Homebrew", parse_brew_outdated(r.stdout), L("Обновить всё:  brew upgrade"))
         if SYSTEM == "Windows":
             r = subprocess.run(["winget", "upgrade"], capture_output=True, text=True, timeout=120)
-            return ("winget", parse_winget_upgrade(r.stdout), "Обновить всё:  winget upgrade --all")
+            return ("winget", parse_winget_upgrade(r.stdout), L("Обновить всё:  winget upgrade --all"))
         if SYSTEM == "Linux":
             r = subprocess.run(["apt", "list", "--upgradable"], capture_output=True, text=True, timeout=90)
-            return ("apt", parse_apt_upgradable(r.stdout), "Обновить всё:  sudo apt upgrade")
+            return ("apt", parse_apt_upgradable(r.stdout), L("Обновить всё:  sudo apt upgrade"))
     except FileNotFoundError:
-        return (None, [], "Менеджер пакетов не найден (brew / winget / apt).")
+        return (None, [], L("Менеджер пакетов не найден (brew / winget / apt)."))
     except Exception as e:
-        return (None, [], f"Не удалось проверить обновления: {e}")
-    return (None, [], "ОС не поддерживается.")
+        return (None, [], L("Не удалось проверить обновления: {e}").format(e=e))
+    return (None, [], L("ОС не поддерживается."))
 
 # ---------- Health Report: HTML-отчёт о состоянии и кандидатах на очистку ----------
 def build_html_report(title, sections, generated=""):
@@ -531,7 +774,7 @@ def build_html_report(title, sections, generated=""):
     import html as _h
     esc = _h.escape
     out = [
-        "<!doctype html><html lang='ru'><head><meta charset='utf-8'>",
+        f"<!doctype html><html lang='{LANG}'><head><meta charset='utf-8'>",
         f"<title>{esc(title)}</title>",
         "<style>",
         "body{margin:0;background:#11151d;color:#eef2f8;font:15px/1.5 -apple-system,Segoe UI,Roboto,sans-serif}",
@@ -545,10 +788,10 @@ def build_html_report(title, sections, generated=""):
         ".foot{color:#8a94a6;font-size:12px;margin-top:18px}",
         "</style></head><body><div class='wrap'>",
         f"<h1>🪽 {esc(title)}</h1>",
-        "<p class='slogan'>Дай устройству крылья</p>",
+        f"<p class='slogan'>{esc(L('Дай устройству крылья'))}</p>",
     ]
     if generated:
-        out.append(f"<p class='gen'>Сформировано: {esc(generated)}</p>")
+        out.append(f"<p class='gen'>{esc(L('Сформировано:'))} {esc(generated)}</p>")
     for sec_title, rows in sections:
         out.append("<div class='card'>")
         out.append(f"<h2>{esc(sec_title)}</h2>")
@@ -556,8 +799,8 @@ def build_html_report(title, sections, generated=""):
             out.append(f"<div class='row'><span>{esc(str(label))}</span>"
                        f"<span class='v'>{esc(str(value))}</span></div>")
         out.append("</div>")
-    out.append("<p class='foot'>KRYLAN Desktop · только безопасная очистка (всё в Корзину). "
-               "Создатель: Кырлан Александр Сергеевич.</p>")
+    out.append("<p class='foot'>" + esc(L("KRYLAN Desktop · только безопасная очистка (всё в Корзину). "
+               "Создатель: Кырлан Александр Сергеевич.")) + "</p>")
     out.append("</div></body></html>")
     return "".join(out)
 
@@ -748,8 +991,8 @@ class Krylan(tk.Tk):
     def _draw_dash(self):
         if not (self.page=="dash" and self.cv.winfo_exists()): return
         c = self.cv; c.delete("all"); W = c.winfo_width() or 640
-        rings = [("cpu","CPU",f'{int(self.disp["cpu"])}%'),("ram","ОЗУ",f'{int(self.disp["ram"])}%'),
-                 ("disk","ДИСК",f'{int(self.disp["disk"])}%'),("batt","БАТАРЕЯ",
+        rings = [("cpu","CPU",f'{int(self.disp["cpu"])}%'),("ram",L("ОЗУ"),f'{int(self.disp["ram"])}%'),
+                 ("disk",L("ДИСК"),f'{int(self.disp["disk"])}%'),("batt",L("БАТАРЕЯ"),
                   (f'{int(self.disp["batt"])}%' if self.info.get("batt") is not None else "—"))]
         gap = W/4
         for i,(k,lbl,val) in enumerate(rings):
@@ -758,11 +1001,11 @@ class Krylan(tk.Tk):
             self._ring(c, int(gap*i+gap/2), 70, 48, min(1,p/100), col, 12, val, lbl)
         # карточка инфо
         c.create_rectangle(20,150,W-20,282, fill=GLASS, outline=GLASS)
-        info = [f"ОС: {self.info.get('os','—')}",
-                f"Диск: свободно {human(self.info.get('disk_free',0))} из {human(self.info.get('disk_total',0))}",
-                f"ОЗУ: {human(self.info.get('ram_total',0))} всего, занято {int(self.disp['ram'])}%",
-                f"CPU: {self.info.get('cores','?')} ядер",
-                f"Сеть: ↓ {human(self.info.get('net_down',0))}/с   ↑ {human(self.info.get('net_up',0))}/с"]
+        info = [L("ОС: {os}").format(os=self.info.get('os','—')),
+                L("Диск: свободно {free} из {total}").format(free=human(self.info.get('disk_free',0)), total=human(self.info.get('disk_total',0))),
+                L("ОЗУ: {total} всего, занято {pct}%").format(total=human(self.info.get('ram_total',0)), pct=int(self.disp['ram'])),
+                L("CPU: {cores} ядер").format(cores=self.info.get('cores','?')),
+                L("Сеть: ↓ {down}/с   ↑ {up}/с").format(down=human(self.info.get('net_down',0)), up=human(self.info.get('net_up',0)))]
         for i,line in enumerate(info):
             c.create_text(40,173+i*22, anchor="w", fill=TEXT, font=("Segoe UI", 11), text=line)
         # карточка рекомендаций
@@ -805,7 +1048,7 @@ class Krylan(tk.Tk):
         b.bind("<Button-1>", lambda e: cmd()); return b
 
     def run_analyze(self):
-        self.cl_total.configure(text="Анализирую…")
+        self.cl_total.configure(text=L("Анализирую…"))
         threading.Thread(target=self._analyze_w, daemon=True).start()
 
     def _analyze_w(self):
@@ -816,10 +1059,10 @@ class Krylan(tk.Tk):
         self.q.put(("cltotal", total, None))
 
     def run_clean(self):
-        if not self.found: messagebox.showinfo("KRYLAN", "Сначала «Анализ»."); return
+        if not self.found: messagebox.showinfo("KRYLAN", L("Сначала «Анализ».")); return
         sel = [i for i,(v,n,p) in self.cl_vars.items() if v.get()]
-        if not messagebox.askyesno("KRYLAN", "Переместить выбранные кэши в Корзину?"): return
-        self.cl_total.configure(text="Очищаю…")
+        if not messagebox.askyesno("KRYLAN", L("Переместить выбранные кэши в Корзину?")): return
+        self.cl_total.configure(text=L("Очищаю…"))
         threading.Thread(target=self._clean_w, args=(sel,), daemon=True).start()
 
     def _clean_w(self, sel):
@@ -840,8 +1083,8 @@ class Krylan(tk.Tk):
         tk.Label(self.main, text=L("Полная проверка одним кликом: кэши · корзина · старые загрузки · дубликаты."),
                  bg=BG0, fg=MUTED, font=("Segoe UI", 10)).pack(anchor="w", padx=24, pady=(0,10))
         bar = tk.Frame(self.main, bg=BG0); bar.pack(fill="x", padx=24)
-        self._btn(bar, "🚀 Ускорить — очистить и разгрузить", GREEN, self.run_boost).pack(side="left", padx=(0,8))
-        self._btn(bar, "🔍 Сканировать", BLUE, self.run_scan).pack(side="left")
+        self._btn(bar, L("🚀 Ускорить — очистить и разгрузить"), GREEN, self.run_boost).pack(side="left", padx=(0,8))
+        self._btn(bar, L("🔍 Сканировать"), BLUE, self.run_scan).pack(side="left")
         # планировщик
         self.sched_lbl = tk.Label(bar, text="", bg=BG0, fg=MUTED, font=("Segoe UI", 10)); self.sched_lbl.pack(side="right")
         self.sched_btn = tk.Label(bar, text="", bg=GLASS, fg=TEXT, font=("Segoe UI", 10, "bold"),
@@ -852,35 +1095,35 @@ class Krylan(tk.Tk):
         self.s_action = tk.Frame(self.main, bg=BG0); self.s_action.pack(fill="x", padx=24, pady=(8,0))
         self.sout = tk.Text(self.main, bg="#0f1218", fg=TEXT, font=("Consolas", 11), relief="flat", padx=12, pady=10)
         self.sout.pack(fill="both", expand=True, padx=24, pady=12)
-        self.sout.insert("end", "Нажмите «Сканировать всё».\n"); self.sout.configure(state="disabled")
+        self.sout.insert("end", L("Нажмите «Сканировать всё».")+"\n"); self.sout.configure(state="disabled")
 
     def _sched_refresh(self):
         on = schedule_status()
-        self.sched_btn.configure(text=("⏰ Выключить авто-очистку" if on else "⏰ Включить авто-очистку"),
+        self.sched_btn.configure(text=(L("⏰ Выключить авто-очистку") if on else L("⏰ Включить авто-очистку")),
                                  bg=(GLASS if on else BLUE), fg=("white" if not on else TEXT))
-        self.sched_lbl.configure(text=("еженедельно, пн 12:00 · кэши → Корзина" if on else ""))
+        self.sched_lbl.configure(text=(L("еженедельно, пн 12:00 · кэши → Корзина") if on else ""))
 
     def _sched_toggle(self):
         if schedule_status():
             schedule_disable()
         else:
-            if not messagebox.askyesno("KRYLAN", "Включить еженедельную авто-очистку кэшей?\n"
-                                       "Каждый понедельник в 12:00 содержимое кэшей будет уходить в Корзину."): return
+            if not messagebox.askyesno("KRYLAN", L("Включить еженедельную авто-очистку кэшей?\n"
+                                       "Каждый понедельник в 12:00 содержимое кэшей будет уходить в Корзину.")): return
             schedule_enable()
         self._sched_refresh()
 
     def run_boost(self):
-        if not messagebox.askyesno("KRYLAN", "Ускорить компьютер одним кликом?\n\n"
-            "Безопасно: кэши и временные файлы уйдут в Корзину" +
-            (", освободится «очищаемое» место" if SYSTEM=="Darwin" else "") +
-            ". Дефрагментация SSD НЕ делается — она вредна."): return
-        self._sout("🚀 Ускоряю… кэши → Корзина, освобождаю место…")
+        if not messagebox.askyesno("KRYLAN", L("Ускорить компьютер одним кликом?\n\n"
+            "Безопасно: кэши и временные файлы уйдут в Корзину") +
+            (L(", освободится «очищаемое» место") if SYSTEM=="Darwin" else "") +
+            L(". Дефрагментация SSD НЕ делается — она вредна.")): return
+        self._sout(L("🚀 Ускоряю… кэши → Корзина, освобождаю место…"))
         threading.Thread(target=self._boost_w, daemon=True).start()
 
     def _boost_w(self):
         steps = []
         freed, lines = clean_caches_headless()
-        steps.append(f"🧽 Кэши и логи → Корзина: {human(freed)}")
+        steps.append(L("🧽 Кэши и логи → Корзина: {size}").format(size=human(freed)))
         purged = 0
         if SYSTEM == "Darwin":
             try:
@@ -889,14 +1132,14 @@ class Krylan(tk.Tk):
                 import subprocess; subprocess.run(run_cmd, capture_output=True, timeout=120)
                 purged = max(0, psutil.disk_usage(HOME).free - before)
             except Exception: pass
-            if purged: steps.append(f"🧊 Освобождено места: {human(purged)}")
-        steps.append("⚡️ Готово — компьютер ускорен")
-        out = "🚀  Готово! Компьютер ускорен.\n\n" + "\n".join("  • "+s for s in steps)
-        out += f"\n\n  Освобождено всего: ~{human(freed+purged)}\n  Всё обратимо — очищенное в Корзине. Без дефрага SSD."
+            if purged: steps.append(L("🧊 Освобождено места: {size}").format(size=human(purged)))
+        steps.append(L("⚡️ Готово — компьютер ускорен"))
+        out = L("🚀  Готово! Компьютер ускорен.") + "\n\n" + "\n".join("  • "+s for s in steps)
+        out += "\n\n  " + L("Освобождено всего: ~{size}").format(size=human(freed+purged)) + "\n  " + L("Всё обратимо — очищенное в Корзине. Без дефрага SSD.")
         self.q.put(("tout", out, None))
 
     def run_scan(self):
-        self._sout("🚀 Сканирую… это может занять минуту-другую.")
+        self._sout(L("🚀 Сканирую… это может занять минуту-другую."))
         threading.Thread(target=self._scan_w, daemon=True).start()
 
     def _sout(self, t):
@@ -911,71 +1154,71 @@ class Krylan(tk.Tk):
         old = old_downloads(); res["old"] = old; osum = sum(s for s,_ in old)
         groups, extras, wasted = find_duplicates(); res["extras"] = extras
         total = csum + osum + wasted + (res["trash"] or 0)
-        lines = ["🚀  Результат сканирования\n\n", "Кэши и временные файлы:\n"]
+        lines = [L("🚀  Результат сканирования") + "\n\n", L("Кэши и временные файлы:") + "\n"]
         lines += [f"  {human(s):>9}  {n}\n" for n, p, s in caches]
-        lines.append(f"\nКорзина: {human(res['trash']) if res['trash'] is not None else '—'}\n")
-        lines.append(f"Старые загрузки (>6 мес): {human(osum)} · {len(old)} шт.\n")
+        lines.append("\n" + L("Корзина: {val}").format(val=(human(res['trash']) if res['trash'] is not None else '—')) + "\n")
+        lines.append(L("Старые загрузки (>6 мес): {size} · {n} шт.").format(size=human(osum), n=len(old)) + "\n")
         for s, fp in old[:8]: lines.append(f"  {human(s):>9}  {fp.replace(HOME,'~')}\n")
-        lines.append(f"Дубликаты: {human(wasted)} в {len(groups)} группах\n")
+        lines.append(L("Дубликаты: {size} в {n} группах").format(size=human(wasted), n=len(groups)) + "\n")
         lines.append(f"\n══════════════════════════════════\n")
-        lines.append(f"ИТОГО можно освободить: ~{human(total)}\n")
+        lines.append(L("ИТОГО можно освободить: ~{size}").format(size=human(total)) + "\n")
         self.q.put(("scanout", "".join(lines), res))
 
     def _scan_actions(self, res):
         if sum(s for _,_,s in res["caches"]) > 0:
-            self._btn(self.s_action, "🧽 Кэши → Корзина", GREEN,
+            self._btn(self.s_action, L("🧽 Кэши → Корзина"), GREEN,
                       lambda: self._scan_clean_caches()).pack(side="left", padx=(0,6))
         if res["old"]:
-            self._btn(self.s_action, f"📥 Старые загрузки → Корзина ({len(res['old'])})", BLUE,
+            self._btn(self.s_action, L("📥 Старые загрузки → Корзина ({n})").format(n=len(res['old'])), BLUE,
                       lambda o=res["old"]: self._scan_trash_old(o)).pack(side="left", padx=6)
         if res["extras"]:
-            self._btn(self.s_action, f"👯 Дубли → Корзина ({len(res['extras'])})", PURPLE,
+            self._btn(self.s_action, L("👯 Дубли → Корзину ({n})").format(n=len(res['extras'])), PURPLE,
                       lambda ex=res["extras"]: self._trash_dupes_scan(ex)).pack(side="left", padx=6)
 
     def _scan_clean_caches(self):
-        if not messagebox.askyesno("KRYLAN", "Переместить содержимое кэшей в Корзину?"): return
-        self._sout("🧽 Очищаю кэши…")
+        if not messagebox.askyesno("KRYLAN", L("Переместить содержимое кэшей в Корзину?")): return
+        self._sout(L("🧽 Очищаю кэши…"))
         def w():
             freed, _ = clean_caches_headless()
-            self.q.put(("scanout", f"🧽 Кэши очищены: ~{human(freed)} → Корзина.\n\nЗапустите сканирование заново для свежей сводки.", None))
+            self.q.put(("scanout", L("🧽 Кэши очищены: ~{size} → Корзина.\n\nЗапустите сканирование заново для свежей сводки.").format(size=human(freed)), None))
         threading.Thread(target=w, daemon=True).start()
 
     def _scan_trash_old(self, old):
-        if not messagebox.askyesno("KRYLAN", f"Переместить {len(old)} старых файлов из Загрузок в Корзину?"): return
+        if not messagebox.askyesno("KRYLAN", L("Переместить {n} старых файлов из Загрузок в Корзину?").format(n=len(old))): return
         ok = 0
         for s, fp in old:
             try: send2trash(fp); ok += 1
             except Exception: pass
-        messagebox.showinfo("KRYLAN", f"В Корзину: {ok} файлов."); self.run_scan()
+        messagebox.showinfo("KRYLAN", L("В Корзину: {n} файлов.").format(n=ok)); self.run_scan()
 
     def _trash_dupes_scan(self, extras):
-        if not messagebox.askyesno("KRYLAN", f"Удалить {len(extras)} лишних копий в Корзину?"): return
+        if not messagebox.askyesno("KRYLAN", L("Удалить {n} лишних копий в Корзину?").format(n=len(extras))): return
         ok = 0
         for p in extras:
             try: send2trash(p); ok += 1
             except Exception: pass
-        messagebox.showinfo("KRYLAN", f"В Корзину: {ok} файлов."); self.run_scan()
+        messagebox.showinfo("KRYLAN", L("В Корзину: {n} файлов.").format(n=ok)); self.run_scan()
 
     # ---------- процессы (диспетчер задач) ----------
     def show_procs(self):
         tk.Label(self.main, text=L("Процессы"), bg=BG0, fg=TEXT, font=("Segoe UI", 20, "bold")).pack(anchor="w", padx=24, pady=(18,2))
         tk.Label(self.main, text=L("Топ по памяти. «Завершить» закрывает выбранный процесс."), bg=BG0, fg=MUTED, font=("Segoe UI", 10)).pack(anchor="w", padx=24, pady=(0,2))
-        tk.Label(self.main, text="🎯 Режим фокуса: «⏸ Пауза» обратимо приостанавливает приложение, «▶ Возобновить всё» — возвращает работу.",
+        tk.Label(self.main, text=L("🎯 Режим фокуса: «⏸ Пауза» обратимо приостанавливает приложение, «▶ Возобновить всё» — возвращает работу."),
                  bg=BG0, fg=PURPLE, font=("Segoe UI", 9)).pack(anchor="w", padx=24, pady=(0,8))
         head = tk.Frame(self.main, bg=BG0); head.pack(fill="x", padx=26)
-        tk.Label(head, text="Процесс", bg=BG0, fg=MUTED, font=("Segoe UI", 10, "bold"), anchor="w", width=26).pack(side="left")
-        tk.Label(head, text="ОЗУ", bg=BG0, fg=MUTED, font=("Segoe UI", 10, "bold"), width=10).pack(side="left")
+        tk.Label(head, text=L("Процесс"), bg=BG0, fg=MUTED, font=("Segoe UI", 10, "bold"), anchor="w", width=26).pack(side="left")
+        tk.Label(head, text=L("ОЗУ"), bg=BG0, fg=MUTED, font=("Segoe UI", 10, "bold"), width=10).pack(side="left")
         tk.Label(head, text="CPU", bg=BG0, fg=MUTED, font=("Segoe UI", 10, "bold"), width=8).pack(side="left")
         self.proc_box = tk.Frame(self.main, bg=GLASS); self.proc_box.pack(fill="both", expand=True, padx=24, pady=(4,6))
         bar = tk.Frame(self.main, bg=BG0); bar.pack(fill="x", padx=24, pady=(0,12))
         self.focus_lbl = tk.Label(bar, text="", bg=BG0, fg=PURPLE, font=("Segoe UI", 11, "bold")); self.focus_lbl.pack(side="left")
-        self._btn(bar, "▶ Возобновить всё", GREEN, self._resume_all).pack(side="right")
+        self._btn(bar, L("▶ Возобновить всё"), GREEN, self._resume_all).pack(side="right")
         self._procs_refresh()
 
     def _focus_label(self):
         if hasattr(self, "focus_lbl") and self.focus_lbl.winfo_exists():
             n = len(self._paused)
-            self.focus_lbl.configure(text=(f"⏸ На паузе: {n}" if n else "Ничего не приостановлено"))
+            self.focus_lbl.configure(text=(L("⏸ На паузе: {n}").format(n=n) if n else L("Ничего не приостановлено")))
 
     def _procs_refresh(self):
         if self.page != "procs" or not self.proc_box.winfo_exists(): return
@@ -1003,7 +1246,7 @@ class Krylan(tk.Tk):
             b.pack(side="right"); b.bind("<Button-1>", lambda e, pp=pid, nn=name: self._kill_proc(pp, nn))
             # «⏸ Пауза» только для безопасных кандидатов
             if pid in safe_pids:
-                pb = tk.Label(r, text="⏸ Пауза", bg=PURPLE, fg="white", font=("Segoe UI", 9, "bold"), padx=8, pady=2, cursor="hand2")
+                pb = tk.Label(r, text=L("⏸ Пауза"), bg=PURPLE, fg="white", font=("Segoe UI", 9, "bold"), padx=8, pady=2, cursor="hand2")
                 pb.pack(side="right", padx=(0,6)); pb.bind("<Button-1>", lambda e, pp=pid, nn=name: self._pause_proc(pp, nn))
         self._focus_label()
         self.after(2500, self._procs_refresh)
@@ -1015,24 +1258,24 @@ class Krylan(tk.Tk):
 
     def _pause_proc(self, pid, name):
         if not self._is_pausable(pid, name):
-            messagebox.showwarning("KRYLAN", f"«{name}» — системный процесс, пауза запрещена."); return
+            messagebox.showwarning("KRYLAN", L("«{name}» — системный процесс, пауза запрещена.").format(name=name)); return
         if not messagebox.askyesno(
-                "KRYLAN — Режим фокуса",
-                f"Приостановить «{name}» (PID {pid})?\n\n"
+                L("KRYLAN — Режим фокуса"),
+                L("Приостановить «{name}» (PID {pid})?\n\n"
                 "⚠️ Это обратимо ЗАМОРОЗИТ приложение до возобновления — "
                 "оно перестанет отвечать, пока вы не нажмёте «▶ Возобновить всё».\n\n"
-                "Несохранённые данные в нём станут недоступны до возобновления."):
+                "Несохранённые данные в нём станут недоступны до возобновления.").format(name=name, pid=pid)):
             return
         try:
             psutil.Process(pid).suspend()
             self._paused.add(pid)
         except psutil.NoSuchProcess:
-            messagebox.showinfo("KRYLAN", f"Процесс «{name}» уже завершён.")
+            messagebox.showinfo("KRYLAN", L("Процесс «{name}» уже завершён.").format(name=name))
         except psutil.AccessDenied:
             # нет прав (root/чужой пользователь) — тихо пропускаем, без падения
-            messagebox.showinfo("KRYLAN", f"Недостаточно прав, чтобы приостановить «{name}» — пропущено.")
+            messagebox.showinfo("KRYLAN", L("Недостаточно прав, чтобы приостановить «{name}» — пропущено.").format(name=name))
         except Exception as e:
-            messagebox.showerror("KRYLAN", f"Не удалось приостановить: {e}")
+            messagebox.showerror("KRYLAN", L("Не удалось приостановить: {e}").format(e=e))
         self._focus_label()
         self._procs_refresh()
 
@@ -1052,9 +1295,9 @@ class Krylan(tk.Tk):
             self._paused.discard(pid)
         if not silent:
             if resumed:
-                messagebox.showinfo("KRYLAN", f"▶ Возобновлено процессов: {resumed}.")
+                messagebox.showinfo("KRYLAN", L("▶ Возобновлено процессов: {n}.").format(n=resumed))
             else:
-                messagebox.showinfo("KRYLAN", "Приостановленных процессов нет.")
+                messagebox.showinfo("KRYLAN", L("Приостановленных процессов нет."))
         self._focus_label()
 
     def _on_close(self):
@@ -1063,12 +1306,12 @@ class Krylan(tk.Tk):
         self.destroy()
 
     def _kill_proc(self, pid, name):
-        if not messagebox.askyesno("KRYLAN", f"Завершить процесс «{name}» (PID {pid})?"): return
+        if not messagebox.askyesno("KRYLAN", L("Завершить процесс «{name}» (PID {pid})?").format(name=name, pid=pid)): return
         try:
             psutil.Process(pid).terminate()
             self._paused.discard(pid)
         except Exception as e:
-            messagebox.showerror("KRYLAN", f"Не удалось завершить: {e}")
+            messagebox.showerror("KRYLAN", L("Не удалось завершить: {e}").format(e=e))
         self._procs_refresh()
 
     # ---------- инструменты (в духе BoostSpeed) ----------
@@ -1081,22 +1324,22 @@ class Krylan(tk.Tk):
                          ("📈 Что выросло", self.t_growth),
                          ("🔒 Приватность", self.t_privacy), ("🩺 Диск", self.t_smart),
                          ("🔄 Обновления", self.t_updates), ("📄 Отчёт", self.t_report)]:
-            self._btn(bar, lbl, GLASS, cmd).pack(side="left", padx=4)
+            self._btn(bar, L(lbl), GLASS, cmd).pack(side="left", padx=4)
         self._dupe_extras = []
         self.t_action = tk.Frame(self.main, bg=BG0); self.t_action.pack(fill="x", padx=24, pady=(8,0))
         self.tout = tk.Text(self.main, bg="#0f1218", fg=TEXT, font=("Consolas", 11), relief="flat", padx=12, pady=10)
         self.tout.pack(fill="both", expand=True, padx=24, pady=12)
-        self.tout.insert("end", "Выберите инструмент.\n"); self.tout.configure(state="disabled")
+        self.tout.insert("end", L("Выберите инструмент.")+"\n"); self.tout.configure(state="disabled")
 
     def _out(self, t):
         self.tout.configure(state="normal"); self.tout.delete("1.0","end"); self.tout.insert("end", t); self.tout.configure(state="disabled")
         for w in self.t_action.winfo_children(): w.destroy()
 
     def t_startup(self):
-        self._out("⚙️ Сканирую автозагрузку…"); threading.Thread(target=self._startup_w, daemon=True).start()
+        self._out(L("⚙️ Сканирую автозагрузку…")); threading.Thread(target=self._startup_w, daemon=True).start()
 
     def _startup_w(self):
-        lines = ["⚙️  Автозагрузка\n\n"]
+        lines = [L("⚙️  Автозагрузка") + "\n\n"]
         if SYSTEM == "Windows":
             try:
                 import winreg
@@ -1107,37 +1350,37 @@ class Krylan(tk.Tk):
                         n, v, _ = winreg.EnumValue(k, i); lines.append(f"  • {n}\n      {v}\n"); i += 1
                     except OSError: break
             except Exception as e:
-                lines.append(f"  ошибка чтения реестра: {e}\n")
-            lines.append("\nОтключить: Диспетчер задач → вкладка «Автозагрузка».\n")
+                lines.append("  " + L("ошибка чтения реестра: {e}").format(e=e) + "\n")
+            lines.append("\n" + L("Отключить: Диспетчер задач → вкладка «Автозагрузка».") + "\n")
         elif SYSTEM == "Darwin":
             la = os.path.join(HOME, "Library/LaunchAgents")
             for f in (sorted(os.listdir(la)) if os.path.isdir(la) else []): lines.append(f"  • {f}\n")
-            lines.append("\nОтключить: переименуйте .plist → .plist.disabled.\n")
+            lines.append("\n" + L("Отключить: переименуйте .plist → .plist.disabled.") + "\n")
         else:
             ad = os.path.join(HOME, ".config/autostart")
             for f in (sorted(os.listdir(ad)) if os.path.isdir(ad) else []): lines.append(f"  • {f}\n")
-            lines.append("\nОтключить: удалите .desktop из ~/.config/autostart.\n")
+            lines.append("\n" + L("Отключить: удалите .desktop из ~/.config/autostart.") + "\n")
         self.q.put(("tout", "".join(lines), None))
 
     def t_updates(self):
-        self._out("🔄 Проверяю обновления приложений…"); threading.Thread(target=self._updates_w, daemon=True).start()
+        self._out(L("🔄 Проверяю обновления приложений…")); threading.Thread(target=self._updates_w, daemon=True).start()
 
     def _updates_w(self):
         mgr, items, hint = list_updates()
         if mgr is None:
-            self.q.put(("tout", "🔄  Обновления приложений\n\n  " + hint + "\n", None)); return
-        lines = [f"🔄  Обновления приложений ({mgr})\n\n"]
+            self.q.put(("tout", L("🔄  Обновления приложений\n\n  {hint}").format(hint=hint) + "\n", None)); return
+        lines = [L("🔄  Обновления приложений ({mgr})").format(mgr=mgr) + "\n\n"]
         if not items:
-            lines.append("  ✓ Все приложения актуальны.\n")
+            lines.append("  " + L("✓ Все приложения актуальны.") + "\n")
         else:
-            lines.append(f"  Найдено обновлений: {len(items)}\n\n")
+            lines.append("  " + L("Найдено обновлений: {n}").format(n=len(items)) + "\n\n")
             for name, cur, new in items[:50]:
                 lines.append(f"  • {name}\n      {cur}  →  {new}\n")
             lines.append(f"\n  {hint}\n")
         self.q.put(("tout", "".join(lines), None))
 
     def t_report(self):
-        self._out("📄 Собираю отчёт о состоянии…"); threading.Thread(target=self._report_w, daemon=True).start()
+        self._out(L("📄 Собираю отчёт о состоянии…")); threading.Thread(target=self._report_w, daemon=True).start()
 
     def _report_w(self):
         import webbrowser, datetime
@@ -1145,33 +1388,32 @@ class Krylan(tk.Tk):
         drive = HOME if SYSTEM != "Windows" else os.environ.get("SystemDrive", "C:") + "\\"
         du = psutil.disk_usage(drive)
         sysrows = [
-            ("Система", os_label()),
+            (L("Система"), os_label()),
             ("CPU", f"{psutil.cpu_percent(interval=0.3):.0f}%"),
-            ("Оперативная память", f"{vm.percent:.0f}% занято ({human(vm.used)} из {human(vm.total)})"),
-            ("Диск", f"{du.percent:.0f}% занято · свободно {human(du.free)} из {human(du.total)}"),
+            (L("Оперативная память"), L("{pct}% занято ({used} из {total})").format(pct=f"{vm.percent:.0f}", used=human(vm.used), total=human(vm.total))),
+            (L("Диск"), L("{pct}% занято · свободно {free} из {total}").format(pct=f"{du.percent:.0f}", free=human(du.free), total=human(du.total))),
         ]
         cacherows, total = [], 0
         for name, p in cleanup_targets():
             sz = dir_size(p); total += sz
             cacherows.append((name, human(sz)))
-        cacherows.append(("Всего в кэшах", human(total)))
+        cacherows.append((L("Всего в кэшах"), human(total)))
         gen = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-        htmlrep = build_html_report("KRYLAN — отчёт о состоянии",
-                                    [("Система", sysrows), ("Кэши (кандидаты на очистку)", cacherows)],
+        htmlrep = build_html_report(L("KRYLAN — отчёт о состоянии"),
+                                    [(L("Система"), sysrows), (L("Кэши (кандидаты на очистку)"), cacherows)],
                                     generated=gen)
         path = os.path.join(HOME, "KRYLAN-report.html")
         try:
             with open(path, "w", encoding="utf-8") as f:
                 f.write(htmlrep)
             webbrowser.open("file://" + path)
-            msg = (f"📄  Отчёт сохранён\n\n  {path}\n\n  Открыт в браузере.\n\n"
-                   f"  Всего в кэшах: {human(total)}\n  Свободно на диске: {human(du.free)}\n")
+            msg = L("📄  Отчёт сохранён\n\n  {path}\n\n  Открыт в браузере.\n\n  Всего в кэшах: {caches}\n  Свободно на диске: {free}").format(path=path, caches=human(total), free=human(du.free)) + "\n"
         except Exception as e:
-            msg = f"📄  Не удалось сохранить отчёт: {e}\n"
+            msg = L("📄  Не удалось сохранить отчёт: {e}").format(e=e) + "\n"
         self.q.put(("tout", msg, None))
 
     def t_large(self):
-        self._out("📦 Ищу файлы >100 МБ…"); threading.Thread(target=self._large_w, daemon=True).start()
+        self._out(L("📦 Ищу файлы >100 МБ…")); threading.Thread(target=self._large_w, daemon=True).start()
 
     def _large_w(self):
         big, skip = [], {"Library", "AppData", ".cache"}
@@ -1184,52 +1426,52 @@ class Krylan(tk.Tk):
                     if s > 100*1024*1024: big.append((s, os.path.join(root, fn)))
                 except Exception: pass
         big.sort(reverse=True)
-        t = "📦  Крупные файлы (топ-25):\n\n" + "".join(f"  {human(s):>9}  {fp.replace(HOME,'~')}\n" for s, fp in big[:25])
-        self.q.put(("tout", t or "  ничего\n", None))
+        t = L("📦  Крупные файлы (топ-25):") + "\n\n" + "".join(f"  {human(s):>9}  {fp.replace(HOME,'~')}\n" for s, fp in big[:25])
+        self.q.put(("tout", t or L("  ничего\n"), None))
 
     def t_dupes(self):
-        self._out("👯 Ищу дубликаты…"); threading.Thread(target=self._dupes_w, daemon=True).start()
+        self._out(L("👯 Ищу дубликаты…")); threading.Thread(target=self._dupes_w, daemon=True).start()
 
     def _dupes_w(self):
         groups, extras, wasted = find_duplicates()
-        t = f"👯  Дубликаты: групп {len(groups)}, освободить ~{human(wasted)}\n\n"
+        t = L("👯  Дубликаты: групп {n}, освободить ~{size}").format(n=len(groups), size=human(wasted)) + "\n\n"
         for s, same in groups[:20]:
             t += f"  {human(s)} ×{len(same)}:\n" + "".join(f"      {p.replace(HOME,'~')}\n" for p in same) + "\n"
-        self.q.put(("dupes", t if groups else "  дубликатов нет.\n", extras))
+        self.q.put(("dupes", t if groups else L("  дубликатов нет.\n"), extras))
 
     def _trash_dupes(self, extras):
-        if not extras or not messagebox.askyesno("KRYLAN", f"Удалить {len(extras)} лишних копий в Корзину?"): return
+        if not extras or not messagebox.askyesno("KRYLAN", L("Удалить {n} лишних копий в Корзину?").format(n=len(extras))): return
         ok = 0
         for p in extras:
             try: send2trash(p); ok += 1
             except Exception: pass
-        messagebox.showinfo("KRYLAN", f"В Корзину: {ok} файлов."); self.t_dupes()
+        messagebox.showinfo("KRYLAN", L("В Корзину: {n} файлов.").format(n=ok)); self.t_dupes()
 
     def t_similar(self):
-        self._out("🖼 Ищу похожие фото…"); threading.Thread(target=self._similar_w, daemon=True).start()
+        self._out(L("🖼 Ищу похожие фото…")); threading.Thread(target=self._similar_w, daemon=True).start()
 
     def _similar_w(self):
         try:
             from PIL import Image  # noqa: F401
         except ImportError:
-            self.q.put(("tout", "🖼  Похожие фото\n\n  Не установлен Pillow.\n  Установите: pip install Pillow\n", None)); return
+            self.q.put(("tout", L("🖼  Похожие фото\n\n  Не установлен Pillow.\n  Установите: pip install Pillow\n"), None)); return
         groups = find_similar_images()
         extras = [p for g in groups for p in g[1:]]
-        t = f"🖼  Похожие фото: групп {len(groups)}, лишних {len(extras)}\n\n"
+        t = L("🖼  Похожие фото: групп {n}, лишних {extra}").format(n=len(groups), extra=len(extras)) + "\n\n"
         for g in groups[:20]:
-            t += f"  похожих ×{len(g)}:\n" + "".join(f"      {p.replace(HOME,'~')}\n" for p in g) + "\n"
-        self.q.put(("similar", t if groups else "  похожих фото нет.\n", extras))
+            t += "  " + L("похожих ×{n}:").format(n=len(g)) + "\n" + "".join(f"      {p.replace(HOME,'~')}\n" for p in g) + "\n"
+        self.q.put(("similar", t if groups else L("  похожих фото нет.\n"), extras))
 
     def _trash_similar(self, extras):
-        if not extras or not messagebox.askyesno("KRYLAN", f"Удалить {len(extras)} лишних похожих фото в Корзину?\n(в каждой группе остаётся первое)"): return
+        if not extras or not messagebox.askyesno("KRYLAN", L("Удалить {n} лишних похожих фото в Корзину?\n(в каждой группе остаётся первое)").format(n=len(extras))): return
         ok = 0
         for p in extras:
             try: send2trash(p); ok += 1
             except Exception: pass
-        messagebox.showinfo("KRYLAN", f"В Корзину: {ok} файлов."); self.t_similar()
+        messagebox.showinfo("KRYLAN", L("В Корзину: {n} файлов.").format(n=ok)); self.t_similar()
 
     def t_diskmap(self):
-        self._out("🗺 Считаю размеры папок…"); threading.Thread(target=self._diskmap_w, daemon=True).start()
+        self._out(L("🗺 Считаю размеры папок…")); threading.Thread(target=self._diskmap_w, daemon=True).start()
 
     def _diskmap_w(self):
         sizes = []
@@ -1242,18 +1484,18 @@ class Krylan(tk.Tk):
         sizes.sort(reverse=True)
         top = sizes[:18]
         mx = top[0][0] if top and top[0][0] > 0 else 1
-        lines = ["🗺  Карта диска — домашняя папка (топ-18):\n\n"]
+        lines = [L("🗺  Карта диска — домашняя папка (топ-18):") + "\n\n"]
         for s, name in top:
             bar = "█" * max(1, int(s / mx * 28))
             lines.append(f"  {human(s):>9}  {bar}  {name}\n")
-        lines.append("\nСамые тяжёлые папки — кандидаты на разбор в «Крупные файлы».\n")
+        lines.append("\n" + L("Самые тяжёлые папки — кандидаты на разбор в «Крупные файлы».") + "\n")
         self.q.put(("tout", "".join(lines), None))
 
     def t_uninstall(self):
-        self._out("🧳 Собираю список приложений…"); threading.Thread(target=self._uninstall_w, daemon=True).start()
+        self._out(L("🧳 Собираю список приложений…")); threading.Thread(target=self._uninstall_w, daemon=True).start()
 
     def _uninstall_w(self):
-        lines = ["🧳  Деинсталлятор — установленные приложения\n\n"]
+        lines = [L("🧳  Деинсталлятор — установленные приложения") + "\n\n"]
         if SYSTEM == "Windows":
             try:
                 import winreg
@@ -1274,9 +1516,9 @@ class Krylan(tk.Tk):
                 apps.sort(reverse=True)
                 for s, n in apps[:30]:
                     lines.append(f"  {human(s):>9}  {n}\n" if s else f"      —      {n}\n")
-                lines.append("\nУдаление: Параметры → Приложения → выбрать → «Удалить».\n")
+                lines.append("\n" + L("Удаление: Параметры → Приложения → выбрать → «Удалить».") + "\n")
             except Exception as e:
-                lines.append(f"  ошибка чтения реестра: {e}\n")
+                lines.append("  " + L("ошибка чтения реестра: {e}").format(e=e) + "\n")
         elif SYSTEM == "Darwin":
             apps = []
             for base in ("/Applications", os.path.join(HOME, "Applications")):
@@ -1287,8 +1529,8 @@ class Krylan(tk.Tk):
             apps.sort(reverse=True)
             for s, n in apps[:30]:
                 lines.append(f"  {human(s):>9}  {n}\n")
-            lines.append("\nУдаление: перетащите .app из «Программ» в Корзину\n"
-                         "(остатки ищите в ~/Library/Application Support и Caches).\n")
+            lines.append("\n" + L("Удаление: перетащите .app из «Программ» в Корзину\n"
+                         "(остатки ищите в ~/Library/Application Support и Caches).") + "\n")
         else:
             import subprocess
             try:
@@ -1303,18 +1545,18 @@ class Krylan(tk.Tk):
                 apps.sort(reverse=True)
                 for s, n in apps[:30]:
                     lines.append(f"  {human(s):>9}  {n}\n")
-                lines.append("\nУдаление: sudo apt remove <пакет>.\n")
+                lines.append("\n" + L("Удаление: sudo apt remove <пакет>.") + "\n")
             except Exception:
-                lines.append("  dpkg не найден — посмотрите менеджер пакетов вашего дистрибутива.\n")
+                lines.append(L("  dpkg не найден — посмотрите менеджер пакетов вашего дистрибутива.\n"))
         self.q.put(("tout", "".join(lines), None))
 
     def t_privacy(self):
-        self._out("🔒 Ищу следы браузеров…"); threading.Thread(target=self._privacy_w, daemon=True).start()
+        self._out(L("🔒 Ищу следы браузеров…")); threading.Thread(target=self._privacy_w, daemon=True).start()
 
     def _privacy_w(self):
         targets = privacy_targets()
         running = running_browsers()
-        lines = ["🔒  Приватность — следы браузеров\n\n"]
+        lines = [L("🔒  Приватность — следы браузеров") + "\n\n"]
         total = 0
         for b, item, p in targets:
             try: sz = os.path.getsize(p)
@@ -1322,35 +1564,35 @@ class Krylan(tk.Tk):
             total += sz
             lines.append(f"  {human(sz):>9}  {b}: {item}\n")
         if not targets:
-            lines.append("  следов не найдено.\n")
+            lines.append(L("  следов не найдено.\n"))
         if running:
-            lines.append(f"\n⚠️ Сначала закройте: {', '.join(sorted(running))} — иначе файлы заняты.\n")
-        lines.append(f"\nВсего следов: ~{human(total)}. История и cookies уйдут в Корзину (вы выйдете из аккаунтов).\n")
+            lines.append("\n" + L("⚠️ Сначала закройте: {browsers} — иначе файлы заняты.").format(browsers=', '.join(sorted(running))) + "\n")
+        lines.append("\n" + L("Всего следов: ~{size}. История и cookies уйдут в Корзину (вы выйдете из аккаунтов).").format(size=human(total)) + "\n")
         files = [] if running else [p for _, _, p in targets]
         self.q.put(("privacy", "".join(lines), files))
 
     def _privacy_clean(self, files):
-        if not messagebox.askyesno("KRYLAN", f"Переместить {len(files)} файлов следов в Корзину?\n"
-                                   "Вы выйдете из аккаунтов в браузерах."): return
+        if not messagebox.askyesno("KRYLAN", L("Переместить {n} файлов следов в Корзину?\nВы выйдете из аккаунтов в браузерах.").format(n=len(files))): return
         ok = 0
         for p in files:
             try: send2trash(p); ok += 1
             except Exception: pass
-        messagebox.showinfo("KRYLAN", f"В Корзину: {ok} файлов."); self.t_privacy()
+        messagebox.showinfo("KRYLAN", L("В Корзину: {n} файлов.").format(n=ok)); self.t_privacy()
 
     def t_growth(self):
-        self._out("📈 Сравниваю с прошлой проверкой…"); threading.Thread(target=self._growth_w, daemon=True).start()
+        self._out(L("📈 Сравниваю с прошлой проверкой…")); threading.Thread(target=self._growth_w, daemon=True).start()
 
     def _growth_w(self):
         changes, is_first = growth_report()
         if is_first:
-            lines = ["📈  Что выросло\n\n", "Первый снимок сохранён. Запустите ещё раз позже —\n"
-                     "и KRYLAN покажет, какие папки выросли или уменьшились.\n\n",
-                     "Текущие размеры:\n"]
+            lines = [L("📈  Что выросло") + "\n\n",
+                     L("Первый снимок сохранён. Запустите ещё раз позже —\n"
+                     "и KRYLAN покажет, какие папки выросли или уменьшились.") + "\n\n",
+                     L("Текущие размеры:") + "\n"]
             for delta, path, old, new in changes:
                 lines.append(f"  {human(new):>9}  {path.replace(HOME,'~')}\n")
         else:
-            lines = ["📈  Изменения с прошлой проверки\n\n"]
+            lines = [L("📈  Изменения с прошлой проверки") + "\n\n"]
             shown = False
             for delta, path, old, new in changes:
                 if delta == 0: continue
@@ -1358,75 +1600,75 @@ class Krylan(tk.Tk):
                 sign = "▲" if delta > 0 else "▼"
                 lines.append(f"  {sign} {human(abs(delta)):>9}   {human(new):>9}  {path.replace(HOME,'~')}\n")
             if not shown:
-                lines.append("  Изменений нет — размеры папок не поменялись.\n")
-            lines.append("\n▲ выросло · ▼ уменьшилось. Растущие папки — кандидаты на разбор.\n")
+                lines.append(L("  Изменений нет — размеры папок не поменялись.\n"))
+            lines.append("\n" + L("▲ выросло · ▼ уменьшилось. Растущие папки — кандидаты на разбор.") + "\n")
         self.q.put(("tout", "".join(lines), None))
 
     def t_empty(self):
-        self._out("📂 Ищу пустые папки…"); threading.Thread(target=self._empty_w, daemon=True).start()
+        self._out(L("📂 Ищу пустые папки…")); threading.Thread(target=self._empty_w, daemon=True).start()
 
     def _empty_w(self):
         empties = find_empty_dirs()
-        lines = [f"📂  Пустые папки: {len(empties)}\n\n"]
+        lines = [L("📂  Пустые папки: {n}").format(n=len(empties)) + "\n\n"]
         for p in empties[:40]:
             lines.append(f"  {p.replace(HOME,'~')}\n")
         if len(empties) > 40:
-            lines.append(f"  …и ещё {len(empties)-40}\n")
+            lines.append("  " + L("…и ещё {n}\n").format(n=len(empties)-40))
         if not empties:
-            lines.append("  пустых папок не найдено.\n")
-        lines.append("\nПустые папки остаются после удаления программ и распаковки архивов. Уйдут в Корзину.\n")
+            lines.append(L("  пустых папок не найдено.\n"))
+        lines.append("\n" + L("Пустые папки остаются после удаления программ и распаковки архивов. Уйдут в Корзину.") + "\n")
         self.q.put(("empty", "".join(lines), empties))
 
     def _empty_clean(self, dirs):
-        if not dirs or not messagebox.askyesno("KRYLAN", f"Переместить {len(dirs)} пустых папок в Корзину?"): return
+        if not dirs or not messagebox.askyesno("KRYLAN", L("Переместить {n} пустых папок в Корзину?").format(n=len(dirs))): return
         ok = 0
         # от глубоких к верхним, чтобы вложенные пустые тоже ушли
         for p in sorted(dirs, key=lambda x: x.count(os.sep), reverse=True):
             try: send2trash(p); ok += 1
             except Exception: pass
-        messagebox.showinfo("KRYLAN", f"В Корзину: {ok} папок."); self.t_empty()
+        messagebox.showinfo("KRYLAN", L("В Корзину: {n} папок.").format(n=ok)); self.t_empty()
 
     def t_broken(self):
-        self._out("🧩 Ищу битые и пустые файлы…"); threading.Thread(target=self._broken_w, daemon=True).start()
+        self._out(L("🧩 Ищу битые и пустые файлы…")); threading.Thread(target=self._broken_w, daemon=True).start()
 
     def _broken_w(self):
         items = find_broken_files()
         zero = [p for k, p in items if k == "zero"]
         links = [p for k, p in items if k == "symlink"]
-        lines = [f"🧩  Битые и пустые файлы: {len(items)} "
-                 f"(пустых {len(zero)}, битых ссылок {len(links)})\n\n"]
-        label = {"zero": "пусто ", "symlink": "ссылка"}
+        lines = [L("🧩  Битые и пустые файлы: {n} (пустых {zero}, битых ссылок {links})").format(n=len(items), zero=len(zero), links=len(links)) + "\n\n"]
+        label = {"zero": L("пусто "), "symlink": L("ссылка")}
         for k, p in items[:60]:
             lines.append(f"  [{label[k]}]  {p.replace(HOME,'~')}\n")
         if len(items) > 60:
-            lines.append(f"  …и ещё {len(items)-60}\n")
+            lines.append("  " + L("…и ещё {n}\n").format(n=len(items)-60))
         if not items:
-            lines.append("  битых и пустых файлов не найдено.\n")
-        lines.append("\nПустые файлы (0 байт) и битые символические ссылки бесполезны. Уйдут в Корзину.\n")
+            lines.append(L("  битых и пустых файлов не найдено.\n"))
+        lines.append("\n" + L("Пустые файлы (0 байт) и битые символические ссылки бесполезны. Уйдут в Корзину.") + "\n")
         files = [p for _, p in items]
         self.q.put(("broken", "".join(lines), files))
 
     def _broken_clean(self, files):
-        if not files or not messagebox.askyesno("KRYLAN", f"Переместить {len(files)} битых/пустых файлов в Корзину?"): return
+        if not files or not messagebox.askyesno("KRYLAN", L("Переместить {n} битых/пустых файлов в Корзину?").format(n=len(files))): return
         ok = 0
         for p in files:
             try: send2trash(p); ok += 1
             except Exception: pass
-        messagebox.showinfo("KRYLAN", f"В Корзину: {ok} файлов."); self.t_broken()
+        messagebox.showinfo("KRYLAN", L("В Корзину: {n} файлов.").format(n=ok)); self.t_broken()
 
     def t_smart(self):
-        self._out("🩺 Читаю состояние диска…")
+        self._out(L("🩺 Читаю состояние диска…"))
         threading.Thread(target=lambda: self.q.put(("tout", disk_health_report(), None)), daemon=True).start()
 
     # ---------- о программе ----------
     def show_about(self):
         tk.Label(self.main, text="🪽 KRYLAN", bg=BG0, fg=TEXT, font=("Segoe UI", 24, "bold")).pack(anchor="w", padx=24, pady=(26,0))
-        tk.Label(self.main, text="«Дай устройству крылья»", bg=BG0, fg=GREEN, font=("Segoe UI", 13, "bold")).pack(anchor="w", padx=24)
-        for line in [f"Версия {VERSION} · {os_label()}", "Создатель: Кырлан Александр Сергеевич", "",
-                     "Кросс-платформенный оптимизатор: Windows · macOS · Linux.",
-                     "Мониторинг CPU/ОЗУ/диск/батарея и безопасная очистка кэшей",
-                     "(всё уходит в Корзину). Часть экосистемы KRYLAN (+iPhone, Android)."]:
-            tk.Label(self.main, text=line, bg=BG0, fg=(TEXT if "Создатель" in line else MUTED),
+        tk.Label(self.main, text=L("«Дай устройству крылья»"), bg=BG0, fg=GREEN, font=("Segoe UI", 13, "bold")).pack(anchor="w", padx=24)
+        creator = L("Создатель: Кырлан Александр Сергеевич")
+        for line in [L("Версия {v} · {os}").format(v=VERSION, os=os_label()), creator, "",
+                     L("Кросс-платформенный оптимизатор: Windows · macOS · Linux."),
+                     L("Мониторинг CPU/ОЗУ/диск/батарея и безопасная очистка кэшей"),
+                     L("(всё уходит в Корзину). Часть экосистемы KRYLAN (+iPhone, Android).")]:
+            tk.Label(self.main, text=line, bg=BG0, fg=(TEXT if line == creator else MUTED),
                      font=("Segoe UI", 11)).pack(anchor="w", padx=24)
 
     # ---------- метрики ----------
@@ -1474,10 +1716,10 @@ class Krylan(tk.Tk):
                     self.info["os"] = self.info.get("os","")
                 elif kind == "clsize":
                     if a in self.cl_lbl: self.cl_lbl[a].configure(text=human(b))
-                elif kind == "cltotal": self.cl_total.configure(text=f"Найдено: {human(a)}")
+                elif kind == "cltotal": self.cl_total.configure(text=L("Найдено: {size}").format(size=human(a)))
                 elif kind == "cldone":
-                    self.cl_total.configure(text=f"Очищено: {human(a)} → Корзина")
-                    messagebox.showinfo("KRYLAN", f"В Корзину: {human(a)}."); self.found = {}
+                    self.cl_total.configure(text=L("Очищено: {size} → Корзина").format(size=human(a)))
+                    messagebox.showinfo("KRYLAN", L("В Корзину: {size}.").format(size=human(a))); self.found = {}
                 elif kind == "tout":
                     if self.page == "tools": self._out(a)
                 elif kind == "scanout":
@@ -1488,31 +1730,31 @@ class Krylan(tk.Tk):
                     if self.page == "tools":
                         self._out(a)
                         if b:
-                            self._btn(self.t_action, f"🗑 Удалить {len(b)} лишних копий", RED,
+                            self._btn(self.t_action, L("🗑 Удалить {n} лишних копий").format(n=len(b)), RED,
                                       lambda ex=b: self._trash_dupes(ex)).pack(side="left", pady=4)
                 elif kind == "similar":
                     if self.page == "tools":
                         self._out(a)
                         if b:
-                            self._btn(self.t_action, f"🗑 Удалить {len(b)} лишних похожих", RED,
+                            self._btn(self.t_action, L("🗑 Удалить {n} лишних похожих").format(n=len(b)), RED,
                                       lambda ex=b: self._trash_similar(ex)).pack(side="left", pady=4)
                 elif kind == "privacy":
                     if self.page == "tools":
                         self._out(a)
                         if b:
-                            self._btn(self.t_action, f"🔒 Очистить следы ({len(b)})", RED,
+                            self._btn(self.t_action, L("🔒 Очистить следы ({n})").format(n=len(b)), RED,
                                       lambda fs=b: self._privacy_clean(fs)).pack(side="left", pady=4)
                 elif kind == "empty":
                     if self.page == "tools":
                         self._out(a)
                         if b:
-                            self._btn(self.t_action, f"📂 Удалить пустые папки ({len(b)})", RED,
+                            self._btn(self.t_action, L("📂 Удалить пустые папки ({n})").format(n=len(b)), RED,
                                       lambda ds=b: self._empty_clean(ds)).pack(side="left", pady=4)
                 elif kind == "broken":
                     if self.page == "tools":
                         self._out(a)
                         if b:
-                            self._btn(self.t_action, f"🧩 Удалить битые/пустые ({len(b)})", RED,
+                            self._btn(self.t_action, L("🧩 Удалить битые/пустые ({n})").format(n=len(b)), RED,
                                       lambda fs=b: self._broken_clean(fs)).pack(side="left", pady=4)
         except queue.Empty: pass
         except Exception: pass

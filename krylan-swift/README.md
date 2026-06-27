@@ -1,42 +1,82 @@
-# 🪽 KRYLAN — SwiftUI каркас (Mac + iPhone)
+# 🪽 KRYLAN — SwiftUI (iOS + macOS)
 
-Кросс-платформенный каркас приложения KRYLAN на SwiftUI.
-Создатель: **Кырлан Александр Сергеевич**. Слоган: «Дай устройству крылья».
+**Дай устройству крылья.** Нативное приложение KRYLAN на SwiftUI для iPhone и Mac:
+разбор хранилища, батарея, фото-интеллект и контакты. Версия **1.0.0**
+(`MARKETING_VERSION`). Создатель: **Кырлан Александр Сергеевич**.
 
-> Это **стартовый каркас**, а не готовый продукт. iOS не даёт чистить чужие
-> данные — мобильная версия про **хранилище, батарею, фото-дубли, контакты**.
+> iOS не даёт чистить чужие данные, поэтому KRYLAN наводит порядок там, где это
+> разрешено: **хранилище, фото-медиатека, контакты**. Принцип «только безопасное» —
+> приложение работает в песочнице (sandbox) и просит только нужные разрешения.
 
-## Как открыть и собрать
-**Быстро (рекомендуется) — XcodeGen генерирует готовый проект:**
+## Экраны
+- **Дашборд** — анимированные кольца память/диск/батарея + глобус, спарклайны.
+- **Хранилище** — занятое место с разбором по типам.
+- **Батарея** — состояние и метрики питания.
+- **Очистка** — кэш приложения с разбивкой и разделом **«Недавно удалённые»**.
+- **Разбор (swipe)** — быстрый просмотр и сортировка медиа свайпами.
+- **Фото-интеллект** (PhotoKit) — **дубликаты**, **серии** снимков (burst),
+  **размытые** (оценка резкости по вариации Лапласиана), **Live Photos**.
+- **Скриншоты** — отдельная вкладка для быстрой чистки.
+- **Видео** — крупные видеофайлы.
+- **Контакты** (Contacts) — дубликаты и неполные контакты.
+- **Советы** — рекомендации по метрикам устройства.
+- **Виджет** (WidgetKit) — состояние на главном экране.
+- **Онбординг** — первый запуск (`@AppStorage "krylan.onboarded"`).
+- **О программе** — бренд и автор.
+
+`SystemMonitor` — кросс-платформенный сбор метрик (Mach + FileManager + UIDevice).
+
+## Сборка и запуск
+**Быстро (рекомендуется) — XcodeGen генерирует проект из `project.yml`:**
 ```bash
 brew install xcodegen
 cd krylan-swift
 xcodegen generate
 open KRYLAN.xcodeproj
 ```
-Выбери таргет **KRYLAN-macOS** или **KRYLAN-iOS** и запусти ⌘R.
+Выберите таргет **KRYLAN-macOS** или **KRYLAN-iOS** и запустите ⌘R.
 
-**Вручную:** `File → New → Project → Multiplatform → App`, перетащи файлы из `Sources/`.
+Из командной строки (CI / без Xcode UI):
+```bash
+xcodegen generate
+xcodebuild -project KRYLAN.xcodeproj -scheme KRYLAN-iOS \
+  -destination 'platform=iOS Simulator,name=iPhone 15' build
+```
 
 > Нужен полный **Xcode** (не Command Line Tools). `project.yml` уже содержит
-> bundle id, цели macOS/iOS и Info.plist с разрешениями (фото/контакты).
+> bundle id (`com.krylan.app`), цели **macOS 14+ / iOS 17+**, виджет-расширение
+> и Info.plist с описаниями разрешений (фото / контакты).
+> Перед сборкой на устройство впишите свой **Apple Team ID** в `DEVELOPMENT_TEAM`.
 
-## Экраны (готово)
-- **Дашборд** — анимированные кольца память/диск/батарея
-- **Хранилище**, **Батарея** — метрики устройства
-- **Очистка** — кэш приложения (`CleanupView`)
-- **Фото-дубли** (PhotoKit), **Контакты** (Contacts)
-- **Советы** — рекомендации по метрикам
-- **О программе** — бренд и автор
-
-`SystemMonitor` — кросс-платформенный сбор метрик (Mach + FileManager + UIDevice).
+## Разрешения и приватность
+- **Песочница** (`com.apple.security.app-sandbox`) — обязательна для App Store;
+- доступ к **фотомедиатеке** и **контактам** (поиск дубликатов);
+- чтение/запись **выбранных пользователем** файлов (очистка);
+- декларация в `PrivacyInfo.xcprivacy`.
+Иконки приложения подготовлены для **iOS и macOS** (`Assets.xcassets`).
 
 ## Тестовый хук
 Открыть приложение сразу на нужной вкладке (для скриншотов в симуляторе):
 ```bash
 xcrun simctl launch booted com.krylan.app -KrylanTab photos
-# ключи: dashboard · storage · battery · cleanup · photos · contacts · tips · about
+# ключи: dashboard · storage · battery · cleanup · review
+#        photos · screenshots · videos · contacts · tips · about
 ```
 
-## Что доработать (см. ../ROADMAP.md, раздел 2)
-- Apple Developer Program → TestFlight/App Store
+## Структура
+```
+krylan-swift/
+├── project.yml                  # XcodeGen: цели macOS/iOS + виджет, разрешения
+├── KRYLAN-macOS.entitlements    # sandbox + фото/контакты
+└── Sources/
+    ├── KRYLANApp.swift          # точка входа
+    ├── ContentView.swift        # навигация (enum Tab)
+    ├── DashboardView.swift · StorageView.swift · BatteryView.swift
+    ├── CleanupView.swift · SwipeReviewView.swift
+    ├── PhotoDuplicatesView.swift (дубли/серии/размытые/Live)
+    ├── ScreenshotsView.swift · LargeVideosView.swift
+    ├── ContactsDuplicatesView.swift · TipsView.swift · OnboardingView.swift
+    ├── SystemMonitor.swift      # метрики устройства
+    ├── GlobeView · RingGauge · Sparkline · StarfieldView · Theme  (UI/бренд)
+    └── Widget/KrylanWidget.swift # виджет (WidgetKit)
+```

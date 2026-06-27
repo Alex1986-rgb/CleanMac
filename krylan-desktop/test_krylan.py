@@ -414,5 +414,107 @@ class TestSimilarImages(unittest.TestCase):
         self.assertEqual(names, {"a.png", "b.png"})
 
 
+class TestOsLabel(unittest.TestCase):
+    """os_label: техническое имя ОС → человекочитаемое."""
+
+    def test_known_systems(self):
+        orig = krylan.SYSTEM
+        try:
+            krylan.SYSTEM = "Darwin"
+            self.assertEqual(krylan.os_label(), "macOS")
+            krylan.SYSTEM = "Windows"
+            self.assertEqual(krylan.os_label(), "Windows")
+            krylan.SYSTEM = "Linux"
+            self.assertEqual(krylan.os_label(), "Linux")
+        finally:
+            krylan.SYSTEM = orig
+
+    def test_unknown_system_passthrough(self):
+        orig = krylan.SYSTEM
+        try:
+            krylan.SYSTEM = "FreeBSD"
+            self.assertEqual(krylan.os_label(), "FreeBSD")  # незнакомое — как есть
+        finally:
+            krylan.SYSTEM = orig
+
+
+class TestTrashDir(unittest.TestCase):
+    """trash_dir: путь к Корзине зависит от ОС; Windows → None (только WinAPI)."""
+
+    def test_per_os(self):
+        orig_sys, orig_home = krylan.SYSTEM, krylan.HOME
+        try:
+            krylan.HOME = "/home/tester"
+            krylan.SYSTEM = "Darwin"
+            self.assertEqual(krylan.trash_dir(), "/home/tester/.Trash")
+            krylan.SYSTEM = "Linux"
+            self.assertEqual(krylan.trash_dir(), "/home/tester/.local/share/Trash/files")
+            krylan.SYSTEM = "Windows"
+            self.assertIsNone(krylan.trash_dir())
+        finally:
+            krylan.SYSTEM, krylan.HOME = orig_sys, orig_home
+
+
+class TestBlend(unittest.TestCase):
+    """_blend: линейная интерполяция hex-цветов с клампом t в [0,1]."""
+
+    def test_endpoints(self):
+        self.assertEqual(krylan._blend("#000000", "#ffffff", 0.0), "#000000")
+        self.assertEqual(krylan._blend("#000000", "#ffffff", 1.0), "#ffffff")
+
+    def test_midpoint(self):
+        self.assertEqual(krylan._blend("#000000", "#ffffff", 0.5), "#7f7f7f")
+
+    def test_clamps_out_of_range(self):
+        # t<0 трактуется как 0, t>1 как 1 — не выходит за границы цвета
+        self.assertEqual(krylan._blend("#101010", "#ffffff", -5), "#101010")
+        self.assertEqual(krylan._blend("#101010", "#ffffff", 9), "#ffffff")
+
+    def test_valid_hex_output(self):
+        out = krylan._blend("#37d39a", "#11151d", 0.3)
+        self.assertEqual(len(out), 7)
+        int(out[1:], 16)  # не бросает — валидный hex
+
+
+class TestTakeSnapshot(unittest.TestCase):
+    """take_snapshot: {путь: размер} только для существующих каталогов."""
+
+    def test_only_existing_dirs_with_sizes(self):
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        a = os.path.join(d, "a")
+        os.makedirs(a)
+        with open(os.path.join(a, "f.bin"), "wb") as f:
+            f.write(b"z" * 700)
+        missing = os.path.join(d, "ghost")
+        snap = krylan.take_snapshot([a, missing])
+        self.assertEqual(snap, {a: 700})        # ghost отсутствует → не в снимке
+        self.assertNotIn(missing, snap)
+
+    def test_empty_when_none_exist(self):
+        snap = krylan.take_snapshot(["/no/such/x", "/no/such/y"])
+        self.assertEqual(snap, {})
+
+
+class TestCleanCachesHeadless(unittest.TestCase):
+    """clean_caches_headless(dry=True): считает объём, НИЧЕГО не удаляет."""
+
+    def test_dry_run_reports_without_deleting(self):
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        f = os.path.join(d, "cache.bin")
+        with open(f, "wb") as fh:
+            fh.write(b"q" * 1234)
+        orig = krylan.cleanup_targets
+        krylan.cleanup_targets = lambda: [("TestCache", d)]
+        try:
+            freed, lines = krylan.clean_caches_headless(dry=True)
+        finally:
+            krylan.cleanup_targets = orig
+        self.assertEqual(freed, 1234)
+        self.assertTrue(any("TestCache" in ln for ln in lines))
+        self.assertTrue(os.path.exists(f), "dry-run не должен удалять файлы")
+
+
 if __name__ == "__main__":
     unittest.main()
