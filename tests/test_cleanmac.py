@@ -42,6 +42,26 @@ class TestProtection(unittest.TestCase):
     def test_to_trash_missing(self):
         self.assertFalse(cm.to_trash("/no/such/path/xyz"))
 
+    def test_empty_and_relative_paths_protected(self):
+        # Регрессия: пустой/относительный путь раскрывается realpath в CWD или
+        # произвольное место под ним. Такие пути НИКОГДА не должны удаляться.
+        for p in ("", ".", "..", "relative/sub", "~", "Library/Caches"):
+            self.assertTrue(cm.is_protected(p), f"{p!r} должен считаться защищённым")
+
+    def test_to_trash_refuses_relative(self):
+        # to_trash(".") раньше проходил (lexists True, не защищён) и пытался
+        # переместить текущий каталог. Теперь относительный путь отвергается.
+        self.assertFalse(cm.to_trash("."))
+        self.assertFalse(cm.to_trash("relative/sub"))
+
+    def test_shred_refuses_relative(self):
+        self.assertFalse(cm.shred_file("."))
+        self.assertFalse(cm.shred_file("relative/file"))
+
+    def test_absolute_subpath_still_deletable(self):
+        # защита не должна ломать обычную очистку реальных подпапок кэша
+        self.assertFalse(cm.is_protected(os.path.join(HOME, "Library/Caches/App/file.bin")))
+
     def test_to_trash_broken_symlink(self):
         # Регрессия: битый симлинк (цель отсутствует) должен уезжать в Корзину.
         # Раньше to_trash() использовал os.path.exists (следует за ссылкой) и

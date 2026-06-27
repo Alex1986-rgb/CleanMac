@@ -455,6 +455,64 @@ class TestTrashDir(unittest.TestCase):
             krylan.SYSTEM, krylan.HOME = orig_sys, orig_home
 
 
+class TestPathProtection(unittest.TestCase):
+    """is_protected / safe_trash: защита от удаления пустых/относительных путей
+    и стандартных папок домашнего каталога. Удаление остаётся обратимым (Корзина)."""
+
+    def test_empty_and_relative_protected(self):
+        for p in ("", ".", "..", "relative/sub", "sub/file.txt"):
+            self.assertTrue(krylan.is_protected(p), f"{p!r} должен быть защищён")
+
+    def test_home_and_standard_dirs_protected(self):
+        orig = krylan.HOME
+        home = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, home, ignore_errors=True)
+        krylan.HOME = home
+        try:
+            self.assertTrue(krylan.is_protected(home))                       # сам HOME
+            for d in ("Downloads", "Desktop", "Documents", "Library", ".cache"):
+                self.assertTrue(krylan.is_protected(os.path.join(home, d)),
+                                f"{d} должен быть защищён")
+            self.assertTrue(krylan.is_protected("/"))                         # корень тома
+            # файл ВНУТРИ стандартной папки — удалять можно
+            self.assertFalse(krylan.is_protected(os.path.join(home, "Downloads", "junk.bin")))
+        finally:
+            krylan.HOME = orig
+
+    def test_safe_trash_refuses_protected(self):
+        orig = krylan.HOME
+        home = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, home, ignore_errors=True)
+        krylan.HOME = home
+        try:
+            # защищённый путь не уходит в Корзину, даже если существует
+            os.makedirs(os.path.join(home, "Downloads"), exist_ok=True)
+            self.assertFalse(krylan.safe_trash(os.path.join(home, "Downloads")))
+            self.assertFalse(krylan.safe_trash("."))
+            self.assertFalse(krylan.safe_trash(""))
+            # папка Downloads на месте — её не тронули
+            self.assertTrue(os.path.isdir(os.path.join(home, "Downloads")))
+        finally:
+            krylan.HOME = orig
+
+    def test_safe_trash_moves_real_file(self):
+        # обычный файл внутри пользовательской папки реально уходит в Корзину
+        orig = krylan.HOME
+        home = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, home, ignore_errors=True)
+        krylan.HOME = home
+        sub = os.path.join(home, "Downloads")
+        os.makedirs(sub)
+        f = os.path.join(sub, "junk.bin")
+        with open(f, "wb") as fh:
+            fh.write(b"x" * 10)
+        try:
+            self.assertTrue(krylan.safe_trash(f))
+            self.assertFalse(os.path.exists(f), "файл должен исчезнуть из исходного места")
+        finally:
+            krylan.HOME = orig
+
+
 class TestBlend(unittest.TestCase):
     """_blend: линейная интерполяция hex-цветов с клампом t в [0,1]."""
 

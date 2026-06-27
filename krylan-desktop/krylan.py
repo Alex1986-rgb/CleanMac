@@ -424,6 +424,38 @@ def trash_dir():
     if SYSTEM == "Linux":  return os.path.join(HOME, ".local/share/Trash/files")
     return None   # Windows: корзина доступна только через WinAPI
 
+# ---------- защита путей при удалении (в Корзину) ----------
+def _protected_roots():
+    """Пути, которые НИКОГДА нельзя отправлять в Корзину целиком (защита от ошибки):
+    домашний корень и его стандартные папки. Подпапки/файлы ВНУТРИ — можно."""
+    roots = {HOME}
+    for d in ("Downloads", "Desktop", "Documents", "Pictures", "Movies", "Music",
+              "Library", ".config", ".cache", ".local", "AppData"):
+        roots.add(os.path.join(HOME, d))
+    return {os.path.realpath(p) for p in roots}
+
+def is_protected(path):
+    """True, если путь нельзя удалять: пусто/относительный/символ. корень тома или
+    защищённая папка (HOME и стандартные подпапки). Пустой и относительный путь
+    опасен — realpath раскрывает его в CWD/произвольное место под ним."""
+    if not path or not os.path.isabs(path):
+        return True
+    rp = os.path.realpath(path)
+    if rp in _protected_roots():
+        return True
+    # корень тома: "/" или "/Volumes/Foo" (≤2 сегмента) — не трогаем
+    return len(rp.strip("/").split("/")) < 2
+
+def safe_trash(path):
+    """Обёртка над send2trash с защитой пути. Возвращает True при успехе.
+    Удаление обратимо (Корзина). Никогда не бросает."""
+    if is_protected(path):
+        return False
+    try:
+        send2trash(path); return True
+    except Exception:
+        return False
+
 # ---------- отчёт «что выросло с прошлой проверки» (BoostSpeed-style) ----------
 def _snapshot_path():
     return os.path.join(HOME, ".krylan_snapshot.json")
@@ -888,8 +920,7 @@ def clean_caches_headless(dry=False):
         lines.append(f"  {name}: {human(sz)}")
         if not dry:
             for n in os.listdir(p):
-                try: send2trash(os.path.join(p, n))
-                except Exception: pass
+                safe_trash(os.path.join(p, n))
     return freed, lines
 
 # ---------- «волшебная кнопка»: безопасная авто-оптимизация ----------
@@ -1164,8 +1195,7 @@ def optimize_all_plan(dry=False, browsers_running=None, emit=None):
         if not dry:
             try:
                 for n in os.listdir(p):
-                    try: send2trash(os.path.join(p, n))
-                    except Exception: pass
+                    safe_trash(os.path.join(p, n))
             except Exception: pass
     freed += cache_freed
     details["caches"] = cache_freed
@@ -1175,8 +1205,7 @@ def optimize_all_plan(dry=False, browsers_running=None, emit=None):
     empties = find_empty_dirs()
     if not dry:
         for d in empties:
-            try: send2trash(d)
-            except Exception: pass
+            safe_trash(d)
     details["empty_dirs"] = len(empties)
     _say(L("📂 Пустые папки → Корзина: {n}").format(n=len(empties)))
 
@@ -1187,8 +1216,7 @@ def optimize_all_plan(dry=False, browsers_running=None, emit=None):
         try: bfreed += os.path.getsize(fp)
         except Exception: pass
         if not dry:
-            try: send2trash(fp)
-            except Exception: pass
+            safe_trash(fp)
     freed += bfreed
     details["broken"] = len(broken)
     _say(L("🧩 Битые/пустые файлы → Корзина: {n}").format(n=len(broken)))
@@ -1215,7 +1243,8 @@ def optimize_all_plan(dry=False, browsers_running=None, emit=None):
                 if not dry:
                     try:
                         for n in (os.listdir(t) if os.path.isdir(t) else [None]):
-                            send2trash(os.path.join(t, n) if n else t)
+                            if not safe_trash(os.path.join(t, n) if n else t):
+                                raise OSError("protected or failed")
                         removed += 1
                     except Exception:
                         busy += 1   # файл занят (Explorer) → честный пропуск
@@ -1609,8 +1638,7 @@ class Krylan(tk.Tk):
             if not p or not os.path.isdir(p): continue
             for name in os.listdir(p):
                 fp = os.path.join(p, name)
-                try: send2trash(fp); freed += 0
-                except Exception: pass
+                safe_trash(fp)
             freed += sz
         self.q.put(("cldone", freed, None))
 
@@ -1785,16 +1813,14 @@ class Krylan(tk.Tk):
         if not messagebox.askyesno("KRYLAN", L("Переместить {n} старых файлов из Загрузок в Корзину?").format(n=len(old))): return
         ok = 0
         for s, fp in old:
-            try: send2trash(fp); ok += 1
-            except Exception: pass
+            if safe_trash(fp): ok += 1
         messagebox.showinfo("KRYLAN", L("В Корзину: {n} файлов.").format(n=ok)); self.run_scan()
 
     def _trash_dupes_scan(self, extras):
         if not messagebox.askyesno("KRYLAN", L("Удалить {n} лишних копий в Корзину?").format(n=len(extras))): return
         ok = 0
         for p in extras:
-            try: send2trash(p); ok += 1
-            except Exception: pass
+            if safe_trash(p): ok += 1
         messagebox.showinfo("KRYLAN", L("В Корзину: {n} файлов.").format(n=ok)); self.run_scan()
 
     # ---------- процессы (диспетчер задач) ----------
@@ -2044,8 +2070,7 @@ class Krylan(tk.Tk):
         if not extras or not messagebox.askyesno("KRYLAN", L("Удалить {n} лишних копий в Корзину?").format(n=len(extras))): return
         ok = 0
         for p in extras:
-            try: send2trash(p); ok += 1
-            except Exception: pass
+            if safe_trash(p): ok += 1
         messagebox.showinfo("KRYLAN", L("В Корзину: {n} файлов.").format(n=ok)); self.t_dupes()
 
     def t_similar(self):
@@ -2067,8 +2092,7 @@ class Krylan(tk.Tk):
         if not extras or not messagebox.askyesno("KRYLAN", L("Удалить {n} лишних похожих фото в Корзину?\n(в каждой группе остаётся первое)").format(n=len(extras))): return
         ok = 0
         for p in extras:
-            try: send2trash(p); ok += 1
-            except Exception: pass
+            if safe_trash(p): ok += 1
         messagebox.showinfo("KRYLAN", L("В Корзину: {n} файлов.").format(n=ok)); self.t_similar()
 
     def t_diskmap(self):
@@ -2182,8 +2206,7 @@ class Krylan(tk.Tk):
         if not messagebox.askyesno("KRYLAN", L("Переместить {n} файлов следов в Корзину?\nВы выйдете из аккаунтов в браузерах.").format(n=len(files))): return
         ok = 0
         for p in files:
-            try: send2trash(p); ok += 1
-            except Exception: pass
+            if safe_trash(p): ok += 1
         messagebox.showinfo("KRYLAN", L("В Корзину: {n} файлов.").format(n=ok)); self.t_privacy()
 
     def t_growth(self):
@@ -2231,8 +2254,7 @@ class Krylan(tk.Tk):
         ok = 0
         # от глубоких к верхним, чтобы вложенные пустые тоже ушли
         for p in sorted(dirs, key=lambda x: x.count(os.sep), reverse=True):
-            try: send2trash(p); ok += 1
-            except Exception: pass
+            if safe_trash(p): ok += 1
         messagebox.showinfo("KRYLAN", L("В Корзину: {n} папок.").format(n=ok)); self.t_empty()
 
     def t_broken(self):
@@ -2258,8 +2280,7 @@ class Krylan(tk.Tk):
         if not files or not messagebox.askyesno("KRYLAN", L("Переместить {n} битых/пустых файлов в Корзину?").format(n=len(files))): return
         ok = 0
         for p in files:
-            try: send2trash(p); ok += 1
-            except Exception: pass
+            if safe_trash(p): ok += 1
         messagebox.showinfo("KRYLAN", L("В Корзину: {n} файлов.").format(n=ok)); self.t_broken()
 
     def t_smart(self):
