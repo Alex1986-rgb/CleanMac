@@ -193,6 +193,10 @@ I18N = {
         "💽 Disk type not detected — maintenance skipped",
     "💽 SSD: TRIM (defrag /L) выполнен": "💽 SSD: TRIM (defrag /L) done",
     "💽 HDD: дефрагментация (defrag /O) выполнена": "💽 HDD: defragmentation (defrag /O) done",
+    "💽 SSD: TRIM пропущен — нужны права администратора":
+        "💽 SSD: TRIM skipped — administrator rights required",
+    "💽 HDD: оптимизация пропущена — нужны права администратора":
+        "💽 HDD: optimization skipped — administrator rights required",
     "💽 SSD (macOS): TRIM обслуживается системой автоматически":
         "💽 SSD (macOS): TRIM is maintained automatically by the system",
     "💽 HDD (macOS/APFS): дефрагментация не требуется":
@@ -727,23 +731,29 @@ def focus_candidates(procs, self_pid=None):
     return out
 
 def disk_health_report():
-    import subprocess
     lines = ["🩺  " + L("Здоровье диска") + "\n\n"]
     try:
         if SYSTEM == "Darwin":
-            out = subprocess.run(["diskutil", "info", "disk0"], capture_output=True, text=True, timeout=20).stdout
+            out = run(["diskutil", "info", "disk0"], timeout=20).stdout or ""
             for row in out.splitlines():
                 if any(k in row for k in ("SMART", "Device / Media Name", "Disk Size", "Solid State")):
                     lines.append("  " + row.strip() + "\n")
             ok = "Verified" in out
             lines.append("\n  " + L("Статус: ") + (L("✅ SMART в норме (Verified)") if ok else L("⚠️ проверьте диск в Дисковой утилите")) + "\n")
         elif SYSTEM == "Windows":
-            out = subprocess.run(["wmic", "diskdrive", "get", "model,status,size"],
-                                 capture_output=True, text=True, timeout=20).stdout
-            lines += ["  " + r.strip() + "\n" for r in out.splitlines() if r.strip()]
+            # wmic УДАЛЁН в Windows 11 24H2 → используем PowerShell Get-PhysicalDisk.
+            # Format-List стабильно парсится и не режет колонки по ширине.
+            out = run(["powershell", "-NoProfile", "-NonInteractive", "-Command",
+                       "Get-PhysicalDisk | Select-Object FriendlyName,MediaType,HealthStatus,Size "
+                       "| Format-List"], timeout=30).stdout or ""
+            body = [r.strip() for r in out.splitlines() if r.strip()]
+            if body:
+                lines += ["  " + r + "\n" for r in body]
+            else:
+                lines.append("  " + L("не удалось прочитать SMART: {e}").format(e="Get-PhysicalDisk") + "\n")
             lines.append("\n  " + L("Статус «OK» = SMART в норме.") + "\n")
         else:
-            r = subprocess.run(["smartctl", "-H", "/dev/sda"], capture_output=True, text=True, timeout=20)
+            r = run(["smartctl", "-H", "/dev/sda"], timeout=20)
             if r.returncode in (0, 4) and r.stdout:
                 lines += ["  " + x + "\n" for x in r.stdout.splitlines()[-4:]]
             else:
@@ -814,21 +824,22 @@ def parse_winget_upgrade(text):
 def list_updates():
     """Список устаревших приложений через менеджер пакетов ОС.
     Возвращает (manager|None, items, hint). Команды только читают состояние."""
-    import subprocess
-    try:
-        if SYSTEM == "Darwin":
-            r = subprocess.run(["brew", "outdated", "--verbose"], capture_output=True, text=True, timeout=90)
-            return ("Homebrew", parse_brew_outdated(r.stdout), L("Обновить всё:  brew upgrade"))
-        if SYSTEM == "Windows":
-            r = subprocess.run(["winget", "upgrade"], capture_output=True, text=True, timeout=120)
-            return ("winget", parse_winget_upgrade(r.stdout), L("Обновить всё:  winget upgrade --all"))
-        if SYSTEM == "Linux":
-            r = subprocess.run(["apt", "list", "--upgradable"], capture_output=True, text=True, timeout=90)
-            return ("apt", parse_apt_upgradable(r.stdout), L("Обновить всё:  sudo apt upgrade"))
-    except FileNotFoundError:
-        return (None, [], L("Менеджер пакетов не найден (brew / winget / apt)."))
-    except Exception as e:
-        return (None, [], L("Не удалось проверить обновления: {e}").format(e=e))
+    # run() сам прячет консоль на Windows и не бросает (returncode 127 = нет бинарника).
+    if SYSTEM == "Darwin":
+        r = run(["brew", "outdated", "--verbose"], timeout=90)
+        if r.returncode == 127:
+            return (None, [], L("Менеджер пакетов не найден (brew / winget / apt)."))
+        return ("Homebrew", parse_brew_outdated(r.stdout or ""), L("Обновить всё:  brew upgrade"))
+    if SYSTEM == "Windows":
+        r = run(["winget", "upgrade"], timeout=120)
+        if r.returncode == 127:
+            return (None, [], L("Менеджер пакетов не найден (brew / winget / apt)."))
+        return ("winget", parse_winget_upgrade(r.stdout or ""), L("Обновить всё:  winget upgrade --all"))
+    if SYSTEM == "Linux":
+        r = run(["apt", "list", "--upgradable"], timeout=90)
+        if r.returncode == 127:
+            return (None, [], L("Менеджер пакетов не найден (brew / winget / apt)."))
+        return ("apt", parse_apt_upgradable(r.stdout or ""), L("Обновить всё:  sudo apt upgrade"))
     return (None, [], L("ОС не поддерживается."))
 
 # ---------- Health Report: HTML-отчёт о состоянии и кандидатах на очистку ----------
@@ -900,16 +911,48 @@ def _is_browser_cache(name):
     return None
 
 # ---------- безопасный subprocess-хелпер ----------
+def _no_window_kwargs():
+    """Доп. kwargs для subprocess, чтобы на Windows GUI-приложение не мигало
+    чёрным окном консоли при каждом вызове.
+
+    • На Windows: creationflags=CREATE_NO_WINDOW + STARTUPINFO со SW_HIDE.
+      Это надёжно прячет консоль и для GUI-, и для console-бинарников.
+    • На остальных ОС: пустой dict (флага не существует).
+
+    Применяется ВО ВСЕХ subprocess-вызовах приложения (см. run() и прямые
+    subprocess.run в disk_health_report/list_updates/schedule_*/_boost_w)."""
+    if SYSTEM != "Windows":
+        return {}
+    import subprocess
+    kw = {}
+    flags = 0
+    flags |= getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+    kw["creationflags"] = flags
+    try:
+        si = subprocess.STARTUPINFO()
+        si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        si.wShowWindow = 0  # SW_HIDE
+        kw["startupinfo"] = si
+    except Exception:
+        pass
+    return kw
+
 def run(args, timeout=60):
     """Запускает команду без оболочки и возвращает CompletedProcess.
 
     Никогда не бросает: при отсутствии бинарника / таймауте / любой ошибке
     возвращает объект с returncode≠0 и пустым stdout (чтобы вызывающий код
     мог честно «пропустить с причиной» вместо падения). НЕ запрашивает sudo.
+
+    На Windows прячет консольное окно (CREATE_NO_WINDOW) и принудительно
+    задаёт stdin=DEVNULL — иначе PyInstaller --windowed (stdin/out=None)
+    может уронить дочерний процесс, которому нужен дескриптор.
     """
     import subprocess
     try:
-        return subprocess.run(args, capture_output=True, text=True, timeout=timeout)
+        return subprocess.run(args, capture_output=True, text=True,
+                              timeout=timeout, stdin=subprocess.DEVNULL,
+                              **_no_window_kwargs())
     except subprocess.TimeoutExpired:
         return subprocess.CompletedProcess(args, 124, "", "timeout")
     except FileNotFoundError:
@@ -928,6 +971,34 @@ def has_root():
         return False
 
 # ---------- детект типа накопителя (SSD / HDD) ----------
+def parse_physicaldisk_mediatype(text):
+    """Парсер вывода PowerShell `Get-PhysicalDisk … MediaType` → "SSD"|"HDD"|None.
+
+    ЧИСТАЯ функция (тестируется на сэмплах). MediaType может быть:
+      • "SSD"          → SSD
+      • "HDD"          → HDD
+      • "Unspecified"  → не определили (None)
+      • число 4/3      → 4=SSD, 3=HDD (числовой enum старых сборок)
+    Берём первый информативный (не Unspecified) диск; «Unspecified» игнорируем
+    в пользу явного SSD/HDD."""
+    saw_ssd = saw_hdd = False
+    for raw in (text or "").splitlines():
+        # терпим формат "MediaType : SSD" (Format-List) и просто "SSD"
+        val = raw.split(":", 1)[1] if ":" in raw else raw
+        v = val.strip().lower()
+        if not v:
+            continue
+        if "ssd" in v or v == "4":
+            saw_ssd = True
+        elif "hdd" in v or v == "3":
+            saw_hdd = True
+        # "unspecified"/"0"/прочее — пропускаем
+    if saw_ssd:
+        return "SSD"
+    if saw_hdd:
+        return "HDD"
+    return None
+
 def detect_media_type():
     """Тип системного накопителя: "SSD" | "HDD" | None (не определили).
 
@@ -938,14 +1009,12 @@ def detect_media_type():
     """
     try:
         if SYSTEM == "Windows":
-            r = run(["powershell", "-NoProfile", "-Command",
-                     "(Get-PhysicalDisk | Select-Object -ExpandProperty MediaType)"], timeout=30)
-            out = (r.stdout or "").lower()
-            if "ssd" in out:
-                return "SSD"
-            if "hdd" in out:
-                return "HDD"
-            return None
+            # Format-List даёт стабильно парсимый "MediaType : SSD" без обрезки
+            # по ширине терминала (Get-PhysicalDisk | Format-Table режет колонки).
+            r = run(["powershell", "-NoProfile", "-NonInteractive", "-Command",
+                     "Get-PhysicalDisk | Select-Object MediaType | Format-List"],
+                    timeout=30)
+            return parse_physicaldisk_mediatype(r.stdout or "")
         if SYSTEM == "Darwin":
             r = run(["diskutil", "info", "/"], timeout=20)
             for row in (r.stdout or "").splitlines():
@@ -999,11 +1068,18 @@ def disk_maintenance_plan(system, media_type, has_root):
         return (None, L("💽 Тип диска не определён — обслуживание пропущено"), False)
 
     if system == "Windows":
+        # defrag.exe (и /L TRIM, и /O оптимизация) ТРЕБУЕТ прав администратора —
+        # без них процесс завершится ошибкой/UAC-промптом. Без админа → пропуск.
+        sysdrv = os.environ.get("SystemDrive", "C:")  # обычно "C:"
         if media_type == "SSD":
-            return (["defrag", "C:", "/L"],
+            if not has_root:
+                return (None, L("💽 SSD: TRIM пропущен — нужны права администратора"), False)
+            return (["defrag", sysdrv, "/L"],
                     L("💽 SSD: TRIM (defrag /L) выполнен"), True)
         # HDD → безопасная оптимизация (дефраг/консолидация)
-        return (["defrag", "C:", "/O"],
+        if not has_root:
+            return (None, L("💽 HDD: оптимизация пропущена — нужны права администратора"), False)
+        return (["defrag", sysdrv, "/O"],
                 L("💽 HDD: дефрагментация (defrag /O) выполнена"), True)
 
     if system == "Darwin":
@@ -1256,9 +1332,11 @@ def schedule_status():
         if SYSTEM == "Darwin":
             return os.path.isfile(os.path.join(HOME, "Library/LaunchAgents", SCHED_LABEL + ".plist"))
         if SYSTEM == "Linux":
-            r = subprocess.run(["crontab", "-l"], capture_output=True, text=True)
+            r = subprocess.run(["crontab", "-l"], capture_output=True, text=True,
+                               stdin=subprocess.DEVNULL)
             return "KRYLAN-CLEAN" in (r.stdout or "")
-        r = subprocess.run(["schtasks", "/Query", "/TN", "KRYLAN Clean"], capture_output=True)
+        r = subprocess.run(["schtasks", "/Query", "/TN", "KRYLAN Clean"], capture_output=True,
+                           stdin=subprocess.DEVNULL, **_no_window_kwargs())
         return r.returncode == 0
     except Exception:
         return False
@@ -1292,7 +1370,8 @@ def schedule_enable():
     else:
         subprocess.run(["schtasks", "/Create", "/F", "/SC", "WEEKLY", "/D", "MON",
                         "/ST", "12:00", "/TN", "KRYLAN Clean",
-                        "/TR", " ".join(f'"{c}"' for c in cmd)], capture_output=True)
+                        "/TR", " ".join(f'"{c}"' for c in cmd)], capture_output=True,
+                       stdin=subprocess.DEVNULL, **_no_window_kwargs())
 
 def schedule_disable():
     import subprocess
@@ -1302,12 +1381,14 @@ def schedule_disable():
         try: os.remove(path)
         except OSError: pass
     elif SYSTEM == "Linux":
-        r = subprocess.run(["crontab", "-l"], capture_output=True, text=True)
+        r = subprocess.run(["crontab", "-l"], capture_output=True, text=True,
+                           stdin=subprocess.DEVNULL)
         if r.returncode == 0:
             keep = "\n".join(l for l in r.stdout.splitlines() if "KRYLAN-CLEAN" not in l)
             subprocess.run(["crontab", "-"], input=keep + "\n", text=True)
     else:
-        subprocess.run(["schtasks", "/Delete", "/F", "/TN", "KRYLAN Clean"], capture_output=True)
+        subprocess.run(["schtasks", "/Delete", "/F", "/TN", "KRYLAN Clean"], capture_output=True,
+                       stdin=subprocess.DEVNULL, **_no_window_kwargs())
 
 
 class Krylan(tk.Tk):
@@ -1842,11 +1923,14 @@ class Krylan(tk.Tk):
             try:
                 import winreg
                 k = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Run")
-                i = 0
-                while True:
-                    try:
-                        n, v, _ = winreg.EnumValue(k, i); lines.append(f"  • {n}\n      {v}\n"); i += 1
-                    except OSError: break
+                try:
+                    i = 0
+                    while True:
+                        try:
+                            n, v, _ = winreg.EnumValue(k, i); lines.append(f"  • {n}\n      {v}\n"); i += 1
+                        except OSError: break
+                finally:
+                    winreg.CloseKey(k)
             except Exception as e:
                 lines.append("  " + L("ошибка чтения реестра: {e}").format(e=e) + "\n")
             lines.append("\n" + L("Отключить: Диспетчер задач → вкладка «Автозагрузка».") + "\n")
@@ -2002,14 +2086,20 @@ class Krylan(tk.Tk):
                                    (winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Uninstall")]:
                     try:
                         k = winreg.OpenKey(hive, path)
-                        for i in range(winreg.QueryInfoKey(k)[0]):
-                            try:
-                                sk = winreg.OpenKey(k, winreg.EnumKey(k, i))
-                                name, _ = winreg.QueryValueEx(sk, "DisplayName")
-                                try: size, _ = winreg.QueryValueEx(sk, "EstimatedSize")
-                                except OSError: size = 0
-                                apps.append((int(size or 0) * 1024, name))
-                            except OSError: pass
+                        try:
+                            for i in range(winreg.QueryInfoKey(k)[0]):
+                                try:
+                                    sk = winreg.OpenKey(k, winreg.EnumKey(k, i))
+                                    try:
+                                        name, _ = winreg.QueryValueEx(sk, "DisplayName")
+                                        try: size, _ = winreg.QueryValueEx(sk, "EstimatedSize")
+                                        except OSError: size = 0
+                                        apps.append((int(size or 0) * 1024, name))
+                                    finally:
+                                        winreg.CloseKey(sk)
+                                except OSError: pass
+                        finally:
+                            winreg.CloseKey(k)
                     except OSError: pass
                 apps.sort(reverse=True)
                 for s, n in apps[:30]:

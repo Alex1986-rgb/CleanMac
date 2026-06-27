@@ -593,16 +593,30 @@ class TestDiskMaintenancePlan(unittest.TestCase):
     """disk_maintenance_plan: чистая функция плана обслуживания накопителя."""
 
     def test_windows_ssd_trim(self):
-        cmd, label, do = krylan.disk_maintenance_plan("Windows", "SSD", False)
+        # defrag требует прав администратора → с admin выполняем TRIM (/L)
+        cmd, label, do = krylan.disk_maintenance_plan("Windows", "SSD", True)
         self.assertTrue(do)
         self.assertIn("defrag", cmd)
         self.assertIn("/L", cmd)                 # TRIM-режим, НЕ дефраг
         self.assertNotIn("/O", cmd)
 
     def test_windows_hdd_defrag(self):
-        cmd, label, do = krylan.disk_maintenance_plan("Windows", "HDD", False)
+        cmd, label, do = krylan.disk_maintenance_plan("Windows", "HDD", True)
         self.assertTrue(do)
         self.assertIn("/O", cmd)                 # дефраг только для HDD
+
+    def test_windows_ssd_needs_admin(self):
+        # без прав администратора defrag /L пропускается с понятной пометкой
+        cmd, label, do = krylan.disk_maintenance_plan("Windows", "SSD", False)
+        self.assertFalse(do)
+        self.assertIsNone(cmd)
+        self.assertIn("администратор", label.lower())
+
+    def test_windows_hdd_needs_admin(self):
+        cmd, label, do = krylan.disk_maintenance_plan("Windows", "HDD", False)
+        self.assertFalse(do)
+        self.assertIsNone(cmd)
+        self.assertIn("администратор", label.lower())
 
     def test_linux_ssd_trim_needs_root(self):
         # без root → пропуск с причиной, команда не выполняется
@@ -717,6 +731,152 @@ class TestOptimizePlanExtendedSafety(unittest.TestCase):
              krylan.detect_media_type, krylan.has_root) = (
                 orig_home, orig_targets, orig_media, orig_root)
         self.assertTrue(os.path.exists(os.path.join(cache, "c.bin")))
+
+
+class TestParsePhysicalDiskMediaType(unittest.TestCase):
+    """Парсер вывода PowerShell Get-PhysicalDisk … MediaType (Windows)."""
+
+    def test_format_list_ssd(self):
+        txt = "\nMediaType : SSD\n\n"
+        self.assertEqual(krylan.parse_physicaldisk_mediatype(txt), "SSD")
+
+    def test_format_list_hdd(self):
+        txt = "MediaType : HDD\n"
+        self.assertEqual(krylan.parse_physicaldisk_mediatype(txt), "HDD")
+
+    def test_unspecified_is_none(self):
+        txt = "MediaType : Unspecified\n"
+        self.assertIsNone(krylan.parse_physicaldisk_mediatype(txt))
+
+    def test_numeric_enum(self):
+        # старые сборки могут отдавать числовой enum: 4=SSD, 3=HDD
+        self.assertEqual(krylan.parse_physicaldisk_mediatype("MediaType : 4"), "SSD")
+        self.assertEqual(krylan.parse_physicaldisk_mediatype("MediaType : 3"), "HDD")
+
+    def test_plain_value_no_colon(self):
+        self.assertEqual(krylan.parse_physicaldisk_mediatype("SSD\n"), "SSD")
+
+    def test_mixed_prefers_explicit_over_unspecified(self):
+        # внешний HDD "Unspecified" + системный SSD → SSD выигрывает
+        txt = "MediaType : Unspecified\n\nMediaType : SSD\n"
+        self.assertEqual(krylan.parse_physicaldisk_mediatype(txt), "SSD")
+
+    def test_empty_is_none(self):
+        self.assertIsNone(krylan.parse_physicaldisk_mediatype(""))
+        self.assertIsNone(krylan.parse_physicaldisk_mediatype("   \n\n"))
+
+
+class TestNoWindowKwargs(unittest.TestCase):
+    """_no_window_kwargs: прячет консоль только на Windows, иначе пусто."""
+
+    def test_non_windows_empty(self):
+        orig = krylan.SYSTEM
+        try:
+            for sysname in ("Darwin", "Linux"):
+                krylan.SYSTEM = sysname
+                self.assertEqual(krylan._no_window_kwargs(), {})
+        finally:
+            krylan.SYSTEM = orig
+
+    def test_windows_sets_creationflags(self):
+        # на Windows должен попасть creationflags с CREATE_NO_WINDOW (0x08000000).
+        # На Mac у subprocess нет CREATE_NO_WINDOW/STARTUPINFO — проверяем,
+        # что функция не падает и отдаёт корректный флаг через getattr-fallback.
+        orig = krylan.SYSTEM
+        try:
+            krylan.SYSTEM = "Windows"
+            kw = krylan._no_window_kwargs()
+            self.assertIn("creationflags", kw)
+            self.assertTrue(kw["creationflags"] & 0x08000000)
+        finally:
+            krylan.SYSTEM = orig
+
+
+class TestWindowsPaths(unittest.TestCase):
+    """cleanup_targets / privacy_targets / thumbnail_targets на Windows:
+    пути строятся из env (TEMP/LOCALAPPDATA/APPDATA), без unix-путей."""
+
+    def _patch_windows_env(self, home):
+        # типовое окружение Windows-пользователя
+        local = os.path.join(home, "AppData", "Local")
+        roam = os.path.join(home, "AppData", "Roaming")
+        temp = os.path.join(local, "Temp")
+        for p in (local, roam, temp):
+            os.makedirs(p, exist_ok=True)
+        env = {"TEMP": temp, "LOCALAPPDATA": local, "APPDATA": roam,
+               "USERPROFILE": home, "SystemDrive": "C:"}
+        return env, local, roam, temp
+
+    def test_cleanup_targets_use_env(self):
+        home = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, home, ignore_errors=True)
+        env, local, roam, temp = self._patch_windows_env(home)
+        orig_sys, orig_home, orig_env = krylan.SYSTEM, krylan.HOME, os.environ.copy()
+        try:
+            krylan.SYSTEM = "Windows"
+            krylan.HOME = home
+            os.environ.update(env)
+            targets = krylan.cleanup_targets()
+            paths = [p for _n, p in targets]
+            # TEMP существует → присутствует в целях; нет unix-путей
+            self.assertTrue(any(p == temp for p in paths))
+            for _n, p in targets:
+                self.assertFalse(p.startswith("/dev"))
+                self.assertNotIn("/.cache", p)
+                self.assertTrue(os.path.isdir(p))
+        finally:
+            krylan.SYSTEM, krylan.HOME = orig_sys, orig_home
+            os.environ.clear(); os.environ.update(orig_env)
+
+    def test_thumbnail_targets_windows_glob(self):
+        home = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, home, ignore_errors=True)
+        env, local, roam, temp = self._patch_windows_env(home)
+        expl = os.path.join(local, "Microsoft", "Windows", "Explorer")
+        os.makedirs(expl, exist_ok=True)
+        db = os.path.join(expl, "thumbcache_1024.db")
+        open(db, "w").close()
+        orig_sys, orig_home, orig_env = krylan.SYSTEM, krylan.HOME, os.environ.copy()
+        try:
+            krylan.SYSTEM = "Windows"
+            krylan.HOME = home
+            os.environ.update(env)
+            tg = krylan.thumbnail_targets()
+            self.assertIn(db, tg)
+        finally:
+            krylan.SYSTEM, krylan.HOME = orig_sys, orig_home
+            os.environ.clear(); os.environ.update(orig_env)
+
+    def test_privacy_targets_windows_no_unix_paths(self):
+        home = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, home, ignore_errors=True)
+        env, local, roam, temp = self._patch_windows_env(home)
+        # создаём один реальный след: Chrome History
+        chrome = os.path.join(local, "Google", "Chrome", "User Data", "Default")
+        os.makedirs(chrome, exist_ok=True)
+        hist = os.path.join(chrome, "History")
+        open(hist, "w").close()
+        orig_sys, orig_home, orig_env = krylan.SYSTEM, krylan.HOME, os.environ.copy()
+        try:
+            krylan.SYSTEM = "Windows"
+            krylan.HOME = home
+            os.environ.update(env)
+            tg = krylan.privacy_targets()
+            paths = [p for _b, _i, p in tg]
+            self.assertIn(hist, paths)
+            for p in paths:
+                self.assertNotIn("/.config", p)
+                self.assertNotIn("/Library/", p)
+        finally:
+            krylan.SYSTEM, krylan.HOME = orig_sys, orig_home
+            os.environ.clear(); os.environ.update(orig_env)
+
+
+class TestDnsFlushWindows(unittest.TestCase):
+    def test_windows_flushdns_no_console(self):
+        cmd, label = krylan.dns_flush_plan("Windows")
+        self.assertEqual(cmd, ["ipconfig", "/flushdns"])
+        self.assertIn("flushdns", label)
 
 
 if __name__ == "__main__":
