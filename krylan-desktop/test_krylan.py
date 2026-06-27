@@ -516,5 +516,73 @@ class TestCleanCachesHeadless(unittest.TestCase):
         self.assertTrue(os.path.exists(f), "dry-run не должен удалять файлы")
 
 
+class TestOptimizeAllPlan(unittest.TestCase):
+    """optimize_all_plan(dry=True): собирает шаги и байты, НИЧЕГО не удаляет."""
+
+    def _setup_home(self):
+        home = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, home, ignore_errors=True)
+        # кэш-цель с файлом
+        cache = os.path.join(home, "cache")
+        os.makedirs(cache)
+        with open(os.path.join(cache, "c.bin"), "wb") as f:
+            f.write(b"c" * 2000)
+        # пустая папка в Downloads
+        dl = os.path.join(home, "Downloads")
+        os.makedirs(os.path.join(dl, "emptydir"))
+        # нулевой (битый) файл на Desktop
+        desk = os.path.join(home, "Desktop")
+        os.makedirs(desk)
+        open(os.path.join(desk, "zero.txt"), "w").close()
+        return home, cache
+
+    def test_dry_run_collects_steps_without_deleting(self):
+        home, cache = self._setup_home()
+        orig_home, orig_targets = krylan.HOME, krylan.cleanup_targets
+        krylan.HOME = home
+        krylan.cleanup_targets = lambda: [("AppCache", cache)]
+        emitted = []
+        try:
+            plan = krylan.optimize_all_plan(dry=True, emit=emitted.append)
+        finally:
+            krylan.HOME, krylan.cleanup_targets = orig_home, orig_targets
+        # три безопасных шага, прогресс прокинут через emit
+        self.assertEqual(len(plan["steps"]), 3)
+        self.assertEqual(emitted, plan["steps"])
+        # кэш посчитан в освобождённых байтах
+        self.assertEqual(plan["details"]["caches"], 2000)
+        self.assertGreaterEqual(plan["freed"], 2000)
+        # найдена пустая папка и битый файл
+        self.assertEqual(plan["details"]["empty_dirs"], 1)
+        self.assertEqual(plan["details"]["broken"], 1)
+        # dry-run ничего не удаляет
+        self.assertTrue(os.path.exists(os.path.join(cache, "c.bin")))
+        self.assertTrue(os.path.isdir(os.path.join(home, "Downloads", "emptydir")))
+        self.assertTrue(os.path.exists(os.path.join(home, "Desktop", "zero.txt")))
+
+    def test_skips_running_browser_cache(self):
+        home = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, home, ignore_errors=True)
+        ch = os.path.join(home, "chrome_cache")
+        os.makedirs(ch)
+        with open(os.path.join(ch, "x"), "wb") as f:
+            f.write(b"x" * 500)
+        orig_home, orig_targets = krylan.HOME, krylan.cleanup_targets
+        krylan.HOME = home
+        krylan.cleanup_targets = lambda: [("Кэш Chrome", ch)]
+        try:
+            plan = krylan.optimize_all_plan(dry=True, browsers_running={"Chrome"})
+        finally:
+            krylan.HOME, krylan.cleanup_targets = orig_home, orig_targets
+        # кэш Chrome пропущен → не учтён в байтах, есть запись в skipped
+        self.assertEqual(plan["details"]["caches"], 0)
+        self.assertTrue(any("Chrome" in s for s in plan["skipped"]))
+
+    def test_is_browser_cache_detection(self):
+        self.assertEqual(krylan._is_browser_cache("Кэш Chrome"), "Chrome")
+        self.assertEqual(krylan._is_browser_cache("Кэш Microsoft Edge"), "Edge")
+        self.assertIsNone(krylan._is_browser_cache("Временные файлы"))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -48,8 +48,8 @@ enum Section: String, CaseIterable, Identifiable {
 }
 
 struct ContentView: View {
-    @State private var selection: Section? = .dashboard
     @StateObject private var monitor = SystemMonitor()
+    @StateObject private var coord = AppCoordinator()
     #if os(iOS)
     // Онбординг показывается только при первом запуске (iOS).
     @AppStorage("krylan.onboarded") private var onboarded = false
@@ -64,9 +64,10 @@ struct ContentView: View {
                 OnboardingView(onDone: { onboarded = true })
             }
         }
+        .environmentObject(coord)
         .onAppear { monitor.start() }
         #else
-        content.onAppear { monitor.start() }
+        content.environmentObject(coord).onAppear { monitor.start() }
         #endif
     }
 
@@ -87,15 +88,8 @@ struct ContentView: View {
     }
 
     #if os(iOS)
-    @State private var tab: Section = {
-        let args = ProcessInfo.processInfo.arguments
-        if let i = args.firstIndex(of: "-KrylanTab"), i + 1 < args.count,
-           let s = Section.allCases.first(where: { $0.key == args[i + 1] }) { return s }
-        return .dashboard
-    }()
-
     private var content: some View {
-        TabView(selection: $tab) {
+        TabView(selection: $coord.tab) {
             ForEach(Section.allCases) { s in
                 NavigationStack {
                     screen(s)
@@ -119,11 +113,11 @@ struct ContentView: View {
             .padding(.horizontal).padding(.top, 10).padding(.bottom, 6)
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            List(Section.allCases, selection: $selection) { s in
-                Label(s.rawValue, systemImage: s.icon).tag(s as Section?)
+            List(Section.allCases, selection: $coord.tab) { s in
+                Label(s.rawValue, systemImage: s.icon).tag(s)
             }
         } detail: {
-            screen(selection ?? .dashboard)
+            screen(coord.tab)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(Brand.bg0)
         }

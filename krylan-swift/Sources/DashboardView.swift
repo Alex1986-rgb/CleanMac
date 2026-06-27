@@ -3,9 +3,8 @@ import SwiftUI
 
 struct DashboardView: View {
     @ObservedObject var monitor: SystemMonitor
-    @StateObject private var cleaner = CacheCleaner()
-    @State private var boosting = false
-    @State private var boostDone = false
+    @EnvironmentObject private var coord: AppCoordinator
+    @StateObject private var engine = OptimizeEngine()
 
     var body: some View {
         ScrollView {
@@ -18,12 +17,19 @@ struct DashboardView: View {
                     Spacer(minLength: 0)
                 }
 
-                // Флагманская кнопка очистки кэша (формулировки честные — без booster-claims, правила App Store)
-                Button(action: boost) {
+                // ✨ Главная кнопка: один тап делает всё безопасное (sandbox iOS).
+                Button(action: { engine.run() }) {
                     HStack(spacing: 10) {
-                        Image(systemName: boostDone ? "checkmark.circle.fill" : "sparkles")
-                            .font(.title3.bold())
-                        Text(boostDone ? "Готово — кэш очищен" : (boosting ? "Очищаю…" : "Освободить кэш"))
+                        if engine.phase == .running {
+                            ProgressView()
+                                .progressViewStyle(.circular)
+                                .tint(Color(red: 0.04, green: 0.08, blue: 0.06))
+                        } else {
+                            Image(systemName: engine.phase == .done ? "checkmark.circle.fill" : "sparkles")
+                                .font(.title3.bold())
+                        }
+                        Text(engine.phase == .running ? "Оптимизирую…"
+                             : (engine.phase == .done ? "Оптимизировано" : "Оптимизировать"))
                             .font(.headline)
                     }
                     .foregroundStyle(Color(red: 0.04, green: 0.08, blue: 0.06))
@@ -37,7 +43,27 @@ struct DashboardView: View {
                     .shadow(color: Brand.green.opacity(0.35), radius: 12, y: 4)
                 }
                 .buttonStyle(.plain)
-                .disabled(boosting)
+                .disabled(engine.phase == .running)
+
+                // Прогресс/статус во время работы.
+                if engine.phase == .running {
+                    VStack(spacing: 8) {
+                        ProgressView(value: engine.progress)
+                            .tint(Brand.green)
+                        Text(engine.statusLine)
+                            .font(.caption).foregroundStyle(Brand.muted)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .padding(14)
+                    .background(RoundedRectangle(cornerRadius: 16).fill(Brand.glass))
+                    .transition(.opacity)
+                }
+
+                // Карточка результата one-tap: что очищено + что найдено к разбору.
+                if engine.phase == .done {
+                    resultCard
+                        .transition(.opacity.combined(with: .move(edge: .top)))
+                }
 
                 // Фирменный анимированный глобус KRYLAN
                 GlobeView()
@@ -124,17 +150,91 @@ struct DashboardView: View {
         .background(StarfieldView())
     }
 
-    /// Один клик: очистка собственного кэша приложения (единственное безопасное на iOS).
-    private func boost() {
-        boosting = true
-        cleaner.clean()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-            boosting = false
-            withAnimation { boostDone = true }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-                withAnimation { boostDone = false }
+    // MARK: - Карточка результата one-tap
+
+    @ViewBuilder
+    private var resultCard: some View {
+        let r = engine.result
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 10) {
+                Image(systemName: "checkmark.seal.fill").foregroundStyle(Brand.green)
+                Text("Оптимизация завершена").font(.headline).foregroundStyle(Brand.text)
+                Spacer(minLength: 0)
+                Button { engine.reset() } label: {
+                    Image(systemName: "xmark.circle.fill").foregroundStyle(Brand.muted)
+                }.buttonStyle(.plain)
             }
+
+            // Очищено кэша — реально освобождено.
+            HStack(spacing: 10) {
+                Image(systemName: "trash.fill").foregroundStyle(Brand.green)
+                    .frame(width: 22)
+                Text("Очищено кэша: \(OptimizeEngine.human(r.cacheFreedBytes))")
+                    .font(.subheadline.bold()).foregroundStyle(Brand.text)
+                Spacer(minLength: 0)
+            }
+
+            // Найдено к разбору (медиа/контакты НЕ удаляем — только переход).
+            Text("Найдено к разбору").font(.caption.bold()).foregroundStyle(Brand.muted)
+
+            if r.photosDenied {
+                Text("Нет доступа к медиатеке — разрешите его, чтобы найти дубли и крупные файлы.")
+                    .font(.caption).foregroundStyle(Brand.yellow)
+            } else {
+                reviewRow("photo.on.rectangle.angled", "Дубли фото",
+                          "\(r.photoDupExtras) лишних", Brand.purple, r.photoDupExtras > 0, .photos)
+                reviewRow("camera.viewfinder", "Скриншоты",
+                          "\(r.screenshots)", Brand.blue, r.screenshots > 0, .shots)
+                reviewRow("film", "Крупные видео",
+                          "\(r.largeVideos)", Brand.cyan, r.largeVideos > 0, .videos)
+                reviewRow("livephoto", "Live Photos",
+                          "\(r.livePhotos)", Brand.green, r.livePhotos > 0, .photos)
+            }
+
+            if r.contactsDenied {
+                Text("Нет доступа к контактам — разрешите, чтобы найти дубли и неполные записи.")
+                    .font(.caption).foregroundStyle(Brand.yellow)
+            } else {
+                reviewRow("person.2.fill", "Контакты-дубли",
+                          "\(r.contactDuplicates)", Brand.blue, r.contactDuplicates > 0, .contacts)
+                reviewRow("person.crop.circle.badge.exclamationmark", "Неполные контакты",
+                          "\(r.contactsIncomplete)", Brand.yellow, r.contactsIncomplete > 0, .contacts)
+            }
+
+            // Честная оценка потенциала + дисклеймер (без «ускорим телефон»).
+            if r.estReclaimBytes > 0 && !r.photosDenied {
+                Divider().overlay(Brand.track)
+                Text("Можно освободить ещё ~\(OptimizeEngine.human(r.estReclaimBytes)), разобрав найденное вручную.")
+                    .font(.caption).foregroundStyle(Brand.muted)
+            }
+            Text("Медиа и контакты KRYLAN не удаляет автоматически — только с вашим подтверждением в системном диалоге.")
+                .font(.caption2).foregroundStyle(Brand.muted)
         }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 18).fill(Brand.glass))
+        .overlay(RoundedRectangle(cornerRadius: 18).stroke(Brand.green.opacity(0.35), lineWidth: 1))
+    }
+
+    /// Строка-переход на вкладку разбора. Активна, если есть что разбирать.
+    private func reviewRow(_ icon: String, _ title: String, _ value: String,
+                           _ tint: Color, _ enabled: Bool, _ section: Section) -> some View {
+        Button { if enabled { coord.go(to: section) } } label: {
+            HStack(spacing: 12) {
+                Image(systemName: icon).foregroundStyle(enabled ? tint : Brand.muted)
+                    .frame(width: 24)
+                Text(title).font(.subheadline).foregroundStyle(enabled ? Brand.text : Brand.muted)
+                Spacer(minLength: 8)
+                Text(value).font(.subheadline.bold().monospacedDigit())
+                    .foregroundStyle(enabled ? tint : Brand.muted)
+                if enabled {
+                    Image(systemName: "chevron.right").font(.caption.bold()).foregroundStyle(Brand.muted)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
     }
 
     /// Безопасные советы по метрикам устройства (семафор по DESIGN.md).

@@ -16,10 +16,16 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Memory
+import androidx.compose.material.icons.filled.Photo
+import androidx.compose.material.icons.filled.PhotoSizeSelectLarge
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.runtime.*
@@ -30,11 +36,18 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.krylan.app.MediaStoreUtils
 import com.krylan.app.SystemInfo
 import com.krylan.app.ui.Brand
 import com.krylan.app.ui.GlobeView
 import com.krylan.app.ui.RingGauge
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+
+// Индекс вкладки «Медиа» = ordinal enum Tab в MainActivity (Dashboard0/Storage1/Cleanup2/Media3/Apps4).
+private const val TAB_MEDIA_DASH = 3
 
 @Composable
 fun DashboardScreen(ctx: Context, onNavigate: (Int) -> Unit = {}) {
@@ -64,36 +77,66 @@ fun DashboardScreen(ctx: Context, onNavigate: (Int) -> Unit = {}) {
     ) {
         Text("Состояние в реальном времени", color = Brand.muted, fontSize = 14.sp)
 
-        // Флагманская кнопка очистки кэша (единственное безопасное на Android 11+).
-        // Формулировки честные — без «boost RAM / ускорить в N раз» (политика Google Play).
-        var boosting by remember { mutableStateOf(false) }
-        var boostFreed by remember { mutableLongStateOf(-1L) }
+        // ✨ Флагманская кнопка «Оптимизировать»: один тап делает всё безопасное
+        // (чистит СВОЙ кэш) и быстро считает, что есть к разбору (скриншоты/крупные/дубли).
+        // Удаление медиа НЕ авто — только переход на вкладку «Медиа» (системный диалог/корзина).
+        // Формулировки честные — без «boost RAM / ускорить» (политика Google Play).
+        val scope = rememberCoroutineScope()
+        var optimizing by remember { mutableStateOf(false) }
+        var result by remember { mutableStateOf<OptimizeResult?>(null) }
+
         Box(
             Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(50))
                 .background(Brush.horizontalGradient(listOf(Brand.green, Brand.cyan)))
-                .clickable(enabled = !boosting) {
-                    boosting = true
-                    boostFreed = SystemInfo.clearCache(ctx)
-                    boosting = false
+                .clickable(enabled = !optimizing) {
+                    optimizing = true
+                    result = null
+                    scope.launch {
+                        val r = withContext(Dispatchers.IO) {
+                            // 1) Реально: чистим только кэш этого приложения.
+                            val freed = try { SystemInfo.clearCache(ctx) } catch (_: Throwable) { 0L }
+                            // 2) Быстрые подсчёты к разбору (без удаления).
+                            val dupes = try { MediaStoreUtils.duplicateGroups(ctx).size } catch (_: Throwable) { 0 }
+                            val shots = try { MediaStoreUtils.screenshots(ctx).size } catch (_: Throwable) { 0 }
+                            val large = try { MediaStoreUtils.largeFiles(ctx).size } catch (_: Throwable) { 0 }
+                            OptimizeResult(freedBytes = freed, duplicates = dupes, screenshots = shots, largeFiles = large)
+                        }
+                        result = r
+                        optimizing = false
+                    }
                 }
                 .padding(vertical = 15.dp),
             contentAlignment = Alignment.Center
         ) {
-            Text(
-                when {
-                    boostFreed >= 0 -> "✓ Готово — освобождено ${SystemInfo.fmtSize(boostFreed)}"
-                    boosting -> "Очищаю…"
-                    else -> "🧹  Освободить кэш"
-                },
-                color = Color(0xFF0B1410), fontSize = 16.sp, fontWeight = FontWeight.Bold
-            )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (optimizing) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        color = Color(0xFF0B1410),
+                        strokeWidth = 2.dp
+                    )
+                }
+                Text(
+                    if (optimizing) "Оптимизирую…" else "✨  Оптимизировать",
+                    color = Color(0xFF0B1410), fontSize = 16.sp, fontWeight = FontWeight.Bold
+                )
+            }
         }
         Text(
-            "Очищает только кэш этого приложения. Системные файлы и данные не трогаем.",
+            "Чистит только кэш этого приложения и показывает, что найдено к разбору. " +
+                "Системные файлы и чужие данные не трогаем. Медиа удаляется вручную в разделе «Медиа».",
             color = Brand.muted, fontSize = 11.sp
         )
+
+        // Карточка-результат после оптимизации: очищено + что найдено к разбору, с переходами.
+        result?.let { r ->
+            OptimizeResultCard(r, onNavigate)
+        }
 
         // Умные подсказки с реальными счётчиками и переходом на нужную вкладку.
         SmartSuggestions(ctx, onNavigate)
@@ -202,6 +245,73 @@ fun Sparkline(values: List<Float>, color: Color, modifier: Modifier = Modifier) 
             if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
         }
         drawPath(path, color, style = Stroke(width = 4f, cap = StrokeCap.Round))
+    }
+}
+
+/** Итог оптимизации: освобождённый кэш + счётчики к ручному разбору. */
+data class OptimizeResult(
+    val freedBytes: Long,
+    val duplicates: Int,
+    val screenshots: Int,
+    val largeFiles: Int,
+)
+
+@Composable
+private fun OptimizeResultCard(r: OptimizeResult, onNavigate: (Int) -> Unit) {
+    val toReview = r.duplicates + r.screenshots + r.largeFiles
+    Card(
+        colors = CardDefaults.cardColors(containerColor = Brand.glass),
+        shape = RoundedCornerShape(16.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = Brand.green)
+                Text("Готово", color = Brand.text, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+            }
+            Text(
+                "Очищено кэша: ${SystemInfo.fmtSize(r.freedBytes)}",
+                color = Brand.text, fontSize = 15.sp, fontWeight = FontWeight.Bold
+            )
+            if (toReview > 0) {
+                Text("Найдено к разбору", color = Brand.muted, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                ReviewRow(Icons.Filled.ContentCopy, Brand.purple, "Дубли", r.duplicates) { onNavigate(TAB_MEDIA_DASH) }
+                ReviewRow(Icons.Filled.Photo, Brand.cyan, "Скриншоты", r.screenshots) { onNavigate(TAB_MEDIA_DASH) }
+                ReviewRow(Icons.Filled.PhotoSizeSelectLarge, Brand.blue, "Крупные файлы", r.largeFiles) { onNavigate(TAB_MEDIA_DASH) }
+                Text(
+                    "Медиа не удаляется автоматически — открой раздел «Медиа», удаление идёт через системный диалог (корзину).",
+                    color = Brand.muted, fontSize = 11.sp
+                )
+            } else {
+                Text("Ничего лишнего к разбору не нашли.", color = Brand.muted, fontSize = 13.sp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReviewRow(icon: ImageVector, tint: Color, title: String, count: Int, onClick: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick)
+            .padding(vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Box(
+            Modifier.size(36.dp).background(tint.copy(alpha = 0.15f), RoundedCornerShape(10.dp)),
+            contentAlignment = Alignment.Center
+        ) { Icon(icon, contentDescription = null, tint = tint) }
+        Text(title, color = Brand.text, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.weight(1f))
+        Text("$count", color = Brand.text, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+        Icon(
+            Icons.AutoMirrored.Filled.KeyboardArrowRight,
+            contentDescription = null,
+            tint = Brand.muted
+        )
     }
 }
 

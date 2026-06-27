@@ -398,5 +398,84 @@ class TestLocalization2(unittest.TestCase):
             cm.LANG = orig
 
 
+class TestOptimizePlan(unittest.TestCase):
+    """Оркестратор волшебной кнопки: состав и порядок безопасных шагов."""
+
+    def test_plan_is_copy(self):
+        a = cm.optimize_plan(); b = cm.optimize_plan()
+        self.assertIsNot(a, b)                       # отдаётся копия, не общий список
+        self.assertEqual(a, b)
+
+    def test_keys_and_order(self):
+        keys = [k for k, _ in cm.optimize_plan()]
+        self.assertEqual(keys, ["caches", "syscache", "snapshots", "memory",
+                                "emptydirs", "broken", "orphans", "dns"])
+
+    def test_no_unsafe_steps(self):
+        # план НЕ содержит удаления дублей/крупных/приложений/очистки Корзины
+        keys = {k for k, _ in cm.optimize_plan()}
+        for bad in ("dupes", "large", "uninstall", "trash", "shred"):
+            self.assertNotIn(bad, keys)
+
+    def test_labels_nonempty(self):
+        for k, label in cm.optimize_plan():
+            self.assertTrue(label and isinstance(label, str))
+
+
+class TestFindEmptyDirs(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_finds_empty_not_base(self):
+        empty = os.path.join(self.tmp, "empty", "deep")
+        os.makedirs(empty)
+        full = os.path.join(self.tmp, "full")
+        os.makedirs(full)
+        with open(os.path.join(full, "f.bin"), "wb") as f:
+            f.write(b"x")
+        res = cm.find_empty_dirs([self.tmp])
+        self.assertIn(empty, res)                         # глубокая пустая папка найдена
+        self.assertIn(os.path.join(self.tmp, "empty"), res)  # и пустой родитель
+        self.assertNotIn(full, res)                       # папка с файлом — не пустая
+        self.assertNotIn(self.tmp, res)                   # сам базовый каталог не трогаем
+
+    def test_missing_base_safe(self):
+        self.assertEqual(cm.find_empty_dirs([os.path.join(self.tmp, "nope")]), [])
+
+
+class TestFindBrokenFiles(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_zero_byte_and_broken_symlink(self):
+        zero = os.path.join(self.tmp, "zero.bin")
+        open(zero, "wb").close()
+        good = os.path.join(self.tmp, "good.bin")
+        with open(good, "wb") as f:
+            f.write(b"data")
+        res = cm.find_broken_files([self.tmp])
+        self.assertIn(zero, res)
+        self.assertNotIn(good, res)
+        # битый симлинк
+        link = os.path.join(self.tmp, "dead.link")
+        try:
+            os.symlink(os.path.join(self.tmp, "no_target"), link)
+        except (OSError, NotImplementedError):
+            return
+        res2 = cm.find_broken_files([self.tmp])
+        self.assertIn(link, res2)
+
+    def test_missing_base_safe(self):
+        self.assertEqual(cm.find_broken_files([os.path.join(self.tmp, "nope")]), [])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

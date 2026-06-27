@@ -158,6 +158,23 @@ I18N = {
     "В Корзину: {n} файлов.": "To Trash: {n} files.",
     "В Корзину: {n} папок.": "To Trash: {n} folders.",
     "В Корзину: {size}.": "To Trash: {size}.",
+    # --- ✨ волшебная кнопка: авто-оптимизация ---
+    "✨ Оптимизировать": "✨ Optimize",
+    "один клик — безопасная очистка по всем параметрам, всё в Корзину":
+        "one click — safe cleanup across the board, everything to Trash",
+    "✨ Оптимизирую… безопасные шаги, всё уходит в Корзину…":
+        "✨ Optimizing… safe steps, everything goes to Trash…",
+    "📂 Пустые папки → Корзина: {n}": "📂 Empty folders → Trash: {n}",
+    "🧩 Битые/пустые файлы → Корзина: {n}": "🧩 Broken/empty files → Trash: {n}",
+    "⏭ Кэш {br} пропущен — браузер запущен": "⏭ {br} cache skipped — browser is running",
+    "✨  Оптимизация завершена.": "✨  Optimization complete.",
+    "Освобождено: ~{size} · шагов: {n}": "Freed: ~{size} · steps: {n}",
+    "Всё обратимо — очищенное в Корзине.": "Everything is reversible — cleaned items are in Trash.",
+    "Найдено для ревью (ничего не удалено):": "Found for review (nothing deleted):",
+    "  👯 дубли: {n} лишних · ~{size}": "  👯 duplicates: {n} extra · ~{size}",
+    "  🖼 похожие фото: {n} лишних": "  🖼 similar photos: {n} extra",
+    "  📦 крупные файлы: {n} · ~{size}": "  📦 large files: {n} · ~{size}",
+    "🔍 Открыть инструмент ревью": "🔍 Open review tool",
     # --- статусы очистки ---
     "Найдено: {size}": "Found: {size}",
     "Очищено: {size} → Корзина": "Cleaned: {size} → Trash",
@@ -817,6 +834,98 @@ def clean_caches_headless(dry=False):
                 except Exception: pass
     return freed, lines
 
+# ---------- «волшебная кнопка»: безопасная авто-оптимизация ----------
+# Имена кэшей браузеров среди cleanup_targets() — чистим их ТОЛЬКО если
+# соответствующий браузер закрыт (иначе содержимое заблокировано / опасно).
+_BROWSER_CACHE_KEYS = {
+    "Chrome": ("chrome", "google"),
+    "Edge":   ("edge", "microsoft edge"),
+    "Firefox":("firefox", "mozilla"),
+    "Yandex": ("yandex",),
+}
+
+def _is_browser_cache(name):
+    """name из cleanup_targets() относится к кэшу браузера? → метка браузера или None."""
+    low = name.lower()
+    for label, keys in _BROWSER_CACHE_KEYS.items():
+        if any(k in low for k in keys):
+            return label
+    return None
+
+def optimize_all_plan(dry=False, browsers_running=None, emit=None):
+    """Оркестратор «✨ Оптимизировать»: безопасные шаги БЕЗ подтверждений.
+
+    Последовательно (всё обратимо — в Корзину):
+      1) кэши/логи по ОС → Корзина (кэш браузера пропускается, если он запущен);
+      2) пустые папки → Корзина;
+      3) битые/нулевые файлы → Корзина.
+
+    НЕ трогает: Корзину, приложения/процессы, дубли/похожие/крупные/старые загрузки.
+
+    Args:
+        dry:   True → ничего не удаляет, только считает (для тестов/предпросмотра).
+        browsers_running: набор меток запущенных браузеров; None → определить через
+                          running_browsers() (в dry оставляем пустым, чтобы не лезть в psutil).
+        emit:  callable(text) — колбэк живого прогресса (по одному на каждый шаг).
+
+    Returns:
+        dict: {"freed": int, "steps": [str], "skipped": [str], "details": {...}}
+    """
+    if browsers_running is None:
+        browsers_running = set() if dry else running_browsers()
+    freed = 0
+    steps, skipped = [], []
+    details = {"caches": 0, "empty_dirs": 0, "broken": 0}
+
+    def _say(msg):
+        steps.append(msg)
+        if emit:
+            try: emit(msg)
+            except Exception: pass
+
+    # 1) кэши и логи по ОС
+    cache_freed = 0
+    for name, p in cleanup_targets():
+        br = _is_browser_cache(name)
+        if br and br in browsers_running:
+            skipped.append(L("⏭ Кэш {br} пропущен — браузер запущен").format(br=br))
+            continue
+        sz = dir_size(p)
+        cache_freed += sz
+        if not dry:
+            try:
+                for n in os.listdir(p):
+                    try: send2trash(os.path.join(p, n))
+                    except Exception: pass
+            except Exception: pass
+    freed += cache_freed
+    details["caches"] = cache_freed
+    _say(L("🧽 Кэши и логи → Корзина: {size}").format(size=human(cache_freed)))
+
+    # 2) пустые папки
+    empties = find_empty_dirs()
+    if not dry:
+        for d in empties:
+            try: send2trash(d)
+            except Exception: pass
+    details["empty_dirs"] = len(empties)
+    _say(L("📂 Пустые папки → Корзина: {n}").format(n=len(empties)))
+
+    # 3) битые и нулевые файлы
+    broken = find_broken_files()
+    bfreed = 0
+    for _kind, fp in broken:
+        try: bfreed += os.path.getsize(fp)
+        except Exception: pass
+        if not dry:
+            try: send2trash(fp)
+            except Exception: pass
+    freed += bfreed
+    details["broken"] = len(broken)
+    _say(L("🧩 Битые/пустые файлы → Корзина: {n}").format(n=len(broken)))
+
+    return {"freed": freed, "steps": steps, "skipped": skipped, "details": details}
+
 # ---------- планировщик обслуживания ----------
 SCHED_LABEL = "com.krylan.desktop.clean"
 
@@ -986,6 +1095,18 @@ class Krylan(tk.Tk):
     def show_dash(self):
         tk.Label(self.main, text=L("Дашборд"), bg=BG0, fg=TEXT, font=("Segoe UI", 20, "bold")).pack(anchor="w", padx=24, pady=(18,0))
         tk.Label(self.main, text=L("Система: {os} · в реальном времени").format(os=os_label()), bg=BG0, fg=MUTED, font=("Segoe UI", 10)).pack(anchor="w", padx=24, pady=(0,8))
+        # ✨ главная «волшебная кнопка» — один клик делает всё безопасное
+        hero = tk.Frame(self.main, bg=BG0); hero.pack(fill="x", padx=24, pady=(0,6))
+        big = tk.Label(hero, text="  " + L("✨ Оптимизировать") + "  ", bg=GREEN, fg="white",
+                       font=("Segoe UI", 15, "bold"), padx=22, pady=12, cursor="hand2")
+        big.pack(side="left")
+        big.bind("<Button-1>", lambda e: self.run_optimize())
+        tk.Label(hero, text=L("один клик — безопасная очистка по всем параметрам, всё в Корзину"),
+                 bg=BG0, fg=MUTED, font=("Segoe UI", 10)).pack(side="left", padx=12)
+        # живой прогресс оптимизации (скрыт, пока не нажата кнопка)
+        self.opt_action = tk.Frame(self.main, bg=BG0)
+        self.opt_out = tk.Text(self.main, bg="#0f1218", fg=TEXT, font=("Consolas", 10), relief="flat",
+                               padx=12, pady=8, height=8, state="disabled")
         self.cv = tk.Canvas(self.main, bg=BG0, highlightthickness=0); self.cv.pack(fill="both", expand=True, padx=20, pady=10)
 
     def _draw_dash(self):
@@ -1137,6 +1258,58 @@ class Krylan(tk.Tk):
         out = L("🚀  Готово! Компьютер ускорен.") + "\n\n" + "\n".join("  • "+s for s in steps)
         out += "\n\n  " + L("Освобождено всего: ~{size}").format(size=human(freed+purged)) + "\n  " + L("Всё обратимо — очищенное в Корзине. Без дефрага SSD.")
         self.q.put(("tout", out, None))
+
+    # ---------- ✨ «волшебная кнопка»: один клик — всё безопасное ----------
+    def run_optimize(self):
+        """Запуск авто-оптимизации БЕЗ диалогов-подтверждений (всё обратимо)."""
+        self._opt_reset(L("✨ Оптимизирую… безопасные шаги, всё уходит в Корзину…") + "\n\n")
+        threading.Thread(target=self._optimize_all_w, daemon=True).start()
+
+    def _opt_reset(self, t):
+        """Сброс панели прогресса оптимизации (живой лог + место под кнопку ревью)."""
+        if not (self.page == "dash" and hasattr(self, "opt_out")): return
+        # показываем панель прогресса над кольцами (один раз)
+        if not self.opt_out.winfo_ismapped():
+            self.opt_action.pack(fill="x", padx=24, before=self.cv)
+            self.opt_out.pack(fill="x", padx=24, pady=(4,4), before=self.cv)
+        self.opt_out.configure(state="normal"); self.opt_out.delete("1.0", "end")
+        self.opt_out.insert("end", t); self.opt_out.configure(state="disabled")
+        for w in self.opt_action.winfo_children(): w.destroy()
+
+    def _optimize_all_w(self):
+        # живой прогресс: каждый шаг оркестратора шлём в очередь
+        plan = optimize_all_plan(emit=lambda m: self.q.put(("optstep", "  • " + m + "\n", None)))
+        for sk in plan["skipped"]:
+            self.q.put(("optstep", "  ↪ " + sk + "\n", None))
+        # ревью-сканирование (без удаления): дубли, похожие фото, крупные файлы
+        groups, extras, wasted = find_duplicates()
+        try:
+            from PIL import Image  # noqa: F401
+            sim_groups = find_similar_images()
+        except Exception:
+            sim_groups = []
+        sim_extra = sum(max(0, len(g) - 1) for g in sim_groups)
+        big = []
+        skip = {"Library", "AppData", ".cache"}
+        for root, dirs, files in os.walk(HOME):
+            parts = root.replace(HOME, "").strip(os.sep).split(os.sep)
+            if parts and parts[0] in skip: dirs[:] = []; continue
+            for fn in files:
+                try:
+                    s = os.path.getsize(os.path.join(root, fn))
+                    if s > 100*1024*1024: big.append(s)
+                except Exception: pass
+        review = {"dupes": len(extras), "dupes_size": wasted,
+                  "similar": sim_extra, "large": len(big), "large_size": sum(big)}
+        summary = (L("✨  Оптимизация завершена.") + "\n\n"
+                   + L("Освобождено: ~{size} · шагов: {n}").format(
+                        size=human(plan["freed"]), n=len(plan["steps"])) + "\n"
+                   + L("Всё обратимо — очищенное в Корзине.") + "\n\n"
+                   + L("Найдено для ревью (ничего не удалено):") + "\n"
+                   + L("  👯 дубли: {n} лишних · ~{size}").format(n=review["dupes"], size=human(review["dupes_size"])) + "\n"
+                   + L("  🖼 похожие фото: {n} лишних").format(n=review["similar"]) + "\n"
+                   + L("  📦 крупные файлы: {n} · ~{size}").format(n=review["large"], size=human(review["large_size"])) + "\n")
+        self.q.put(("optdone", summary, review))
 
     def run_scan(self):
         self._sout(L("🚀 Сканирую… это может занять минуту-другую."))
@@ -1720,6 +1893,19 @@ class Krylan(tk.Tk):
                 elif kind == "cldone":
                     self.cl_total.configure(text=L("Очищено: {size} → Корзина").format(size=human(a)))
                     messagebox.showinfo("KRYLAN", L("В Корзину: {size}.").format(size=human(a))); self.found = {}
+                elif kind == "optstep":
+                    if self.page == "dash" and hasattr(self, "opt_out") and self.opt_out.winfo_exists():
+                        self.opt_out.configure(state="normal"); self.opt_out.insert("end", a)
+                        self.opt_out.see("end"); self.opt_out.configure(state="disabled")
+                elif kind == "optdone":
+                    if self.page == "dash" and hasattr(self, "opt_out") and self.opt_out.winfo_exists():
+                        self.opt_out.configure(state="normal"); self.opt_out.insert("end", "\n" + a)
+                        self.opt_out.see("end"); self.opt_out.configure(state="disabled")
+                        for w in self.opt_action.winfo_children(): w.destroy()
+                        rev = b or {}
+                        if (rev.get("dupes") or rev.get("similar") or rev.get("large")):
+                            self._btn(self.opt_action, L("🔍 Открыть инструмент ревью"), BLUE,
+                                      lambda: self.nav("tools")).pack(side="left", pady=6)
                 elif kind == "tout":
                     if self.page == "tools": self._out(a)
                 elif kind == "scanout":

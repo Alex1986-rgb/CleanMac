@@ -495,6 +495,91 @@ def orphaned_leftovers():
     out.sort(key=lambda x: -x[1])
     return out
 
+# ---------- безопасные находки для «волшебной кнопки» ----------
+def find_empty_dirs(bases=None, max_per_base=4000):
+    """Пустые (рекурсивно) подкаталоги внутри пользовательских кэшей/логов.
+
+    Безопасно для авто-очистки: возвращает только каталоги, не содержащие
+    НИ ОДНОГО файла на всю глубину (остаются лишь пустые вложенные папки).
+    Никогда не отдаёт защищённые корни и сами базовые каталоги. Чистая
+    ФС-функция — тестируется на temp-дереве.
+    """
+    if bases is None:
+        bases = [os.path.join(HOME, "Library/Caches"), os.path.join(HOME, "Library/Logs")]
+    found = []
+    for base in bases:
+        if not os.path.isdir(base):
+            continue
+        cnt = 0
+        # снизу вверх: глубокие пустые папки попадают раньше родительских
+        for root, dirs, files in os.walk(base, topdown=False, followlinks=False):
+            if os.path.realpath(root) == os.path.realpath(base):
+                continue                      # сам базовый каталог не трогаем
+            if is_protected(root) or os.path.islink(root):
+                continue
+            try:
+                # пусто, если нет файлов и все подкаталоги уже признаны пустыми
+                has_file = bool(files)
+                live_sub = any(os.path.join(root, d) not in found and not os.path.islink(os.path.join(root, d))
+                               for d in dirs)
+                if not has_file and not live_sub:
+                    found.append(root); cnt += 1
+            except OSError:
+                continue
+            if cnt >= max_per_base:
+                break
+    return found
+
+def find_broken_files(bases=None, max_per_base=4000):
+    """Нулевые (0 байт) обычные файлы и битые симлинки в кэшах/логах.
+
+    Это «мусорные» артефакты прерванных загрузок/записей — удалять безопасно.
+    Не трогает каталоги и непустые файлы. Возвращает список путей.
+    """
+    if bases is None:
+        bases = [os.path.join(HOME, "Library/Caches"), os.path.join(HOME, "Library/Logs")]
+    found = []
+    for base in bases:
+        if not os.path.isdir(base):
+            continue
+        cnt = 0
+        for root, dirs, files in os.walk(base, topdown=True, followlinks=False):
+            dirs[:] = [d for d in dirs if not os.path.islink(os.path.join(root, d))]
+            for fn in files:
+                fp = os.path.join(root, fn)
+                try:
+                    if os.path.islink(fp):
+                        if not os.path.exists(fp):     # битый симлинк
+                            found.append(fp); cnt += 1
+                    elif os.path.isfile(fp) and os.path.getsize(fp) == 0:
+                        found.append(fp); cnt += 1
+                except OSError:
+                    continue
+                if cnt >= max_per_base:
+                    break
+            if cnt >= max_per_base:
+                break
+    return found
+
+# Декларативный план «волшебной кнопки»: список безопасных шагов по порядку.
+# Каждый элемент — (ключ, человекочитаемая подпись). Чистые данные → тестируется,
+# а воркер просто исполняет их по очереди и шлёт прогресс в UI-поток.
+OPTIMIZE_STEPS = [
+    ("caches",    "🧽 Кэши и логи приложений → Корзина"),
+    ("syscache",  "👁 Системные кэши · Quick Look · кэш шрифтов"),
+    ("snapshots", "🧊 Локальные снимки APFS (очищаемое место)"),
+    ("memory",    "⚡️ Разгрузка памяти (purge)"),
+    ("emptydirs", "📂 Пустые папки → Корзина"),
+    ("broken",    "🧩 Битые и нулевые файлы → Корзина"),
+    ("orphans",   "🧹 Остатки удалённых приложений → Корзина"),
+    ("dns",       "🌐 Сброс кэша DNS"),
+]
+
+def optimize_plan():
+    """Возвращает копию плана авто-оптимизации (порядок шагов и подписи).
+    Чистая функция-оркестратор — удобно проверить состав/порядок тестом."""
+    return list(OPTIMIZE_STEPS)
+
 def _history_path():
     return os.path.join(OPT, "cleanup_history.json")
 
@@ -1076,8 +1161,18 @@ class CleanMac(tk.Tk):
         self._bri_lvl=int(round((cur if cur is not None else 0.75)*100/25)*25) or 25
         self.bri_btn=self._btn(head, f"☀ {self._bri_lvl}%", YELLOW, self._brightness_cycle)
         self.bri_btn.pack(side="right", padx=(8,2))
-        self.boost_btn=self._btn(head, L("⚡ Ускорить — очистить и разгрузить"), GREEN, self._boost_now)
-        self.boost_btn.pack(side="right")
+        # ✨ ГЛАВНАЯ кнопка-герой: один клик делает ВСЁ безопасное, без диалогов
+        self.magic_btn=RoundedButton(head, "  ✨ Оптимизировать  ", GREEN, self._optimize_all,
+                                     fg="#0b1410", radius=16, padx=20, pady=12,
+                                     font=("SF Pro Display", 15, "bold"))
+        self.magic_btn.pack(side="right", padx=(0,10))
+        # «Ускорить» остаётся как быстрый вариант (алиас облегчённого набора)
+        self.boost_btn=self._btn(head, L("⚡ Ускорить"), BLUE, self._boost_now)
+        self.boost_btn.pack(side="right", padx=(0,8))
+        # строка живого прогресса оптимизации (под шапкой)
+        self.magic_prog=tk.Label(self.main, text="", bg=BG0, fg=GREEN,
+                                 font=("SF Pro Text", 12, "bold"), anchor="w")
+        self.magic_prog.pack(fill="x", padx=24, pady=(0,2))
         self.cv = tk.Canvas(self.main, bg=BG0, highlightthickness=0)
         self.cv.pack(fill="both", expand=True, padx=14, pady=(0,12))
         # прокрутка дашборда колёсиком (чтобы дотянуться до нижних карточек и планеты)
@@ -1377,6 +1472,210 @@ class CleanMac(tk.Tk):
         record_cleanup(freed + purged, "boost")
         self._boosting = False
         self.q.put(("boosted", freed + purged, steps))
+
+    # ===== ✨ ВОЛШЕБНАЯ КНОПКА: одним кликом — ВСЁ безопасное, без диалогов =====
+    def _optimize_all(self):
+        """Запуск авто-оптимизации в фоне. Без messagebox-подтверждений —
+        идея «установил → нажал → оптимизировано». Повторный клик игнорируется."""
+        if getattr(self, "_optimizing", False):
+            return
+        self._optimizing = True
+        try: self.magic_btn.configure(text="  ✨ Оптимизирую…  ")
+        except Exception: pass
+        threading.Thread(target=self._optimize_all_w, daemon=True).start()
+
+    def _opt_progress(self, idx, total, label, detail=""):
+        """Живой прогресс шага в UI-поток (не блокируя его)."""
+        self.q.put(("optprog", (idx, total, label, detail), None))
+
+    def _optimize_all_w(self):
+        steps = optimize_plan(); n = len(steps); done = []; freed = 0
+        for i, (key, label) in enumerate(steps, 1):
+            self._opt_progress(i, n, label)
+            try:
+                if key == "caches":
+                    got = 0
+                    # кэши и логи приложений → Корзина; кэш браузера — только если закрыт
+                    for cid,_,paths,skip,mode in CATEGORIES:
+                        if skip and app_running(skip): continue
+                        for p in paths:
+                            if not os.path.exists(p): continue
+                            if mode == "subitems" and os.path.isdir(p):
+                                for nm in os.listdir(p):
+                                    fp = os.path.join(p, nm); s = path_size(fp)
+                                    if to_trash(fp): got += s
+                            else:
+                                s = path_size(p)
+                                if to_trash(p): got += s
+                    freed += got
+                    done.append(f"{label}: {human(got)}")
+
+                elif key == "syscache":
+                    # системные кэши без пароля: Quick Look + кэш шрифтов пользователя
+                    run(["qlmanage", "-r", "cache"], 30)
+                    run(["atsutil", "databases", "-removeUser"], 30)
+                    done.append(label)
+
+                elif key == "snapshots":
+                    got = 0
+                    try:
+                        before = shutil.disk_usage(HOME).free
+                        run(["tmutil", "thinlocalsnapshots", "/", "999999999999", "4"], 120)
+                        got = max(0, shutil.disk_usage(HOME).free - before)
+                    except Exception: pass
+                    freed += got
+                    done.append(f"{label}: {human(got)}" if got else label)
+
+                elif key == "memory":
+                    run(["/usr/sbin/purge"], 30)
+                    done.append(label)
+
+                elif key == "emptydirs":
+                    cnt = 0
+                    for d in find_empty_dirs():
+                        if to_trash(d): cnt += 1
+                    done.append(f"{label}: {cnt}")
+
+                elif key == "broken":
+                    cnt = 0
+                    for fp in find_broken_files():
+                        if to_trash(fp): cnt += 1
+                    done.append(f"{label}: {cnt}")
+
+                elif key == "orphans":
+                    got = 0
+                    for p, s in orphaned_leftovers():
+                        if to_trash(p): got += s
+                    freed += got
+                    done.append(f"{label}: {human(got)}")
+
+                elif key == "dns":
+                    run(["/bin/bash", "-c", "dscacheutil -flushcache; killall -HUP mDNSResponder"], 30)
+                    done.append(label)
+            except Exception:
+                pass  # один сбойный шаг не должен валить всю оптимизацию
+
+        # ----- скан (БЕЗ удаления): дубли / крупные файлы / старые загрузки -----
+        self._opt_progress(n, n, "🔎 Сканирую дубли, крупные файлы, старые загрузки…")
+        review = self._optimize_scan_review()
+
+        record_cleanup(freed, "magic")
+        self._optimizing = False
+        self.q.put(("optimized_all", {"freed": freed, "steps": done, "review": review}, None))
+
+    def _optimize_scan_review(self):
+        """Безопасный обзор пользовательских данных для ревью (НЕ удаляет).
+        Возвращает [(tool_key, текст)] — что нашли и куда вести пользователя."""
+        review = []
+        # дубликаты в Downloads/Desktop/Documents (> 1 МБ)
+        try:
+            by_size = {}
+            for base in (os.path.join(HOME, d) for d in ("Downloads", "Desktop", "Documents")):
+                if not os.path.isdir(base): continue
+                for root, _, files in os.walk(base):
+                    for fn in files:
+                        fp = os.path.join(root, fn)
+                        try:
+                            s = os.path.getsize(fp)
+                            if s > 1024*1024: by_size.setdefault(s, []).append(fp)
+                        except Exception: pass
+            dup_n, dup_waste = 0, 0
+            for s, paths in by_size.items():
+                if len(paths) < 2: continue
+                bh = {}
+                for fp in paths:
+                    h = self._hash(fp)
+                    if h: bh.setdefault(h, []).append(fp)
+                for same in bh.values():
+                    if len(same) > 1:
+                        dup_n += len(same) - 1; dup_waste += s * (len(same) - 1)
+            if dup_n:
+                review.append(("dupes", f"👯 Дубликаты: {dup_n} лишних копий на ~{human(dup_waste)}"))
+        except Exception: pass
+        # крупные файлы (> 100 МБ) вне Library/.Trash
+        try:
+            big_n, big_sz, skip = 0, 0, {".Trash", "Library"}
+            for root, dirs, files in os.walk(HOME):
+                parts = root.replace(HOME, "").strip("/").split("/")
+                if parts and parts[0] in skip: dirs[:] = []; continue
+                for fn in files:
+                    try:
+                        s = os.path.getsize(os.path.join(root, fn))
+                        if s > 100*1024*1024: big_n += 1; big_sz += s
+                    except Exception: pass
+            if big_n:
+                review.append(("large", f"📦 Крупные файлы: {big_n} шт на ~{human(big_sz)}"))
+        except Exception: pass
+        # старые загрузки (> 90 дней) в ~/Downloads
+        try:
+            now = time.time(); old_n, old_sz = 0, 0
+            dl = os.path.join(HOME, "Downloads")
+            if os.path.isdir(dl):
+                for fn in os.listdir(dl):
+                    fp = os.path.join(dl, fn)
+                    try:
+                        if os.path.isfile(fp) and (now - os.path.getmtime(fp)) > 90*86400:
+                            old_n += 1; old_sz += os.path.getsize(fp)
+                    except Exception: pass
+            if old_n:
+                review.append(("large", f"🕒 Старые загрузки (>90 дн): {old_n} шт на ~{human(old_sz)}"))
+        except Exception: pass
+        return review
+
+    def _render_optimize_summary(self, res):
+        """Финальная сводка волшебной кнопки: освобождено X, шагов N,
+        + найденные категории для ревью со ссылками на инструменты."""
+        freed = res.get("freed", 0); steps = res.get("steps", []); review = res.get("review", [])
+        try: self.magic_btn.configure(text="  ✓ Оптимизировано  ")
+        except Exception: pass
+        self.after(2400, lambda: self.magic_btn.configure(text="  ✨ Оптимизировать  ")
+                   if getattr(self, "magic_btn", None) and self.magic_btn.winfo_exists() else None)
+        if getattr(self, "magic_prog", None) and self.magic_prog.winfo_exists():
+            self.magic_prog.configure(text=f"✓ Готово · освобождено ~{human(freed)} · шагов {len(steps)}")
+        self.status(f"Оптимизация завершена · ~{human(freed)}")
+        # Модальное окно-сводка (без подтверждений на безопасных шагах — они уже сделаны).
+        win = tk.Toplevel(self); win.title("Оптимизация завершена"); win.configure(bg=BG0)
+        win.transient(self); win.resizable(False, False)
+        tk.Label(win, text="✨ Готово — Mac оптимизирован", bg=BG0, fg=GREEN,
+                 font=("SF Pro Display", 18, "bold")).pack(anchor="w", padx=22, pady=(18,2))
+        tk.Label(win, text=f"Освобождено ~{human(freed)} · выполнено шагов: {len(steps)}",
+                 bg=BG0, fg=TEXT, font=("SF Pro Text", 12)).pack(anchor="w", padx=22, pady=(0,10))
+        card=tk.Frame(win, bg=GLASS); card.pack(fill="x", padx=18, pady=4)
+        for s in steps:
+            tk.Label(card, text="• "+s, bg=GLASS, fg=TEXT, font=("SF Pro Text", 11),
+                     anchor="w", justify="left", wraplength=460).pack(anchor="w", padx=14, pady=2)
+        if review:
+            tk.Label(win, text="По всем параметрам — найдено для вашего ревью (не удалено):",
+                     bg=BG0, fg=MUTED, font=("SF Pro Text", 11, "bold")).pack(anchor="w", padx=22, pady=(12,4))
+            rc=tk.Frame(win, bg=GLASS); rc.pack(fill="x", padx=18, pady=4)
+            for tool_key, text in review:
+                row=tk.Frame(rc, bg=GLASS); row.pack(fill="x", padx=12, pady=4)
+                tk.Label(row, text=text, bg=GLASS, fg=TEXT, font=("SF Pro Text", 11),
+                         anchor="w").pack(side="left", fill="x", expand=True)
+                op=tk.Label(row, text="Открыть →", bg=BLUE, fg="white",
+                            font=("SF Pro Text", 10, "bold"), padx=10, pady=3, cursor="pointinghand")
+                op.pack(side="right")
+                op.bind("<Button-1>", lambda e, k=tool_key, w=win: (w.destroy(), self._open_tool(k)))
+        else:
+            tk.Label(win, text="Пользовательские данные в порядке — дублей и крупных файлов не найдено.",
+                     bg=BG0, fg=MUTED, font=("SF Pro Text", 11)).pack(anchor="w", padx=22, pady=(12,4))
+        tk.Label(win, text="Очищенное обратимо — лежит в Корзине. Дубли, крупные и старые файлы "
+                 "не удалялись автоматически: решение за вами.",
+                 bg=BG0, fg=MUTED, font=("SF Pro Text", 10), wraplength=480, justify="left"
+                 ).pack(anchor="w", padx=22, pady=(10,6))
+        self._btn(win, "Готово", GREEN, win.destroy).pack(anchor="e", padx=18, pady=(4,16))
+        try:
+            win.update_idletasks()
+            x = self.winfo_rootx() + (self.winfo_width()-win.winfo_width())//2
+            y = self.winfo_rooty() + 80
+            win.geometry(f"+{max(0,x)}+{max(0,y)}")
+        except Exception: pass
+
+    def _open_tool(self, key):
+        """Перейти в раздел Инструменты и открыть нужный инструмент (для ревью)."""
+        self.nav("tools")
+        try: self._tool(key)
+        except Exception: pass
 
     def _toggle_close_browsers(self):
         flag=os.path.join(OPT,"close_browsers.on")
@@ -2497,11 +2796,19 @@ class CleanMac(tk.Tk):
                 elif kind=="boosted":
                     try: self.boost_btn.configure(text="  ✓ Готово  ")
                     except Exception: pass
-                    self.after(1800, lambda: self.boost_btn.configure(text=L("⚡ Ускорить — очистить и разгрузить")) if hasattr(self,"boost_btn") else None)
+                    self.after(1800, lambda: self.boost_btn.configure(text=L("⚡ Ускорить")) if hasattr(self,"boost_btn") else None)
                     steps="\n".join("• "+s for s in (b or []))
                     messagebox.showinfo("CleanMac",
                         f"🚀 Готово! Компьютер ускорен.\n\nОсвобождено всего: ~{human(a)}\n\n{steps}\n\n"
                         "Всё обратимо: очищенное — в Корзине. Дефрагментация SSD не делалась (она вредна).")
+                elif kind=="optprog":
+                    idx, total, label, detail = a
+                    txt = f"✨ Шаг {idx}/{total}: {label}" + (f" — {detail}" if detail else "")
+                    self.status(txt)
+                    if getattr(self, "magic_prog", None) and self.magic_prog.winfo_exists():
+                        self.magic_prog.configure(text=txt)
+                elif kind=="optimized_all":
+                    self._render_optimize_summary(a)
                 elif kind=="purged":
                     record_cleanup(a, "purge")
                     self.status("Готово")
