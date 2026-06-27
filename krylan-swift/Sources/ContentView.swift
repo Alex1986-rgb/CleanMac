@@ -11,6 +11,7 @@ enum Section: String, CaseIterable, Identifiable {
     case shots     = "Скриншоты"
     case videos    = "Видео"
     case contacts  = "Контакты"
+    case calendar  = "Календарь"
     case tips      = "Советы"
     case about     = "О программе"
     var id: String { rawValue }
@@ -26,6 +27,7 @@ enum Section: String, CaseIterable, Identifiable {
         case .shots:     return "screenshots"
         case .videos:    return "videos"
         case .contacts:  return "contacts"
+        case .calendar:  return "calendar"
         case .tips:      return "tips"
         case .about:     return "about"
         }
@@ -41,6 +43,7 @@ enum Section: String, CaseIterable, Identifiable {
         case .shots:     return "camera.viewfinder"
         case .videos:    return "film"
         case .contacts:  return "person.2"
+        case .calendar:  return "calendar"
         case .tips:      return "lightbulb"
         case .about:     return "info.circle"
         }
@@ -82,6 +85,7 @@ struct ContentView: View {
         case .shots:     ScreenshotsView()
         case .videos:    LargeVideosView()
         case .contacts:  ContactsDuplicatesView()
+        case .calendar:  CalendarEventsView()
         case .tips:      TipsView(monitor: monitor)
         case .about:     AboutScreen()
         }

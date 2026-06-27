@@ -233,6 +233,37 @@ I18N = {
     "⏭ Освобождение памяти: безопасного способа в Windows нет — пропущено":
         "⏭ Memory freeing: no safe method on Windows — skipped",
     "⏭ Освобождение памяти пропущено": "⏭ Memory freeing skipped",
+    # --- 👁 предпросмотр оптимизации (dry-run, read-only) ---
+    "👁 Предпросмотр": "👁 Preview",
+    "предпросмотр — покажет, что будет сделано и сколько освободится, ничего не меняя":
+        "preview — shows what will be done and how much will be freed, changing nothing",
+    "👁 Считаю предпросмотр… ничего не удаляется и не меняется…":
+        "👁 Computing preview… nothing is deleted or changed…",
+    "👁  Предпросмотр оптимизации (ничего не изменено)": "👁  Optimization preview (nothing changed)",
+    "Оценка освобождения: ~{size} · шагов: {n}": "Estimated to free: ~{size} · steps: {n}",
+    "Это режим только для чтения — реальная очистка не запускалась.":
+        "This is a read-only mode — no real cleanup was performed.",
+    "▶ Будет сделано на этом устройстве ({os}):": "▶ Will be done on this device ({os}):",
+    "⏭ Будет пропущено (недоступно на этом устройстве):":
+        "⏭ Will be skipped (not available on this device):",
+    "🧽 Кэши и логи → Корзина: {size} (предпросмотр)":
+        "🧽 Caches and logs → Trash: {size} (preview)",
+    "📂 Пустые папки → Корзина: {n} (предпросмотр)":
+        "📂 Empty folders → Trash: {n} (preview)",
+    "🧩 Битые/пустые файлы → Корзина: {n} (предпросмотр)":
+        "🧩 Broken/empty files → Trash: {n} (preview)",
+    "🖼 Кэш миниатюр → Корзина: {size} (предпросмотр)":
+        "🖼 Thumbnail cache → Trash: {size} (preview)",
+    "🖼 Кэш миниатюр (Quick Look) будет сброшен":
+        "🖼 Thumbnail (Quick Look) cache will be reset",
+    "🌐 DNS-кэш будет сброшен": "🌐 DNS cache will be flushed",
+    "📦 Кэш Homebrew будет очищен (brew cleanup)":
+        "📦 Homebrew cache will be cleaned (brew cleanup)",
+    "📦 Кэш apt и журналы systemd будут очищены":
+        "📦 apt cache and systemd journals will be cleaned",
+    "🧠 Неактивная память будет освобождена (purge)":
+        "🧠 Inactive memory will be freed (purge)",
+    "🧠 Буферы записи будут сброшены (sync)": "🧠 Write buffers will be flushed (sync)",
     # --- статусы очистки ---
     "Найдено: {size}": "Found: {size}",
     "Очищено: {size} → Корзина": "Cleaned: {size} → Trash",
@@ -1468,6 +1499,119 @@ def optimize_all_plan(dry=False, browsers_running=None, emit=None):
 
     return {"freed": freed, "steps": steps, "skipped": skipped, "details": details}
 
+# ---------- 👁 предпросмотр оптимизации (dry-run, строго read-only) ----------
+def optimize_preview(system, media_type, has_root, browsers_running=None):
+    """«Сухой» отчёт: ЧТО сделает «✨ Оптимизировать» и СКОЛЬКО освободит —
+    БЕЗ единого изменения на диске.
+
+    ЧИСТАЯ и read-only функция (легко тестируется): принимает параметры
+    устройства, чтобы не зависеть от detect_media_type()/has_root()/psutil.
+    Никаких safe_trash/run/команд — только dir_size, find_* и план-функции
+    (disk_maintenance_plan / dns_flush_plan), у которых нет побочных эффектов.
+
+    Args:
+        system:     "Windows" | "Darwin" | "Linux".
+        media_type: "SSD" | "HDD" | None.
+        has_root:   bool — есть ли уже права администратора/root.
+        browsers_running: набор меток запущенных браузеров (по умолчанию пусто —
+                          в предпросмотре не лезем в psutil).
+
+    Returns:
+        dict: {
+          "will_do":  [str],   # шаги, которые реально выполнятся на устройстве
+          "skipped":  [str],   # шаги, которые будут пропущены (с причиной)
+          "freed_est": int,    # оценка освобождения в байтах (кэши+битые+миниатюры)
+          "details":  {...},   # caches/empty_dirs/broken/thumbnails/media_type
+        }
+    """
+    if browsers_running is None:
+        browsers_running = set()
+    will_do, skipped = [], []
+    freed_est = 0
+    details = {"caches": 0, "empty_dirs": 0, "broken": 0, "media_type": media_type}
+
+    # 1) кэши и логи по ОС (только подсчёт)
+    cache_est = 0
+    for name, p in cleanup_targets():
+        br = _is_browser_cache(name)
+        if br and br in browsers_running:
+            skipped.append(L("⏭ Кэш {br} пропущен — браузер запущен").format(br=br))
+            continue
+        cache_est += dir_size(p)
+    freed_est += cache_est
+    details["caches"] = cache_est
+    will_do.append(L("🧽 Кэши и логи → Корзина: {size} (предпросмотр)").format(size=human(cache_est)))
+
+    # 2) пустые папки (только подсчёт)
+    empties = find_empty_dirs()
+    details["empty_dirs"] = len(empties)
+    will_do.append(L("📂 Пустые папки → Корзина: {n} (предпросмотр)").format(n=len(empties)))
+
+    # 3) битые/нулевые файлы (только подсчёт размера)
+    broken = find_broken_files()
+    bfreed = 0
+    for _kind, fp in broken:
+        try: bfreed += os.path.getsize(fp)
+        except Exception: pass
+    freed_est += bfreed
+    details["broken"] = len(broken)
+    will_do.append(L("🧩 Битые/пустые файлы → Корзина: {n} (предпросмотр)").format(n=len(broken)))
+
+    # 4) кэш миниатюр (read-only оценка)
+    if system == "Darwin":
+        will_do.append(L("🖼 Кэш миниатюр (Quick Look) будет сброшен"))
+    else:
+        tgts = thumbnail_targets()
+        if tgts:
+            tfreed = 0
+            for t in tgts:
+                try:
+                    tfreed += dir_size(t) if os.path.isdir(t) else os.path.getsize(t)
+                except Exception: pass
+            freed_est += tfreed
+            details["thumbnails"] = tfreed
+            will_do.append(L("🖼 Кэш миниатюр → Корзина: {size} (предпросмотр)").format(size=human(tfreed)))
+        else:
+            skipped.append(L("⏭ Кэш миниатюр не найден — пропущено"))
+
+    # 5) сброс DNS-кэша — на всех ОС есть команда, в реальном прогоне может
+    #    упасть без прав, но план показываем как «будет выполнено».
+    will_do.append(L("🌐 DNS-кэш будет сброшен"))
+
+    # 6) обслуживание диска: тот же план, что и в реальном прогоне
+    cmd, label, do = disk_maintenance_plan(system, media_type, has_root)
+    if do:
+        will_do.append(label)
+    else:
+        skipped.append(label)
+
+    # 7) пакетные кэши/логи менеджеров (зависят от ОС/прав)
+    if system == "Darwin":
+        # наличие brew read-only не проверяем в предпросмотре — показываем как план
+        will_do.append(L("📦 Кэш Homebrew будет очищен (brew cleanup)"))
+    elif system == "Linux":
+        if has_root:
+            will_do.append(L("📦 Кэш apt и журналы systemd будут очищены"))
+        else:
+            skipped.append(L("⏭ Кэш apt/журналы пропущены — нужны права root"))
+    # Windows: безопасного userland пакетного кэша нет → ничего не добавляем
+
+    # 8) освобождение неактивной памяти
+    if system == "Darwin":
+        if has_root:
+            will_do.append(L("🧠 Неактивная память будет освобождена (purge)"))
+        else:
+            skipped.append(L("⏭ Освобождение памяти пропущено — нужны права root (purge)"))
+    elif system == "Linux":
+        will_do.append(L("🧠 Буферы записи будут сброшены (sync)"))
+        if not has_root:
+            skipped.append(L("⏭ Глубокая очистка кэшей памяти пропущена — нужны права root"))
+    else:
+        skipped.append(L("⏭ Освобождение памяти: безопасного способа в Windows нет — пропущено"))
+
+    return {"will_do": will_do, "skipped": skipped,
+            "freed_est": freed_est, "details": details}
+
 # ---------- планировщик обслуживания ----------
 SCHED_LABEL = "com.krylan.desktop.clean"
 
@@ -1665,6 +1809,11 @@ class Krylan(tk.Tk):
                        font=("Segoe UI", 15, "bold"), padx=22, pady=12, cursor="hand2")
         big.pack(side="left")
         big.bind("<Button-1>", lambda e: self.run_optimize())
+        # 👁 предпросмотр (dry-run) — read-only, ничего не меняет
+        prev = tk.Label(hero, text="  " + L("👁 Предпросмотр") + "  ", bg=BLUE, fg="white",
+                        font=("Segoe UI", 15, "bold"), padx=18, pady=12, cursor="hand2")
+        prev.pack(side="left", padx=(10,0))
+        prev.bind("<Button-1>", lambda e: self.run_preview())
         tk.Label(hero, text=L("один клик — безопасная очистка по всем параметрам, всё в Корзину"),
                  bg=BG0, fg=MUTED, font=("Segoe UI", 10)).pack(side="left", padx=12)
         # живой прогресс оптимизации (скрыт, пока не нажата кнопка)
@@ -1829,6 +1978,30 @@ class Krylan(tk.Tk):
         """Запуск авто-оптимизации БЕЗ диалогов-подтверждений (всё обратимо)."""
         self._opt_reset(L("✨ Оптимизирую… безопасные шаги, всё уходит в Корзину…") + "\n\n")
         threading.Thread(target=self._optimize_all_w, daemon=True).start()
+
+    # ---------- 👁 предпросмотр (dry-run): только читает, ничего не меняет ----------
+    def run_preview(self):
+        """Запуск предпросмотра оптимизации — строго read-only (без удаления)."""
+        self._opt_reset(L("👁 Считаю предпросмотр… ничего не удаляется и не меняется…") + "\n\n")
+        threading.Thread(target=self._preview_w, daemon=True).start()
+
+    def _preview_w(self):
+        # детект устройства делаем здесь (вне чистой функции), сам предпросмотр
+        # ничего не меняет — только подсчёт через optimize_preview().
+        media = detect_media_type()
+        plan = optimize_preview(SYSTEM, media, has_root())
+        do_block = (L("▶ Будет сделано на этом устройстве ({os}):").format(os=os_label()) + "\n"
+                    + "".join("  • " + s + "\n" for s in plan["will_do"]))
+        skip_block = ""
+        if plan["skipped"]:
+            skip_block = ("\n" + L("⏭ Будет пропущено (недоступно на этом устройстве):") + "\n"
+                          + "".join("  ↪ " + s + "\n" for s in plan["skipped"]))
+        summary = (L("👁  Предпросмотр оптимизации (ничего не изменено)") + "\n\n"
+                   + L("Оценка освобождения: ~{size} · шагов: {n}").format(
+                        size=human(plan["freed_est"]), n=len(plan["will_do"])) + "\n"
+                   + L("Это режим только для чтения — реальная очистка не запускалась.") + "\n\n"
+                   + do_block + skip_block)
+        self.q.put(("optpreview", summary, None))
 
     def _opt_reset(self, t):
         """Сброс панели прогресса оптимизации (живой лог + место под кнопку ревью)."""
@@ -2493,6 +2666,14 @@ class Krylan(tk.Tk):
                     if self.page == "dash" and hasattr(self, "opt_out") and self.opt_out.winfo_exists():
                         self.opt_out.configure(state="normal"); self.opt_out.insert("end", a)
                         self.opt_out.see("end"); self.opt_out.configure(state="disabled")
+                elif kind == "optpreview":
+                    if self.page == "dash" and hasattr(self, "opt_out") and self.opt_out.winfo_exists():
+                        # read-only сводка предпросмотра: заменяем содержимое лога,
+                        # кнопок-действий не добавляем (ничего не удаляем).
+                        self.opt_out.configure(state="normal")
+                        self.opt_out.delete("1.0", "end"); self.opt_out.insert("end", a)
+                        self.opt_out.see("end"); self.opt_out.configure(state="disabled")
+                        for w in self.opt_action.winfo_children(): w.destroy()
                 elif kind == "optdone":
                     if self.page == "dash" and hasattr(self, "opt_out") and self.opt_out.winfo_exists():
                         # summary самодостаточен (содержит все шаги/пропуски): заменяем

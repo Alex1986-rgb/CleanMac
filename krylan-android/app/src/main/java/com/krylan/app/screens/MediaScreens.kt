@@ -185,6 +185,16 @@ private fun rememberMediaActions(ctx: Context, onDone: () -> Unit): MediaActions
     return actions
 }
 
+/**
+ * Режим локальной сортировки уже загруженного списка (без новых запросов к MediaStore).
+ * MediaFile содержит только id/name/size/uri — поля даты нет, поэтому сортируем
+ * лишь по размеру (убыв.) и по имени (А-Я).
+ */
+private enum class SortMode(val label: String) {
+    Size("По размеру"),
+    Name("По имени"),
+}
+
 /** Какую операцию пользователь подтверждает в системном диалоге. */
 private sealed interface PendingOp {
     data object None : PendingOp
@@ -249,31 +259,66 @@ private fun GenericMediaScreen(ctx: Context, title: String, loader: (Context) ->
         // Действие на строке: безопасно — «В корзину» (API 30+), иначе «Удалить».
         val rowLabel = if (actions.supportsTrash) "В корзину" else "Удалить"
 
+        var sortMode by remember { mutableStateOf(SortMode.Size) }
+        // Только сортировка отображения: пересчитываем при смене режима или перезагрузке списка.
+        val sorted = remember(sortMode, list) {
+            when (sortMode) {
+                SortMode.Size -> list?.sortedByDescending { it.size }
+                SortMode.Name -> list?.sortedBy { it.name.lowercase() }
+            }
+        }
+
         Column(Modifier.fillMaxSize().background(Brand.bg0)) {
             TrashBanner(actions)
+            if (sorted != null && sorted.isNotEmpty()) {
+                SortChips(sortMode) { sortMode = it }
+            }
             LazyColumn(
                 Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(20.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                if (list == null) {
+                if (sorted == null) {
                     item {
                         Text("Загрузка…", color = Brand.muted, fontSize = 14.sp)
                     }
                 } else {
                     item {
-                        Text("$title · ${list.size} · ${SystemInfo.fmtSize(total)}",
+                        Text("$title · ${sorted.size} · ${SystemInfo.fmtSize(total)}",
                             color = Brand.muted, fontSize = 13.sp,
                             modifier = Modifier.padding(bottom = 4.dp))
                     }
-                    items(list, key = { it.id }) { f ->
+                    items(sorted, key = { it.id }) { f ->
                         FileRow(f, actionLabel = rowLabel) { actions.remove(listOf(f)) }
                     }
-                    if (list.isEmpty()) item {
+                    if (sorted.isEmpty()) item {
                         Text("Ничего не найдено.", color = Brand.muted, fontSize = 14.sp)
                     }
                 }
             }
+        }
+    }
+}
+
+/** Сегмент-чипы выбора сортировки (визуально как табы в MediaHubScreen). */
+@Composable
+private fun SortChips(current: SortMode, onSelect: (SortMode) -> Unit) {
+    Row(
+        Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp)
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        SortMode.values().forEach { mode ->
+            val sel = mode == current
+            Text(
+                mode.label,
+                color = if (sel) Color(0xFF0B1410) else Brand.text,
+                fontSize = 13.sp, fontWeight = FontWeight.Bold,
+                modifier = Modifier
+                    .background(if (sel) Brand.green else Brand.glass, RoundedCornerShape(50))
+                    .clickable { onSelect(mode) }
+                    .padding(horizontal = 13.dp, vertical = 8.dp)
+            )
         }
     }
 }

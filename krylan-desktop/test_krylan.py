@@ -1061,5 +1061,117 @@ class TestListBrowserExtensions(unittest.TestCase):
         self.assertIn(("Chrome", "Localized Name", ext_id), res)
 
 
+class TestOptimizePreview(unittest.TestCase):
+    """optimize_preview: строго read-only «сухой» отчёт. Ничего не удаляет,
+    возвращает корректный план для SSD/HDD/без-root."""
+
+    def _setup_home(self):
+        home = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, home, ignore_errors=True)
+        cache = os.path.join(home, "cache")
+        os.makedirs(cache)
+        with open(os.path.join(cache, "c.bin"), "wb") as f:
+            f.write(b"c" * 2000)
+        os.makedirs(os.path.join(home, "Downloads", "emptydir"))
+        desk = os.path.join(home, "Desktop")
+        os.makedirs(desk)
+        open(os.path.join(desk, "zero.txt"), "w").close()
+        return home, cache
+
+    def _patch(self, home, cache):
+        self._orig_home = krylan.HOME
+        self._orig_targets = krylan.cleanup_targets
+        self._orig_thumbs = krylan.thumbnail_targets
+        krylan.HOME = home
+        krylan.cleanup_targets = lambda: [("AppCache", cache)]
+        krylan.thumbnail_targets = lambda: []   # детерминизм: миниатюр нет
+        self.addCleanup(self._restore)
+
+    def _restore(self):
+        krylan.HOME = self._orig_home
+        krylan.cleanup_targets = self._orig_targets
+        krylan.thumbnail_targets = self._orig_thumbs
+
+    def test_read_only_does_not_delete(self):
+        home, cache = self._setup_home()
+        self._patch(home, cache)
+        plan = krylan.optimize_preview("Darwin", "SSD", True)
+        # ничего не удалено
+        self.assertTrue(os.path.exists(os.path.join(cache, "c.bin")))
+        self.assertTrue(os.path.isdir(os.path.join(home, "Downloads", "emptydir")))
+        self.assertTrue(os.path.exists(os.path.join(home, "Desktop", "zero.txt")))
+        # подсчёты корректны
+        self.assertEqual(plan["details"]["caches"], 2000)
+        self.assertEqual(plan["details"]["empty_dirs"], 1)
+        self.assertEqual(plan["details"]["broken"], 1)
+        self.assertGreaterEqual(plan["freed_est"], 2000)
+        # структура отчёта
+        self.assertIn("will_do", plan)
+        self.assertIn("skipped", plan)
+        self.assertTrue(any("Кэши и логи" in s for s in plan["will_do"]))
+        self.assertTrue(any("Пустые папки" in s for s in plan["will_do"]))
+        self.assertTrue(any("Битые" in s for s in plan["will_do"]))
+
+    def test_macos_ssd_plan(self):
+        home, cache = self._setup_home()
+        self._patch(home, cache)
+        plan = krylan.optimize_preview("Darwin", "SSD", True)
+        # SSD на macOS: TRIM автоматический → в пропусках, НЕ дефрагментируется
+        self.assertTrue(any("TRIM" in s and "автоматич" in s for s in plan["skipped"]))
+        self.assertFalse(any("defrag" in s.lower() for s in plan["will_do"]))
+        # с root: purge будет выполнен
+        self.assertTrue(any("purge" in s for s in plan["will_do"]))
+
+    def test_linux_hdd_no_root(self):
+        home, cache = self._setup_home()
+        self._patch(home, cache)
+        plan = krylan.optimize_preview("Linux", "HDD", False)
+        # HDD Linux: дефраг не требуется → пропуск
+        self.assertTrue(any("HDD" in s for s in plan["skipped"]))
+        # без root: apt/журналы и глубокая очистка памяти пропущены
+        self.assertTrue(any("apt" in s and "root" in s.lower() for s in plan["skipped"]))
+        self.assertTrue(any("памяти" in s and "root" in s.lower() for s in plan["skipped"]))
+        # sync (без root) попадает в «будет сделано»
+        self.assertTrue(any("sync" in s for s in plan["will_do"]))
+
+    def test_windows_ssd_root(self):
+        home, cache = self._setup_home()
+        self._patch(home, cache)
+        plan = krylan.optimize_preview("Windows", "SSD", True)
+        # Windows + admin: TRIM (defrag /L) попадает в план «будет сделано»
+        self.assertTrue(any("TRIM" in s for s in plan["will_do"]))
+        # на Windows безопасного освобождения памяти нет → пропуск
+        self.assertTrue(any("Windows" in s for s in plan["skipped"]))
+
+    def test_unknown_media_skips_maintenance(self):
+        home, cache = self._setup_home()
+        self._patch(home, cache)
+        plan = krylan.optimize_preview("Linux", None, True)
+        self.assertTrue(any("не определ" in s for s in plan["skipped"]))
+
+    def test_running_browser_cache_skipped(self):
+        home = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, home, ignore_errors=True)
+        ch = os.path.join(home, "chrome_cache")
+        os.makedirs(ch)
+        with open(os.path.join(ch, "x"), "wb") as f:
+            f.write(b"x" * 500)
+        orig_home, orig_targets, orig_thumbs = (
+            krylan.HOME, krylan.cleanup_targets, krylan.thumbnail_targets)
+        krylan.HOME = home
+        krylan.cleanup_targets = lambda: [("Кэш Chrome", ch)]
+        krylan.thumbnail_targets = lambda: []
+        try:
+            plan = krylan.optimize_preview("Darwin", "SSD", True,
+                                           browsers_running={"Chrome"})
+        finally:
+            krylan.HOME, krylan.cleanup_targets, krylan.thumbnail_targets = (
+                orig_home, orig_targets, orig_thumbs)
+        self.assertEqual(plan["details"]["caches"], 0)
+        self.assertTrue(any("Chrome" in s for s in plan["skipped"]))
+        # read-only: файл на месте
+        self.assertTrue(os.path.exists(os.path.join(ch, "x")))
+
+
 if __name__ == "__main__":
     unittest.main()

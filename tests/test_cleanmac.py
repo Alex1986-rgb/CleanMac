@@ -3,7 +3,7 @@
 """Юнит-тесты безопасных функций CleanMac. Запуск:
    /Library/Frameworks/Python.framework/Versions/3.12/bin/python3 -m unittest -v tests.test_cleanmac
 """
-import os, sys, tempfile, unittest
+import os, sys, tempfile, unittest, json
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import CleanMac as cm  # импорт безопасен: GUI не стартует (guard __main__)
@@ -625,6 +625,114 @@ class TestScanOldDownloads(unittest.TestCase):
         self.assertEqual(len(res), 2)
         # топ-2 по размеру: 5000, 4000
         self.assertEqual([s for s, _, _ in res], [5000, 4000])
+
+
+class TestParseChromiumExtension(unittest.TestCase):
+    def test_plain_name(self):
+        self.assertEqual(cm.parse_chromium_extension({"name": "uBlock Origin"}),
+                         "uBlock Origin")
+
+    def test_name_stripped(self):
+        self.assertEqual(cm.parse_chromium_extension({"name": "  Dark Reader  "}),
+                         "Dark Reader")
+
+    def test_msg_placeholder_resolved(self):
+        manifest = {"name": "__MSG_appName__", "default_locale": "en"}
+        messages = {"appName": {"message": "Awesome Extension"}}
+        self.assertEqual(cm.parse_chromium_extension(manifest, messages),
+                         "Awesome Extension")
+
+    def test_msg_placeholder_case_insensitive_key(self):
+        manifest = {"name": "__MSG_AppName__"}
+        messages = {"appname": {"message": "Casey"}}
+        self.assertEqual(cm.parse_chromium_extension(manifest, messages), "Casey")
+
+    def test_msg_placeholder_without_messages(self):
+        # плейсхолдер, но messages не дан → пусто (вызывающий подставит id)
+        self.assertEqual(cm.parse_chromium_extension({"name": "__MSG_appName__"}), "")
+
+    def test_msg_placeholder_missing_key(self):
+        manifest = {"name": "__MSG_appName__"}
+        messages = {"other": {"message": "x"}}
+        self.assertEqual(cm.parse_chromium_extension(manifest, messages), "")
+
+    def test_no_name(self):
+        self.assertEqual(cm.parse_chromium_extension({}), "")
+        self.assertEqual(cm.parse_chromium_extension({"name": ""}), "")
+
+    def test_non_dict_inputs(self):
+        self.assertEqual(cm.parse_chromium_extension(None), "")
+        self.assertEqual(cm.parse_chromium_extension([]), "")
+        self.assertEqual(cm.parse_chromium_extension({"name": 123}), "")
+
+
+class TestListBrowserExtensions(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _make_ext(self, rel, profile, ext_id, version, manifest, messages=None,
+                  locale="en"):
+        ext_dir = os.path.join(self.tmp, rel, profile, "Extensions", ext_id, version)
+        os.makedirs(ext_dir)
+        with open(os.path.join(ext_dir, "manifest.json"), "w", encoding="utf-8") as f:
+            json.dump(manifest, f)
+        if messages is not None:
+            loc_dir = os.path.join(ext_dir, "_locales", locale)
+            os.makedirs(loc_dir)
+            with open(os.path.join(loc_dir, "messages.json"), "w", encoding="utf-8") as f:
+                json.dump(messages, f)
+        return ext_dir
+
+    def test_missing_base_returns_empty(self):
+        self.assertEqual(cm.list_browser_extensions(os.path.join(self.tmp, "nope")), [])
+
+    def test_empty_base_returns_empty(self):
+        self.assertEqual(cm.list_browser_extensions(self.tmp), [])
+
+    def test_plain_extension(self):
+        self._make_ext("Google/Chrome", "Default", "aaaa", "1.0_0",
+                       {"name": "uBlock Origin"})
+        rows = cm.list_browser_extensions(self.tmp)
+        self.assertEqual(rows, [("Chrome", "uBlock Origin", "aaaa")])
+
+    def test_msg_extension_resolved(self):
+        self._make_ext("Microsoft Edge", "Default", "bbbb", "2.0_0",
+                       {"name": "__MSG_appName__", "default_locale": "en"},
+                       messages={"appName": {"message": "Edge Helper"}})
+        rows = cm.list_browser_extensions(self.tmp)
+        self.assertEqual(rows, [("Edge", "Edge Helper", "bbbb")])
+
+    def test_name_falls_back_to_id(self):
+        # плейсхолдер без messages → имя = id
+        self._make_ext("BraveSoftware/Brave-Browser", "Default", "cccc", "1.0_0",
+                       {"name": "__MSG_x__"})
+        rows = cm.list_browser_extensions(self.tmp)
+        self.assertEqual(rows, [("Brave", "cccc", "cccc")])
+
+    def test_latest_version_used(self):
+        self._make_ext("Google/Chrome", "Default", "dddd", "1.0_0",
+                       {"name": "__MSG_x__"})  # старая, без messages
+        self._make_ext("Google/Chrome", "Default", "dddd", "2.0_0",
+                       {"name": "New Name"})    # свежая
+        rows = cm.list_browser_extensions(self.tmp)
+        self.assertEqual(rows, [("Chrome", "New Name", "dddd")])
+
+    def test_multiple_browsers_sorted(self):
+        self._make_ext("Google/Chrome", "Default", "z1", "1_0", {"name": "Zebra"})
+        self._make_ext("Google/Chrome", "Default", "a1", "1_0", {"name": "Apple"})
+        rows = cm.list_browser_extensions(self.tmp)
+        self.assertEqual(rows, [("Chrome", "Apple", "a1"), ("Chrome", "Zebra", "z1")])
+
+    def test_skips_non_dir_and_dotfiles(self):
+        self._make_ext("Google/Chrome", "Default", "good", "1_0", {"name": "Good"})
+        # мусорный файл рядом с id-каталогами
+        open(os.path.join(self.tmp, "Google/Chrome/Default/Extensions/.DS_Store"), "w").close()
+        rows = cm.list_browser_extensions(self.tmp)
+        self.assertEqual(rows, [("Chrome", "Good", "good")])
 
 
 if __name__ == "__main__":

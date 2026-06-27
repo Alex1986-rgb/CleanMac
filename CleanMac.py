@@ -156,6 +156,17 @@ TR = {
     "Состояние системы в реальном времени":"Real-time system status",
     "☀️ Яркость 100%":"☀️ Brightness 100%","✨ Умная очистка":"✨ Smart Scan","🚀 Автопилот":"🚀 Autopilot",
     "Анализ":"Analyze","Очистить":"Clean","Готово к анализу":"Ready to analyze",
+    "Расширения браузеров":"Browser extensions",
+    "Установленные расширения Chrome / Edge / Brave. Только просмотр — не удаляем.":
+        "Installed Chrome / Edge / Brave extensions. View only — nothing is removed.",
+    "🔎 Сканирую…":"🔎 Scanning…",
+    "💡 Чтобы отключить или удалить расширение — сделайте это в самом браузере "
+    "(меню → Расширения). Safari-расширения управляются в Настройках Safari.":
+        "💡 To disable or remove an extension, do it in the browser itself "
+        "(menu → Extensions). Safari extensions are managed in Safari Settings.",
+    "Расширения не найдены (браузеры Chromium не установлены или нет профилей).":
+        "No extensions found (Chromium browsers are not installed or have no profiles).",
+    "Всего расширений: ":"Total extensions: ",
 }
 def L(s):
     return TR.get(s, s) if LANG=="en" else s
@@ -348,6 +359,150 @@ def scan_old_downloads(base, min_days=90, top=200, now=None):
                 pass
     out.sort(reverse=True)
     return out[:top] if top else out
+
+
+# ---------- Расширения браузеров (read-only) ----------
+# Семейство Chromium: каталоги профилей внутри Application Support.
+CHROMIUM_BROWSERS = [
+    ("Chrome", "Google/Chrome"),
+    ("Edge",   "Microsoft Edge"),
+    ("Brave",  "BraveSoftware/Brave-Browser"),
+]
+
+
+def parse_chromium_extension(manifest_dict, messages_dict=None):
+    """Имя расширения Chromium из его ``manifest.json`` (как dict).
+
+    Чистая функция (без ФС/subprocess/GUI) — легко тестируется.
+
+      * ``manifest_dict`` — разобранный ``manifest.json`` расширения;
+      * ``messages_dict`` — разобранный ``_locales/<locale>/messages.json``
+        (нужен только для раскрытия плейсхолдеров вида ``__MSG_appName__``).
+
+    Логика:
+      * имя берётся из ключа ``name``;
+      * если значение — плейсхолдер локализации ``__MSG_<key>__``, оно
+        раскрывается через ``messages_dict[<key>]["message"]``
+        (ключ нечувствителен к регистру, как в спецификации i18n);
+      * если name отсутствует/пустой или раскрыть не удалось — возвращается
+        пустая строка (вызывающий код подставит id).
+    """
+    if not isinstance(manifest_dict, dict):
+        return ""
+    name = manifest_dict.get("name") or ""
+    if not isinstance(name, str):
+        return ""
+    name = name.strip()
+    m = re.fullmatch(r"__MSG_(.+?)__", name)
+    if not m:
+        return name
+    key = m.group(1)
+    if not isinstance(messages_dict, dict):
+        return ""
+    # ключи messages.json регистронезависимы
+    entry = messages_dict.get(key)
+    if entry is None:
+        low = key.lower()
+        for k, v in messages_dict.items():
+            if isinstance(k, str) and k.lower() == low:
+                entry = v
+                break
+    if isinstance(entry, dict):
+        msg = entry.get("message")
+        if isinstance(msg, str) and msg.strip():
+            return msg.strip()
+    return ""
+
+
+def _chromium_ext_name(ext_dir):
+    """Имя одного расширения по пути ``.../<id>/<version>`` (read-only ФС).
+
+    Читает ``manifest.json`` и, при необходимости, ``messages.json`` из
+    дефолтной локали (или ``en``). Любая ошибка → пустая строка.
+    """
+    mf = os.path.join(ext_dir, "manifest.json")
+    try:
+        with open(mf, "r", encoding="utf-8") as f:
+            manifest = json.load(f)
+    except Exception:
+        return ""
+    name = parse_chromium_extension(manifest)
+    if name:
+        return name
+    # нужен перевод плейсхолдера — ищем messages.json
+    default_loc = manifest.get("default_locale") if isinstance(manifest, dict) else None
+    candidates = []
+    if isinstance(default_loc, str) and default_loc:
+        candidates.append(default_loc)
+    candidates.append("en")
+    for loc in candidates:
+        mp = os.path.join(ext_dir, "_locales", loc, "messages.json")
+        try:
+            with open(mp, "r", encoding="utf-8") as f:
+                messages = json.load(f)
+        except Exception:
+            continue
+        name = parse_chromium_extension(manifest, messages)
+        if name:
+            return name
+    return ""
+
+
+def list_browser_extensions(base=None):
+    """Список установленных расширений Chromium-браузеров (read-only).
+
+    Возвращает отсортированный список кортежей ``(браузер, имя, id)``.
+    НИЧЕГО не удаляет и не изменяет. Graceful при отсутствии путей: если
+    каталоги браузеров/профилей нет — вернётся ``[]``.
+
+    ``base`` — корень ``Application Support`` (по умолчанию домашний); параметр
+    нужен для тестов на временном дереве.
+    """
+    if base is None:
+        base = os.path.join(HOME, "Library/Application Support")
+    out = []
+    seen = set()
+    for label, rel in CHROMIUM_BROWSERS:
+        broot = os.path.join(base, rel)
+        if not os.path.isdir(broot):
+            continue
+        # профили: Default, Profile 1, ... — у каждого свой каталог Extensions
+        try:
+            profiles = sorted(os.listdir(broot))
+        except OSError:
+            continue
+        for prof in profiles:
+            exts_root = os.path.join(broot, prof, "Extensions")
+            if not os.path.isdir(exts_root):
+                continue
+            try:
+                ids = sorted(os.listdir(exts_root))
+            except OSError:
+                continue
+            for ext_id in ids:
+                id_dir = os.path.join(exts_root, ext_id)
+                if ext_id.startswith(".") or not os.path.isdir(id_dir):
+                    continue
+                # самая свежая версия (последняя по сортировке)
+                try:
+                    vers = sorted(d for d in os.listdir(id_dir)
+                                  if os.path.isdir(os.path.join(id_dir, d)))
+                except OSError:
+                    continue
+                if not vers:
+                    continue
+                name = ""
+                for ver in reversed(vers):
+                    name = _chromium_ext_name(os.path.join(id_dir, ver))
+                    if name:
+                        break
+                key = (label, ext_id)
+                if key in seen:
+                    continue
+                seen.add(key)
+                out.append((label, name or ext_id, ext_id))
+    out.sort(key=lambda r: (r[0], r[1].lower()))
+    return out
 
 
 def dir_tree(path, depth=2, min_frac=0.01, total=None, top_n=12):
@@ -1883,7 +2038,8 @@ class CleanMac(tk.Tk):
                ("disk","🗺 Карта диска"),("maintain","🩺 Обслуживание"),
                ("shots","📸 Скриншоты"),("shred","🔥 Шредер"),
                ("updater","📦 Апдейтер"),("leftovers","🧹 Остатки"),("history","📜 История"),
-               ("browsers","🌐 Браузеры"),("trash","♻️ Корзина")]
+               ("browsers","🌐 Браузеры"),("extensions","🧩 Расширения браузеров"),
+               ("trash","♻️ Корзина")]
         # переносим чипы в ряды, чтобы все помещались (по 7 в ряд)
         per_row=7
         wrap=tk.Frame(self.main, bg=BG0); wrap.pack(fill="x", padx=22)
@@ -1908,7 +2064,8 @@ class CleanMac(tk.Tk):
          "uninstall":self._t_uninstall,"disk":self._t_disk,"maintain":self._t_maintain,
          "shots":self._t_shots,"shred":self._t_shred,"updater":self._t_updater,
          "leftovers":self._t_leftovers,"history":self._t_history,
-         "browsers":self._t_browsers,"trash":self._t_trash}[key]()
+         "browsers":self._t_browsers,"extensions":self._t_extensions,
+         "trash":self._t_trash}[key]()
 
     def _ptitle(self, text, sub=""):
         tk.Label(self.tpanel, text=text, bg=BG0, fg=TEXT, font=("SF Pro Display",15,"bold")).pack(anchor="w")
@@ -2621,6 +2778,52 @@ class CleanMac(tk.Tk):
             if app_running(app) and app!=front: run(["osascript","-e",f'quit app "{app}"']); closed.append(app)
         self._brez.configure(text=("Закрыты: "+", ".join(closed)) if closed else "Фоновых браузеров нет.")
 
+    # --- Расширения браузеров (read-only) ---
+    def _t_extensions(self):
+        self._ptitle(L("Расширения браузеров"),
+                     L("Установленные расширения Chrome / Edge / Brave. Только просмотр — не удаляем."))
+        tk.Label(self.tpanel, text=L("🔎 Сканирую…"), bg=BG0, fg=MUTED,
+                 font=("SF Pro Text",11)).pack(anchor="w")
+        threading.Thread(target=self._extensions_w, daemon=True).start()
+
+    def _extensions_w(self):
+        try:
+            rows = list_browser_extensions()
+        except Exception:
+            rows = []
+        self.q.put(("tool", ("extensions", rows), None))
+
+    def _render_extensions(self, rows):
+        for w in self.tpanel.winfo_children(): w.destroy()
+        self._lv=[]
+        self._ptitle(L("Расширения браузеров"),
+                     L("Установленные расширения Chrome / Edge / Brave. Только просмотр — не удаляем."))
+        tk.Label(self.tpanel,
+                 text=L("💡 Чтобы отключить или удалить расширение — сделайте это в самом браузере "
+                        "(меню → Расширения). Safari-расширения управляются в Настройках Safari."),
+                 bg=BG0, fg=MUTED, font=("SF Pro Text",11), justify="left",
+                 wraplength=720).pack(anchor="w", pady=(0,6))
+        if not rows:
+            tk.Label(self.tpanel,
+                     text=L("Расширения не найдены (браузеры Chromium не установлены или нет профилей)."),
+                     bg=BG0, fg=MUTED, font=("SF Pro Text",12)).pack(anchor="w", pady=8)
+            return
+        inner=self._scrollarea()
+        cur=None
+        for browser, name, ext_id in rows:
+            if browser!=cur:
+                cur=browser
+                tk.Label(inner, text=browser, bg=GLASS, fg=BLUE,
+                         font=("SF Pro Text",12,"bold")).pack(anchor="w", padx=8, pady=(8,2))
+            r=tk.Frame(inner, bg=GLASS); r.pack(fill="x", padx=8, pady=1)
+            tk.Label(r, text=ext_id, bg=GLASS, fg=MUTED, font=("SF Pro Text",9),
+                     anchor="e").pack(side="right", padx=(6,4))
+            tk.Label(r, text="🧩  "+name, bg=GLASS, fg=TEXT, font=("SF Pro Text",11),
+                     anchor="w").pack(side="left", fill="x", expand=True)
+        tk.Label(self.tpanel,
+                 text=L("Всего расширений: ")+str(len(rows)),
+                 bg=BG0, fg=TEXT, font=("SF Pro Text",12,"bold")).pack(anchor="w", pady=(6,0))
+
     def _t_trash(self):
         self._ptitle("Корзина", "Считаю размер всех корзин (включая системную корзину тома)…")
         self._btn(self.tpanel, "♻️ Очистить Корзину (безвозвратно)", RED, self._do_trash).pack(anchor="w", pady=8)
@@ -2962,6 +3165,7 @@ class CleanMac(tk.Tk):
                     if sub=="large": self._render_large(data)
                     elif sub=="olddl": self._render_olddl(data)
                     elif sub=="dupes": self._render_dupes(data)
+                    elif sub=="extensions": self._render_extensions(data)
                 elif kind=="disk" and self.page=="tools": self._render_disk(a)
                 elif kind=="sunburst" and self.page=="tools": self._on_sun_tree(a)
                 elif kind=="bench" and self.page=="tools": self._render_bench(a)

@@ -20,6 +20,10 @@
 	<string>1.0</string>
 	<key>CFBundleVersion</key>
 	<string>1</string>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>KRYLAN показывает старые события календаря, чтобы помочь навести порядок.</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>KRYLAN показывает старые события календаря, чтобы помочь навести порядок.</string>
 	<key>NSContactsUsageDescription</key>
 	<string>KRYLAN ищет дубликаты контактов.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
