@@ -175,6 +175,53 @@ I18N = {
     "  🖼 похожие фото: {n} лишних": "  🖼 similar photos: {n} extra",
     "  📦 крупные файлы: {n} · ~{size}": "  📦 large files: {n} · ~{size}",
     "🔍 Открыть инструмент ревью": "🔍 Open review tool",
+    # --- ✨ оптимизация: расширенные ОС-зависимые шаги ---
+    "✅ Сделано на этом устройстве ({os}):": "✅ Done on this device ({os}):",
+    "⏭ Пропущено (недоступно на этом устройстве):":
+        "⏭ Skipped (not available on this device):",
+    "🖼 Кэш миниатюр (Quick Look) сброшен": "🖼 Thumbnail (Quick Look) cache reset",
+    "🖼 Кэш миниатюр → Корзина: {size}": "🖼 Thumbnail cache → Trash: {size}",
+    "⏭ Часть миниатюр занята — пропущено: {n}": "⏭ Some thumbnails are in use — skipped: {n}",
+    "⏭ Кэш миниатюр не найден — пропущено": "⏭ No thumbnail cache found — skipped",
+    "⏭ Кэш миниатюр пропущен ({why})": "⏭ Thumbnail cache skipped ({why})",
+    "🌐 DNS-кэш сброшен (ipconfig /flushdns)": "🌐 DNS cache flushed (ipconfig /flushdns)",
+    "🌐 DNS-кэш сброшен (dscacheutil)": "🌐 DNS cache flushed (dscacheutil)",
+    "🌐 DNS-кэш сброшен (resolvectl)": "🌐 DNS cache flushed (resolvectl)",
+    "⏭ Сброс DNS пропущен — нужны права/недоступно":
+        "⏭ DNS flush skipped — needs privileges/unavailable",
+    "💽 Тип диска не определён — обслуживание пропущено":
+        "💽 Disk type not detected — maintenance skipped",
+    "💽 SSD: TRIM (defrag /L) выполнен": "💽 SSD: TRIM (defrag /L) done",
+    "💽 HDD: дефрагментация (defrag /O) выполнена": "💽 HDD: defragmentation (defrag /O) done",
+    "💽 SSD (macOS): TRIM обслуживается системой автоматически":
+        "💽 SSD (macOS): TRIM is maintained automatically by the system",
+    "💽 HDD (macOS/APFS): дефрагментация не требуется":
+        "💽 HDD (macOS/APFS): defragmentation is not needed",
+    "💽 SSD: TRIM (fstrim) выполнен": "💽 SSD: TRIM (fstrim) done",
+    "💽 SSD: TRIM пропущен — нужны права root (fstrim)":
+        "💽 SSD: TRIM skipped — needs root (fstrim)",
+    "💽 HDD (Linux): дефрагментация обычно не требуется":
+        "💽 HDD (Linux): defragmentation is usually not needed",
+    "💽 Обслуживание диска недоступно для этой ОС":
+        "💽 Disk maintenance is not available for this OS",
+    "⏭ Обслуживание диска пропущено — нет прав/недоступно":
+        "⏭ Disk maintenance skipped — no privileges/unavailable",
+    "📦 Кэш Homebrew очищен (brew cleanup)": "📦 Homebrew cache cleaned (brew cleanup)",
+    "⏭ brew cleanup пропущен": "⏭ brew cleanup skipped",
+    "⏭ Homebrew не установлен — пропущено": "⏭ Homebrew is not installed — skipped",
+    "📦 Кэш apt и журналы systemd очищены": "📦 apt cache and systemd journals cleaned",
+    "⏭ Кэш apt/журналы пропущены — нужны права root":
+        "⏭ apt cache/journals skipped — needs root",
+    "⏭ Очистка пакетных кэшей пропущена": "⏭ Package cache cleanup skipped",
+    "🧠 Неактивная память освобождена (purge)": "🧠 Inactive memory freed (purge)",
+    "⏭ Освобождение памяти пропущено — нужны права root (purge)":
+        "⏭ Memory freeing skipped — needs root (purge)",
+    "🧠 Буферы записи сброшены (sync)": "🧠 Write buffers flushed (sync)",
+    "⏭ Глубокая очистка кэшей памяти пропущена — нужны права root":
+        "⏭ Deep memory-cache drop skipped — needs root",
+    "⏭ Освобождение памяти: безопасного способа в Windows нет — пропущено":
+        "⏭ Memory freeing: no safe method on Windows — skipped",
+    "⏭ Освобождение памяти пропущено": "⏭ Memory freeing skipped",
     # --- статусы очистки ---
     "Найдено: {size}": "Found: {size}",
     "Очищено: {size} → Корзина": "Cleaned: {size} → Trash",
@@ -852,6 +899,152 @@ def _is_browser_cache(name):
             return label
     return None
 
+# ---------- безопасный subprocess-хелпер ----------
+def run(args, timeout=60):
+    """Запускает команду без оболочки и возвращает CompletedProcess.
+
+    Никогда не бросает: при отсутствии бинарника / таймауте / любой ошибке
+    возвращает объект с returncode≠0 и пустым stdout (чтобы вызывающий код
+    мог честно «пропустить с причиной» вместо падения). НЕ запрашивает sudo.
+    """
+    import subprocess
+    try:
+        return subprocess.run(args, capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return subprocess.CompletedProcess(args, 124, "", "timeout")
+    except FileNotFoundError:
+        return subprocess.CompletedProcess(args, 127, "", "not found")
+    except Exception as e:  # PermissionError и пр.
+        return subprocess.CompletedProcess(args, 1, "", str(e))
+
+def has_root():
+    """True, если процесс уже идёт с правами root/админа (БЕЗ запроса)."""
+    try:
+        if SYSTEM == "Windows":
+            import ctypes
+            return bool(ctypes.windll.shell32.IsUserAnAdmin())
+        return os.geteuid() == 0
+    except Exception:
+        return False
+
+# ---------- детект типа накопителя (SSD / HDD) ----------
+def detect_media_type():
+    """Тип системного накопителя: "SSD" | "HDD" | None (не определили).
+
+    Чистый по контракту: использует только run()-хелпер, ничего не бросает.
+      • Windows: PowerShell `Get-PhysicalDisk | Select MediaType` → SSD/HDD.
+      • Linux:   `/sys/block/<dev>/queue/rotational` (0=SSD, 1=HDD).
+      • macOS:   `diskutil info /` → строка "Solid State".
+    """
+    try:
+        if SYSTEM == "Windows":
+            r = run(["powershell", "-NoProfile", "-Command",
+                     "(Get-PhysicalDisk | Select-Object -ExpandProperty MediaType)"], timeout=30)
+            out = (r.stdout or "").lower()
+            if "ssd" in out:
+                return "SSD"
+            if "hdd" in out:
+                return "HDD"
+            return None
+        if SYSTEM == "Darwin":
+            r = run(["diskutil", "info", "/"], timeout=20)
+            for row in (r.stdout or "").splitlines():
+                if "Solid State" in row:
+                    return "SSD" if "Yes" in row else "HDD"
+            return None
+        # Linux: определяем блочное устройство, на котором смонтирован "/"
+        dev = None
+        rr = run(["findmnt", "-no", "SOURCE", "/"], timeout=10)
+        src = (rr.stdout or "").strip()
+        if src.startswith("/dev/"):
+            import re
+            base = os.path.basename(src)
+            # nvme0n1p2 → nvme0n1 ; sda1 → sda
+            m = re.match(r"(nvme\d+n\d+|[a-z]+)", base)
+            if m:
+                dev = m.group(1)
+        if dev:
+            rot_path = "/sys/block/%s/queue/rotational" % dev
+            try:
+                with open(rot_path) as f:
+                    val = f.read().strip()
+                return "HDD" if val == "1" else "SSD"
+            except Exception:
+                return None
+        return None
+    except Exception:
+        return None
+
+# ---------- чистый план обслуживания диска (TRIM / дефраг / пропуск) ----------
+def disk_maintenance_plan(system, media_type, has_root):
+    """Адаптивный план обслуживания накопителя — ЧИСТАЯ функция (легко тестить).
+
+    Args:
+        system:     "Windows" | "Darwin" | "Linux".
+        media_type: "SSD" | "HDD" | None.
+        has_root:   bool — есть ли уже права администратора (sudo НЕ запрашиваем).
+
+    Returns:
+        (command|None, label, do)  где
+          command — список аргументов для run() или None (нечего выполнять);
+          label   — человекочитаемая подпись (что сделано / почему пропущено);
+          do      — bool: True → выполнить command; False → только пометка.
+
+    Правила безопасности:
+      • SSD НИКОГДА не дефрагментируется.
+      • Шаги, требующие root без прав → do=False с причиной (без sudo-промптов).
+      • macOS: TRIM автоматический, APFS не дефрагментируется → пометка.
+    """
+    if media_type is None:
+        return (None, L("💽 Тип диска не определён — обслуживание пропущено"), False)
+
+    if system == "Windows":
+        if media_type == "SSD":
+            return (["defrag", "C:", "/L"],
+                    L("💽 SSD: TRIM (defrag /L) выполнен"), True)
+        # HDD → безопасная оптимизация (дефраг/консолидация)
+        return (["defrag", "C:", "/O"],
+                L("💽 HDD: дефрагментация (defrag /O) выполнена"), True)
+
+    if system == "Darwin":
+        if media_type == "SSD":
+            return (None, L("💽 SSD (macOS): TRIM обслуживается системой автоматически"), False)
+        return (None, L("💽 HDD (macOS/APFS): дефрагментация не требуется"), False)
+
+    if system == "Linux":
+        if media_type == "SSD":
+            if has_root:
+                return (["fstrim", "-v", "/"],
+                        L("💽 SSD: TRIM (fstrim) выполнен"), True)
+            return (None, L("💽 SSD: TRIM пропущен — нужны права root (fstrim)"), False)
+        # HDD на ext4/btrfs/xfs дефрагментация обычно не нужна
+        return (None, L("💽 HDD (Linux): дефрагментация обычно не требуется"), False)
+
+    return (None, L("💽 Обслуживание диска недоступно для этой ОС"), False)
+
+# ---------- ОС-зависимые безопасные шаги оптимизации ----------
+def dns_flush_plan(system):
+    """Команда сброса DNS-кэша по ОС → (command|None, label)."""
+    if system == "Windows":
+        return (["ipconfig", "/flushdns"], L("🌐 DNS-кэш сброшен (ipconfig /flushdns)"))
+    if system == "Darwin":
+        # на macOS обе команды требуют root; запускаем «как есть», при ошибке — пропуск
+        return (["dscacheutil", "-flushcache"], L("🌐 DNS-кэш сброшен (dscacheutil)"))
+    # Linux: resolvectl, иначе systemd-resolve
+    return (["resolvectl", "flush-caches"], L("🌐 DNS-кэш сброшен (resolvectl)"))
+
+def thumbnail_targets():
+    """Каталоги/файлы кэша миниатюр для прямого удаления (Linux/Windows)."""
+    import glob
+    if SYSTEM == "Linux":
+        d = os.path.join(HOME, ".cache", "thumbnails")
+        return [d] if os.path.isdir(d) else []
+    if SYSTEM == "Windows":
+        local = os.environ.get("LOCALAPPDATA") or os.path.join(HOME, "AppData", "Local")
+        base = os.path.join(local, "Microsoft", "Windows", "Explorer")
+        return glob.glob(os.path.join(base, "thumbcache_*.db"))
+    return []
+
 def optimize_all_plan(dry=False, browsers_running=None, emit=None):
     """Оркестратор «✨ Оптимизировать»: безопасные шаги БЕЗ подтверждений.
 
@@ -923,6 +1116,131 @@ def optimize_all_plan(dry=False, browsers_running=None, emit=None):
     freed += bfreed
     details["broken"] = len(broken)
     _say(L("🧩 Битые/пустые файлы → Корзина: {n}").format(n=len(broken)))
+
+    # 4) кэш миниатюр (Linux ~/.cache/thumbnails · Windows thumbcache_*.db · macOS qlmanage)
+    try:
+        if SYSTEM == "Darwin":
+            if not dry:
+                r = run(["qlmanage", "-r", "cache"], timeout=30)
+                if r.returncode == 0:
+                    _say(L("🖼 Кэш миниатюр (Quick Look) сброшен"))
+                else:
+                    skipped.append(L("⏭ Кэш миниатюр пропущен ({why})").format(why=r.stderr.strip() or "qlmanage"))
+            else:
+                _say(L("🖼 Кэш миниатюр (Quick Look) сброшен"))
+        else:
+            tgts = thumbnail_targets()
+            tfreed, removed, busy = 0, 0, 0
+            for t in tgts:
+                try:
+                    tfreed += dir_size(t) if os.path.isdir(t) else os.path.getsize(t)
+                except Exception:
+                    pass
+                if not dry:
+                    try:
+                        for n in (os.listdir(t) if os.path.isdir(t) else [None]):
+                            send2trash(os.path.join(t, n) if n else t)
+                        removed += 1
+                    except Exception:
+                        busy += 1   # файл занят (Explorer) → честный пропуск
+            freed += tfreed
+            details["thumbnails"] = tfreed
+            if tgts:
+                _say(L("🖼 Кэш миниатюр → Корзина: {size}").format(size=human(tfreed)))
+                if busy:
+                    skipped.append(L("⏭ Часть миниатюр занята — пропущено: {n}").format(n=busy))
+            else:
+                skipped.append(L("⏭ Кэш миниатюр не найден — пропущено"))
+    except Exception as e:
+        skipped.append(L("⏭ Кэш миниатюр пропущен ({why})").format(why=e))
+
+    # 5) сброс DNS-кэша
+    try:
+        cmd, label = dns_flush_plan(SYSTEM)
+        if dry:
+            _say(label)
+        else:
+            r = run(cmd, timeout=20)
+            ok = r.returncode == 0
+            if not ok and SYSTEM == "Linux":
+                # запасной вариант для старых systemd
+                r = run(["systemd-resolve", "--flush-caches"], timeout=20)
+                ok = r.returncode == 0
+            if not ok and SYSTEM == "Darwin":
+                # на macOS требуется также пнуть mDNSResponder
+                run(["killall", "-HUP", "mDNSResponder"], timeout=10)
+            if ok:
+                if SYSTEM == "Darwin":
+                    run(["killall", "-HUP", "mDNSResponder"], timeout=10)
+                _say(label)
+            else:
+                skipped.append(L("⏭ Сброс DNS пропущен — нужны права/недоступно"))
+    except Exception:
+        skipped.append(L("⏭ Сброс DNS пропущен — нужны права/недоступно"))
+
+    # 6) обслуживание диска: детект SSD/HDD → TRIM / дефраг / пропуск-с-причиной
+    try:
+        media = detect_media_type()
+        details["media_type"] = media
+        cmd, label, do = disk_maintenance_plan(SYSTEM, media, has_root())
+        if not do:
+            skipped.append(label)            # пометка-причина (mac авто, нет root, SSD не дефраг и т.п.)
+        elif dry:
+            _say(label)
+        else:
+            r = run(cmd, timeout=300)
+            if r.returncode == 0:
+                _say(label)
+            else:
+                skipped.append(L("⏭ Обслуживание диска пропущено — нет прав/недоступно"))
+    except Exception:
+        skipped.append(L("⏭ Обслуживание диска пропущено — нет прав/недоступно"))
+
+    # 7) пакетные кэши/логи менеджеров (без root → пропуск)
+    try:
+        if SYSTEM == "Darwin":
+            if run(["brew", "--version"], timeout=15).returncode == 0:
+                if dry:
+                    _say(L("📦 Кэш Homebrew очищен (brew cleanup)"))
+                else:
+                    r = run(["brew", "cleanup", "-s"], timeout=180)
+                    if r.returncode == 0:
+                        _say(L("📦 Кэш Homebrew очищен (brew cleanup)"))
+                    else:
+                        skipped.append(L("⏭ brew cleanup пропущен"))
+            else:
+                skipped.append(L("⏭ Homebrew не установлен — пропущено"))
+        elif SYSTEM == "Linux":
+            if has_root():
+                if not dry:
+                    run(["apt-get", "clean"], timeout=120)
+                    run(["journalctl", "--vacuum-size=100M"], timeout=120)
+                _say(L("📦 Кэш apt и журналы systemd очищены"))
+            else:
+                skipped.append(L("⏭ Кэш apt/журналы пропущены — нужны права root"))
+        # Windows: безопасного userland пакетного кэша нет → молча пропускаем
+    except Exception:
+        skipped.append(L("⏭ Очистка пакетных кэшей пропущена"))
+
+    # 8) освобождение неактивной памяти (безопасно, где есть)
+    try:
+        if SYSTEM == "Darwin":
+            if has_root():
+                if not dry:
+                    run(["purge"], timeout=60)
+                _say(L("🧠 Неактивная память освобождена (purge)"))
+            else:
+                skipped.append(L("⏭ Освобождение памяти пропущено — нужны права root (purge)"))
+        elif SYSTEM == "Linux":
+            if not dry:
+                run(["sync"], timeout=30)   # сброс буферов на диск (без root)
+            _say(L("🧠 Буферы записи сброшены (sync)"))
+            if not has_root():
+                skipped.append(L("⏭ Глубокая очистка кэшей памяти пропущена — нужны права root"))
+        else:
+            skipped.append(L("⏭ Освобождение памяти: безопасного способа в Windows нет — пропущено"))
+    except Exception:
+        skipped.append(L("⏭ Освобождение памяти пропущено"))
 
     return {"freed": freed, "steps": steps, "skipped": skipped, "details": details}
 
@@ -1301,10 +1619,17 @@ class Krylan(tk.Tk):
                 except Exception: pass
         review = {"dupes": len(extras), "dupes_size": wasted,
                   "similar": sim_extra, "large": len(big), "large_size": sum(big)}
+        done_block = (L("✅ Сделано на этом устройстве ({os}):").format(os=os_label()) + "\n"
+                      + "".join("  • " + s + "\n" for s in plan["steps"]))
+        skip_block = ""
+        if plan["skipped"]:
+            skip_block = ("\n" + L("⏭ Пропущено (недоступно на этом устройстве):") + "\n"
+                          + "".join("  ↪ " + s + "\n" for s in plan["skipped"]))
         summary = (L("✨  Оптимизация завершена.") + "\n\n"
                    + L("Освобождено: ~{size} · шагов: {n}").format(
                         size=human(plan["freed"]), n=len(plan["steps"])) + "\n"
                    + L("Всё обратимо — очищенное в Корзине.") + "\n\n"
+                   + done_block + skip_block + "\n"
                    + L("Найдено для ревью (ничего не удалено):") + "\n"
                    + L("  👯 дубли: {n} лишних · ~{size}").format(n=review["dupes"], size=human(review["dupes_size"])) + "\n"
                    + L("  🖼 похожие фото: {n} лишних").format(n=review["similar"]) + "\n"

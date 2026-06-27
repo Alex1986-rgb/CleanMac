@@ -546,8 +546,13 @@ class TestOptimizeAllPlan(unittest.TestCase):
             plan = krylan.optimize_all_plan(dry=True, emit=emitted.append)
         finally:
             krylan.HOME, krylan.cleanup_targets = orig_home, orig_targets
-        # три безопасных шага, прогресс прокинут через emit
-        self.assertEqual(len(plan["steps"]), 3)
+        # первые три безопасных шага (кэши/пустые/битые) всегда присутствуют;
+        # дальше — ОС-зависимые шаги, их число варьируется по устройству
+        self.assertGreaterEqual(len(plan["steps"]), 3)
+        self.assertTrue(any("Кэши и логи" in s for s in plan["steps"][:3]))
+        self.assertTrue(any("Пустые папки" in s for s in plan["steps"][:3]))
+        self.assertTrue(any("Битые" in s for s in plan["steps"][:3]))
+        # прогресс прокинут через emit для каждого выполненного шага
         self.assertEqual(emitted, plan["steps"])
         # кэш посчитан в освобождённых байтах
         self.assertEqual(plan["details"]["caches"], 2000)
@@ -582,6 +587,136 @@ class TestOptimizeAllPlan(unittest.TestCase):
         self.assertEqual(krylan._is_browser_cache("Кэш Chrome"), "Chrome")
         self.assertEqual(krylan._is_browser_cache("Кэш Microsoft Edge"), "Edge")
         self.assertIsNone(krylan._is_browser_cache("Временные файлы"))
+
+
+class TestDiskMaintenancePlan(unittest.TestCase):
+    """disk_maintenance_plan: чистая функция плана обслуживания накопителя."""
+
+    def test_windows_ssd_trim(self):
+        cmd, label, do = krylan.disk_maintenance_plan("Windows", "SSD", False)
+        self.assertTrue(do)
+        self.assertIn("defrag", cmd)
+        self.assertIn("/L", cmd)                 # TRIM-режим, НЕ дефраг
+        self.assertNotIn("/O", cmd)
+
+    def test_windows_hdd_defrag(self):
+        cmd, label, do = krylan.disk_maintenance_plan("Windows", "HDD", False)
+        self.assertTrue(do)
+        self.assertIn("/O", cmd)                 # дефраг только для HDD
+
+    def test_linux_ssd_trim_needs_root(self):
+        # без root → пропуск с причиной, команда не выполняется
+        cmd, label, do = krylan.disk_maintenance_plan("Linux", "SSD", False)
+        self.assertFalse(do)
+        self.assertIsNone(cmd)
+        self.assertIn("root", label.lower())
+        # с root → выполняем fstrim
+        cmd, label, do = krylan.disk_maintenance_plan("Linux", "SSD", True)
+        self.assertTrue(do)
+        self.assertIn("fstrim", cmd)
+
+    def test_linux_hdd_no_defrag(self):
+        cmd, label, do = krylan.disk_maintenance_plan("Linux", "HDD", True)
+        self.assertFalse(do)                     # ext4/btrfs: дефраг не нужен
+        self.assertIsNone(cmd)
+
+    def test_macos_ssd_skip_auto(self):
+        cmd, label, do = krylan.disk_maintenance_plan("Darwin", "SSD", True)
+        self.assertFalse(do)                     # TRIM автоматический → только пометка
+        self.assertIsNone(cmd)
+
+    def test_macos_hdd_skip(self):
+        cmd, label, do = krylan.disk_maintenance_plan("Darwin", "HDD", False)
+        self.assertFalse(do)                     # APFS не дефрагментируется
+
+    def test_unknown_media_skipped(self):
+        cmd, label, do = krylan.disk_maintenance_plan("Linux", None, True)
+        self.assertFalse(do)
+        self.assertIsNone(cmd)
+
+    def test_ssd_never_defragmented(self):
+        # ключевое правило безопасности: ни на одной ОС SSD не получает /O
+        for system in ("Windows", "Darwin", "Linux"):
+            for root in (True, False):
+                cmd, label, do = krylan.disk_maintenance_plan(system, "SSD", root)
+                if cmd:
+                    self.assertNotIn("/O", cmd, f"{system}/SSD не должен дефрагментироваться")
+
+
+class TestDnsFlushPlan(unittest.TestCase):
+    def test_per_os_command(self):
+        self.assertEqual(krylan.dns_flush_plan("Windows")[0], ["ipconfig", "/flushdns"])
+        self.assertIn("dscacheutil", krylan.dns_flush_plan("Darwin")[0])
+        self.assertIn("resolvectl", krylan.dns_flush_plan("Linux")[0])
+
+
+class TestRunHelper(unittest.TestCase):
+    """run(): безопасная обёртка subprocess — никогда не бросает."""
+
+    def test_missing_binary_returns_nonzero(self):
+        r = krylan.run(["krylan-no-such-binary-xyz"])
+        self.assertNotEqual(r.returncode, 0)
+        self.assertEqual(r.stdout, "")
+
+    def test_real_command_runs(self):
+        r = krylan.run(["echo", "hi"])
+        self.assertEqual(r.returncode, 0)
+        self.assertIn("hi", r.stdout)
+
+
+class TestOptimizePlanExtendedSafety(unittest.TestCase):
+    """Расширенный план: дополнительные ОС-шаги, БЕЗ небезопасных действий."""
+
+    def _setup_home(self):
+        home = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, home, ignore_errors=True)
+        cache = os.path.join(home, "cache")
+        os.makedirs(cache)
+        with open(os.path.join(cache, "c.bin"), "wb") as f:
+            f.write(b"c" * 2000)
+        return home, cache
+
+    def test_dry_run_no_unsafe_steps(self):
+        home, cache = self._setup_home()
+        orig_home, orig_targets = krylan.HOME, krylan.cleanup_targets
+        # детект/права делаем детерминированными, чтобы не зависеть от хоста
+        orig_media, orig_root = krylan.detect_media_type, krylan.has_root
+        krylan.HOME = home
+        krylan.cleanup_targets = lambda: [("AppCache", cache)]
+        krylan.detect_media_type = lambda: "SSD"
+        krylan.has_root = lambda: False
+        try:
+            plan = krylan.optimize_all_plan(dry=True)
+        finally:
+            (krylan.HOME, krylan.cleanup_targets,
+             krylan.detect_media_type, krylan.has_root) = (
+                orig_home, orig_targets, orig_media, orig_root)
+        blob = " ".join(plan["steps"] + plan["skipped"]).lower()
+        # НЕТ небезопасных операций: дефраг SSD, очистка Корзины, реестр, службы
+        self.assertNotIn("/o", " ".join(plan["steps"]).lower())  # SSD не дефрагментируется
+        # перемещение В Корзину безопасно; запрещены: очистка Корзины, реестр, службы
+        for forbidden in ("очистить корзин", "очистка корзин", "empty trash",
+                          "реестр", "registry", "остановить служб", "stop service"):
+            self.assertNotIn(forbidden, blob, f"небезопасный шаг: {forbidden}")
+        # план структурирован
+        self.assertIn("media_type", plan["details"])
+        self.assertIsInstance(plan["skipped"], list)
+
+    def test_dry_run_does_not_delete(self):
+        home, cache = self._setup_home()
+        orig_home, orig_targets = krylan.HOME, krylan.cleanup_targets
+        orig_media, orig_root = krylan.detect_media_type, krylan.has_root
+        krylan.HOME = home
+        krylan.cleanup_targets = lambda: [("AppCache", cache)]
+        krylan.detect_media_type = lambda: None
+        krylan.has_root = lambda: False
+        try:
+            krylan.optimize_all_plan(dry=True)
+        finally:
+            (krylan.HOME, krylan.cleanup_targets,
+             krylan.detect_media_type, krylan.has_root) = (
+                orig_home, orig_targets, orig_media, orig_root)
+        self.assertTrue(os.path.exists(os.path.join(cache, "c.bin")))
 
 
 if __name__ == "__main__":

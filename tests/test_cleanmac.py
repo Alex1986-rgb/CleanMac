@@ -409,13 +409,27 @@ class TestOptimizePlan(unittest.TestCase):
     def test_keys_and_order(self):
         keys = [k for k, _ in cm.optimize_plan()]
         self.assertEqual(keys, ["caches", "syscache", "snapshots", "memory",
-                                "emptydirs", "broken", "orphans", "dns"])
+                                "emptydirs", "broken", "orphans", "brewcleanup",
+                                "launchsvc", "dockicons", "dns", "trim"])
 
     def test_no_unsafe_steps(self):
-        # план НЕ содержит удаления дублей/крупных/приложений/очистки Корзины
+        # план НЕ содержит удаления дублей/крупных/приложений/очистки Корзины,
+        # ни опасных авто-операций (sudo periodic, переиндексация Spotlight, дефрагментация)
         keys = {k for k, _ in cm.optimize_plan()}
-        for bad in ("dupes", "large", "uninstall", "trash", "shred"):
+        for bad in ("dupes", "large", "uninstall", "trash", "shred",
+                    "periodic", "mdutil", "reindex", "defrag", "disable"):
             self.assertNotIn(bad, keys)
+
+    def test_safe_new_steps_present(self):
+        # новые безопасные шаги ускорения присутствуют в авто-наборе
+        keys = {k for k, _ in cm.optimize_plan()}
+        for good in ("brewcleanup", "launchsvc", "dockicons", "trim"):
+            self.assertIn(good, keys)
+
+    def test_trim_is_last_informational(self):
+        # информационная пометка про SSD/TRIM идёт последней (самодиагностика)
+        keys = [k for k, _ in cm.optimize_plan()]
+        self.assertEqual(keys[-1], "trim")
 
     def test_labels_nonempty(self):
         for k, label in cm.optimize_plan():

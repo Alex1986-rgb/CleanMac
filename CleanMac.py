@@ -565,14 +565,18 @@ def find_broken_files(bases=None, max_per_base=4000):
 # Каждый элемент — (ключ, человекочитаемая подпись). Чистые данные → тестируется,
 # а воркер просто исполняет их по очереди и шлёт прогресс в UI-поток.
 OPTIMIZE_STEPS = [
-    ("caches",    "🧽 Кэши и логи приложений → Корзина"),
-    ("syscache",  "👁 Системные кэши · Quick Look · кэш шрифтов"),
-    ("snapshots", "🧊 Локальные снимки APFS (очищаемое место)"),
-    ("memory",    "⚡️ Разгрузка памяти (purge)"),
-    ("emptydirs", "📂 Пустые папки → Корзина"),
-    ("broken",    "🧩 Битые и нулевые файлы → Корзина"),
-    ("orphans",   "🧹 Остатки удалённых приложений → Корзина"),
-    ("dns",       "🌐 Сброс кэша DNS"),
+    ("caches",      "🧽 Кэши и логи приложений → Корзина"),
+    ("syscache",    "👁 Системные кэши · Quick Look · кэш шрифтов"),
+    ("snapshots",   "🧊 Локальные снимки APFS (очищаемое место)"),
+    ("memory",      "⚡️ Разгрузка памяти (purge)"),
+    ("emptydirs",   "📂 Пустые папки → Корзина"),
+    ("broken",      "🧩 Битые и нулевые файлы → Корзина"),
+    ("orphans",     "🧹 Остатки удалённых приложений → Корзина"),
+    ("brewcleanup", "🍺 Homebrew: чистка старых версий формул"),
+    ("launchsvc",   "🗂 Перестройка БД Launch Services («Открыть с помощью»)"),
+    ("dockicons",   "🚀 Сброс кэша иконок · перезапуск Dock"),
+    ("dns",         "🌐 Сброс кэша DNS"),
+    ("trim",        "💽 SSD/TRIM: обслуживается системой автоматически"),
 ]
 
 def optimize_plan():
@@ -1489,7 +1493,7 @@ class CleanMac(tk.Tk):
         self.q.put(("optprog", (idx, total, label, detail), None))
 
     def _optimize_all_w(self):
-        steps = optimize_plan(); n = len(steps); done = []; freed = 0
+        steps = optimize_plan(); n = len(steps); done = []; skipped = []; freed = 0
         for i, (key, label) in enumerate(steps, 1):
             self._opt_progress(i, n, label)
             try:
@@ -1549,9 +1553,47 @@ class CleanMac(tk.Tk):
                     freed += got
                     done.append(f"{label}: {human(got)}")
 
+                elif key == "brewcleanup":
+                    # Чистит старые версии формул и кэш загрузок Homebrew → реально освобождает место.
+                    brew = brew_path()
+                    if not brew:
+                        skipped.append(f"{label}: Homebrew не установлен")
+                    else:
+                        before = 0
+                        try: before = shutil.disk_usage(HOME).free
+                        except Exception: pass
+                        run([brew, "cleanup", "-s", "--prune=all"], 180)
+                        got = 0
+                        try: got = max(0, shutil.disk_usage(HOME).free - before)
+                        except Exception: pass
+                        freed += got
+                        done.append(f"{label}: {human(got)}" if got else label)
+
+                elif key == "launchsvc":
+                    # Перестраивает БД Launch Services: убирает дубли в «Открыть с помощью». Без sudo.
+                    lsreg = ("/System/Library/Frameworks/CoreServices.framework/"
+                             "Versions/A/Frameworks/LaunchServices.framework/"
+                             "Versions/A/Support/lsregister")
+                    if os.path.exists(lsreg):
+                        run([lsreg, "-kill", "-r", "-domain", "local",
+                             "-domain", "system", "-domain", "user"], 120)
+                        done.append(label)
+                    else:
+                        skipped.append(f"{label}: lsregister недоступен в этой системе")
+
+                elif key == "dockicons":
+                    # Перезапуск Dock сбрасывает кэш иконок Dock. Безопасно, Dock сам поднимется.
+                    run(["killall", "Dock"], 15)
+                    done.append(label)
+
                 elif key == "dns":
                     run(["/bin/bash", "-c", "dscacheutil -flushcache; killall -HUP mDNSResponder"], 30)
                     done.append(label)
+
+                elif key == "trim":
+                    # Информационный шаг: на macOS TRIM для SSD включён системой автоматически.
+                    # Дефрагментация APFS/SSD НЕ нужна и вредна — ничего не делаем.
+                    done.append("💽 SSD обслуживается системой (TRIM авто) — действий не требуется")
             except Exception:
                 pass  # один сбойный шаг не должен валить всю оптимизацию
 
@@ -1561,7 +1603,8 @@ class CleanMac(tk.Tk):
 
         record_cleanup(freed, "magic")
         self._optimizing = False
-        self.q.put(("optimized_all", {"freed": freed, "steps": done, "review": review}, None))
+        self.q.put(("optimized_all", {"freed": freed, "steps": done,
+                                       "skipped": skipped, "review": review}, None))
 
     def _optimize_scan_review(self):
         """Безопасный обзор пользовательских данных для ревью (НЕ удаляет).
@@ -1625,7 +1668,8 @@ class CleanMac(tk.Tk):
     def _render_optimize_summary(self, res):
         """Финальная сводка волшебной кнопки: освобождено X, шагов N,
         + найденные категории для ревью со ссылками на инструменты."""
-        freed = res.get("freed", 0); steps = res.get("steps", []); review = res.get("review", [])
+        freed = res.get("freed", 0); steps = res.get("steps", [])
+        skipped = res.get("skipped", []); review = res.get("review", [])
         try: self.magic_btn.configure(text="  ✓ Оптимизировано  ")
         except Exception: pass
         self.after(2400, lambda: self.magic_btn.configure(text="  ✨ Оптимизировать  ")
@@ -1640,10 +1684,20 @@ class CleanMac(tk.Tk):
                  font=("SF Pro Display", 18, "bold")).pack(anchor="w", padx=22, pady=(18,2))
         tk.Label(win, text=f"Освобождено ~{human(freed)} · выполнено шагов: {len(steps)}",
                  bg=BG0, fg=TEXT, font=("SF Pro Text", 12)).pack(anchor="w", padx=22, pady=(0,10))
+        tk.Label(win, text="Выполнено на этом Mac:", bg=BG0, fg=TEXT,
+                 font=("SF Pro Text", 11, "bold")).pack(anchor="w", padx=22, pady=(2,4))
         card=tk.Frame(win, bg=GLASS); card.pack(fill="x", padx=18, pady=4)
         for s in steps:
             tk.Label(card, text="• "+s, bg=GLASS, fg=TEXT, font=("SF Pro Text", 11),
                      anchor="w", justify="left", wraplength=460).pack(anchor="w", padx=14, pady=2)
+        # Прозрачность: что неприменимо к этому устройству и почему.
+        if skipped:
+            tk.Label(win, text="Пропущено (неприменимо на этом Mac):", bg=BG0, fg=MUTED,
+                     font=("SF Pro Text", 11, "bold")).pack(anchor="w", padx=22, pady=(12,4))
+            sc=tk.Frame(win, bg=GLASS); sc.pack(fill="x", padx=18, pady=4)
+            for s in skipped:
+                tk.Label(sc, text="– "+s, bg=GLASS, fg=MUTED, font=("SF Pro Text", 11),
+                         anchor="w", justify="left", wraplength=460).pack(anchor="w", padx=14, pady=2)
         if review:
             tk.Label(win, text="По всем параметрам — найдено для вашего ревью (не удалено):",
                      bg=BG0, fg=MUTED, font=("SF Pro Text", 11, "bold")).pack(anchor="w", padx=22, pady=(12,4))
