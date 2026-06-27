@@ -15,7 +15,7 @@
 > **Только безопасное.** Без чистки реестра, без дефрага SSD, без fake-booster и обещаний «ускорим в 10 раз».
 > Любое удаление — обратимо (Корзина / undo). Системное под защитой — решаешь ты.
 
-![version](https://img.shields.io/badge/version-2.42.2-37d39a)
+![version](https://img.shields.io/badge/version-2.43.0-37d39a)
 ![platform](https://img.shields.io/badge/macOS-11%2B-blue)
 ![license](https://img.shields.io/badge/license-MIT-purple)
 
