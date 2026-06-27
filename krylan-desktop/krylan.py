@@ -7,7 +7,7 @@ KRYLAN Desktop — кросс-платформенный оптимизатор:
 """
 import os, sys, platform, threading, queue, math, hashlib, json
 import tkinter as tk
-from tkinter import messagebox
+from tkinter import messagebox, filedialog
 import psutil
 from send2trash import send2trash
 
@@ -418,6 +418,20 @@ I18N = {
         "Used {pct}% · free {free} of {total}",
     "⚠️ Меньше 10% свободного места замедляет систему — освободите диск.":
         "⚠️ Less than 10% free space slows the system down — free up the disk.",
+    # --- 🔥 Шредер (безвозвратное затирание) ---
+    "🔥 Шредер": "🔥 Shredder",
+    "🔥  Шредер — безвозвратное затирание файлов":
+        "🔥  Shredder — permanent file wiping",
+    "Выберите файлы — KRYLAN перезапишет их случайными данными и удалит. Это НЕОБРАТИМО (не Корзина).":
+        "Pick files — KRYLAN overwrites them with random data and deletes them. This is IRREVERSIBLE (not Trash).",
+    "Файлы не выбраны.": "No files selected.",
+    "⚠️ БЕЗВОЗВРАТНО затереть и удалить {n} файл(ов)?\n\nЭто НЕЛЬЗЯ отменить — файлы НЕ попадут в Корзину, восстановить их будет невозможно.":
+        "⚠️ Permanently wipe and delete {n} file(s)?\n\nThis CANNOT be undone — files do NOT go to Trash and cannot be recovered.",
+    "🔥 Затираю файлы случайными данными…": "🔥 Wiping files with random data…",
+    "🔥  Шредер — готово": "🔥  Shredder — done",
+    "Затёрто и удалено безвозвратно: {n}": "Wiped and permanently deleted: {n}",
+    "Пропущено (защищено/недоступно): {n}": "Skipped (protected/unavailable): {n}",
+    "Безвозвратно затёрто: {n} файл(ов).": "Permanently wiped: {n} file(s).",
 }
 def L(s):
     if LANG == "en":
@@ -491,6 +505,49 @@ def safe_trash(path):
         return False
     try:
         send2trash(path); return True
+    except Exception:
+        return False
+
+# ---------- 🔥 Шредер: безвозвратное затирание файлов ----------
+def shred_file(path, passes=1):
+    """НЕОБРАТИМО затирает один обычный файл: перезаписывает его случайными
+    байтами `passes` раз (1–3), сбрасывает на диск (flush + os.fsync) после
+    каждого прохода и затем удаляет (os.remove). Возвращает True при успехе.
+
+    Защита (любой случай → False, цель НЕ трогаем):
+      • защищённый путь (is_protected: пусто/относительный/HOME/корень тома);
+      • не существует, не обычный файл (каталог), или это символическая ссылка
+        — по симлинку НЕ идём, чтобы не затереть его цель;
+      • любая ошибка ввода-вывода.
+
+    В отличие от Корзины (safe_trash) операция необратима — вызывать только
+    по явному запросу пользователя, НЕ в составе авто-оптимизации.
+    """
+    try:
+        passes = max(1, min(3, int(passes)))
+    except (TypeError, ValueError):
+        passes = 1
+    if is_protected(path):
+        return False
+    # симлинк — не следуем (os.path.islink истинен и для битых ссылок);
+    # затираем только реальные обычные файлы.
+    if os.path.islink(path) or not os.path.isfile(path):
+        return False
+    try:
+        size = os.path.getsize(path)
+        with open(path, "r+b", buffering=0) as f:
+            for _ in range(passes):
+                f.seek(0)
+                remaining = size
+                # пишем кусками, чтобы не держать большой файл целиком в памяти
+                while remaining > 0:
+                    chunk = min(remaining, 1024 * 1024)
+                    f.write(os.urandom(chunk))
+                    remaining -= chunk
+                f.flush()
+                os.fsync(f.fileno())
+        os.remove(path)
+        return True
     except Exception:
         return False
 
@@ -2239,6 +2296,7 @@ class Krylan(tk.Tk):
                          ("📂 Пустые папки", self.t_empty), ("🧩 Битые файлы", self.t_broken),
                          ("📈 Что выросло", self.t_growth),
                          ("🔒 Приватность", self.t_privacy), ("🧩 Расширения браузеров", self.t_extensions), ("🩺 Диск", self.t_smart),
+                         ("🔥 Шредер", self.t_shred),
                          ("🔄 Обновления", self.t_updates), ("📄 Отчёт", self.t_report)]:
             self._btn(bar, L(lbl), GLASS, cmd).pack(side="left", padx=4)
         self._dupe_extras = []
@@ -2597,6 +2655,42 @@ class Krylan(tk.Tk):
             if safe_trash(p): ok += 1
         messagebox.showinfo("KRYLAN", L("В Корзину: {n} файлов.").format(n=ok)); self.t_broken()
 
+    def t_shred(self):
+        # НЕОБРАТИМАЯ операция: только по явному выбору файлов пользователем.
+        # Шаг 1 — диалог выбора файлов; пустой выбор → выходим без действий.
+        paths = filedialog.askopenfilenames(title=L("🔥 Шредер"))
+        paths = [p for p in (paths or []) if p]
+        if not paths:
+            self._out(L("🔥  Шредер — безвозвратное затирание файлов") + "\n\n  " +
+                      L("Файлы не выбраны.") + "\n\n" +
+                      L("Выберите файлы — KRYLAN перезапишет их случайными данными и удалит. Это НЕОБРАТИМО (не Корзина)."))
+            return
+        # Шаг 2 — явное подтверждение со списком (последний шанс отменить).
+        preview = "\n".join("  • " + p.replace(HOME, "~") for p in paths[:20])
+        if len(paths) > 20:
+            preview += "\n  " + L("…и ещё {n}\n").format(n=len(paths) - 20)
+        if not messagebox.askyesno(
+                "KRYLAN",
+                L("⚠️ БЕЗВОЗВРАТНО затереть и удалить {n} файл(ов)?\n\nЭто НЕЛЬЗЯ отменить — файлы НЕ попадут в Корзину, восстановить их будет невозможно.").format(n=len(paths))
+                + "\n\n" + preview,
+                icon="warning", default="no"):
+            return
+        self._out(L("🔥 Затираю файлы случайными данными…"))
+        threading.Thread(target=self._shred_w, args=(list(paths),), daemon=True).start()
+
+    def _shred_w(self, paths):
+        ok = skipped = 0
+        for p in paths:
+            if shred_file(p, passes=1):
+                ok += 1
+            else:
+                skipped += 1
+        lines = [L("🔥  Шредер — готово") + "\n\n",
+                 "  " + L("Затёрто и удалено безвозвратно: {n}").format(n=ok) + "\n"]
+        if skipped:
+            lines.append("  " + L("Пропущено (защищено/недоступно): {n}").format(n=skipped) + "\n")
+        self.q.put(("shred", "".join(lines), ok))
+
     def t_smart(self):
         self._out(L("🩺 Читаю состояние диска…"))
         threading.Thread(target=lambda: self.q.put(("tout", disk_health_report(), None)), daemon=True).start()
@@ -2722,6 +2816,11 @@ class Krylan(tk.Tk):
                         if b:
                             self._btn(self.t_action, L("🧩 Удалить битые/пустые ({n})").format(n=len(b)), RED,
                                       lambda fs=b: self._broken_clean(fs)).pack(side="left", pady=4)
+                elif kind == "shred":
+                    if self.page == "tools":
+                        self._out(a)
+                        if a:  # a — текст отчёта; b — число затёртых файлов
+                            messagebox.showinfo("KRYLAN", L("Безвозвратно затёрто: {n} файл(ов).").format(n=b))
         except queue.Empty: pass
         except Exception: pass
         self.after(120, self._poll)

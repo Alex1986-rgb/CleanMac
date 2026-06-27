@@ -1173,5 +1173,97 @@ class TestOptimizePreview(unittest.TestCase):
         self.assertTrue(os.path.exists(os.path.join(ch, "x")))
 
 
+class TestShredFile(unittest.TestCase):
+    """shred_file: НЕОБРАТИМОЕ затирание обычного файла (перезапись + удаление).
+    Защищает симлинки/каталоги/защищённые пути — их не трогает."""
+
+    def test_wipes_and_removes_real_file(self):
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        f = os.path.join(d, "secret.bin")
+        with open(f, "wb") as fh:
+            fh.write(b"sensitive-data" * 100)
+        self.assertTrue(krylan.shred_file(f))
+        # файл должен исчезнуть (не Корзина — безвозвратно)
+        self.assertFalse(os.path.exists(f))
+
+    def test_multiple_passes(self):
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        f = os.path.join(d, "multi.bin")
+        with open(f, "wb") as fh:
+            fh.write(b"x" * 5000)
+        self.assertTrue(krylan.shred_file(f, passes=3))
+        self.assertFalse(os.path.exists(f))
+
+    def test_empty_file_ok(self):
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        f = os.path.join(d, "zero.bin")
+        open(f, "w").close()
+        self.assertTrue(krylan.shred_file(f))
+        self.assertFalse(os.path.exists(f))
+
+    def test_missing_file_returns_false(self):
+        self.assertFalse(krylan.shred_file("/no/such/krylan/shred/target.bin"))
+
+    def test_directory_returns_false_and_intact(self):
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        sub = os.path.join(d, "adir")
+        os.makedirs(sub)
+        with open(os.path.join(sub, "keep.txt"), "wb") as fh:
+            fh.write(b"keep")
+        # каталог не затирается → False, содержимое цело
+        self.assertFalse(krylan.shred_file(sub))
+        self.assertTrue(os.path.isdir(sub))
+        self.assertTrue(os.path.isfile(os.path.join(sub, "keep.txt")))
+
+    def test_symlink_not_followed_target_intact(self):
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        target = os.path.join(d, "real.bin")
+        payload = b"do-not-touch" * 50
+        with open(target, "wb") as fh:
+            fh.write(payload)
+        link = os.path.join(d, "link.bin")
+        os.symlink(target, link)
+        # по симлинку не идём → False, и ни ссылка, ни цель не затёрты
+        self.assertFalse(krylan.shred_file(link))
+        self.assertTrue(os.path.islink(link))
+        self.assertTrue(os.path.isfile(target))
+        with open(target, "rb") as fh:
+            self.assertEqual(fh.read(), payload)   # цель не повреждена
+
+    def test_protected_path_refused(self):
+        orig = krylan.HOME
+        home = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, home, ignore_errors=True)
+        krylan.HOME = home
+        try:
+            # сам HOME и стандартные папки — защищены, shred их не трогает
+            self.assertFalse(krylan.shred_file(home))
+            dl = os.path.join(home, "Downloads")
+            os.makedirs(dl)
+            self.assertFalse(krylan.shred_file(dl))
+            self.assertTrue(os.path.isdir(dl), "защищённая папка должна остаться")
+            # относительный/пустой путь — тоже защищён
+            self.assertFalse(krylan.shred_file(""))
+            self.assertFalse(krylan.shred_file("relative/file.bin"))
+        finally:
+            krylan.HOME = orig
+
+    def test_passes_clamped(self):
+        # passes вне диапазона не должен ронять функцию; файл затирается
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        for passes in (0, -5, 99, "bad"):
+            f = os.path.join(d, f"p_{passes}.bin")
+            with open(f, "wb") as fh:
+                fh.write(b"data")
+            self.assertTrue(krylan.shred_file(f, passes=passes))
+            self.assertFalse(os.path.exists(f))
+
+
 if __name__ == "__main__":
     unittest.main()

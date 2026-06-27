@@ -167,6 +167,18 @@ TR = {
     "Расширения не найдены (браузеры Chromium не установлены или нет профилей).":
         "No extensions found (Chromium browsers are not installed or have no profiles).",
     "Всего расширений: ":"Total extensions: ",
+    "Вложения Почты":"Mail Attachments",
+    "Найдено":"Found",
+    "  Крупных вложений не найдено.":"  No large attachments found.",
+    "Крупные вложения Apple Mail (> 5 МБ). Сами письма не удаляются; "
+    "на IMAP вложение можно скачать заново.":
+        "Large Apple Mail attachments (> 5 MB). The emails themselves are not "
+        "deleted; on IMAP an attachment can be downloaded again.",
+    "Крупные вложения Apple Mail (> 5 МБ). Отметьте лишние → в Корзину. "
+    "Сами письма не удаляются; на IMAP вложение можно скачать заново.":
+        "Large Apple Mail attachments (> 5 MB). Check unneeded ones → Trash. "
+        "The emails themselves are not deleted; on IMAP an attachment can be "
+        "downloaded again.",
 }
 def L(s):
     return TR.get(s, s) if LANG=="en" else s
@@ -357,6 +369,51 @@ def scan_old_downloads(base, min_days=90, top=200, now=None):
                 out.append((st.st_size, fp, int(age_sec / 86400)))
             except OSError:
                 pass
+    out.sort(reverse=True)
+    return out[:top] if top else out
+
+
+def scan_mail_attachments(bases, min_mb=5, top=200):
+    """Крупные файлы-вложения Apple Mail в указанных базовых каталогах.
+
+    ``bases`` — список путей (обычно «Mail Downloads» и ~/Library/Mail).
+    Возвращает отсортированный по убыванию размера список кортежей
+    ``(size, path)`` для обычных файлов крупнее ``min_mb`` МБ.
+
+    Чистая ФС-функция (без subprocess/GUI) — тестируется на temp-дереве.
+
+    Безопасность (важно: сами письма не удаляются, на IMAP вложение можно
+    скачать заново):
+      * НЕ переходит по симлинкам-каталогам и НЕ считает симлинки-файлы
+        (их размер обманчив, а удалять чужую цель нельзя);
+      * пропускает защищённые/системные пути (``is_protected``);
+      * каталоги не возвращаются — только обычные файлы, чтобы удаление в
+        Корзину било точечно по конкретным вложениям.
+    """
+    cutoff = float(min_mb) * 1024 * 1024
+    out, seen = [], set()
+    for base in (bases or []):
+        if not base or not os.path.isdir(base) or os.path.islink(base):
+            continue
+        for root, dirs, files in os.walk(base, topdown=True, followlinks=False):
+            # не уходим в симлинки-каталоги
+            dirs[:] = [d for d in dirs if not os.path.islink(os.path.join(root, d))]
+            for f in files:
+                fp = os.path.join(root, f)
+                try:
+                    if os.path.islink(fp):           # симлинк-файл не трогаем
+                        continue
+                    st = os.lstat(fp)
+                    if st.st_size < cutoff:
+                        continue
+                    if is_protected(fp):             # страховка от системных путей
+                        continue
+                    if fp in seen:                   # базы могут перекрываться
+                        continue
+                    seen.add(fp)
+                    out.append((st.st_size, fp))
+                except OSError:
+                    pass
     out.sort(reverse=True)
     return out[:top] if top else out
 
@@ -2033,7 +2090,7 @@ class CleanMac(tk.Tk):
                  ).pack(anchor="w", padx=24, pady=(16,8))
         self.tool_chips={}
         chips=[("startup","⚙️ Автозагрузка"),("large","📦 Крупные файлы"),
-               ("olddl","🕒 Старые загрузки"),
+               ("olddl","🕒 Старые загрузки"),("mailatt","📧 Вложения Почты"),
                ("dupes","👯 Дубликаты"),("uninstall","🧩 Деинсталлятор"),
                ("disk","🗺 Карта диска"),("maintain","🩺 Обслуживание"),
                ("shots","📸 Скриншоты"),("shred","🔥 Шредер"),
@@ -2060,7 +2117,7 @@ class CleanMac(tk.Tk):
         for k,b in self.tool_chips.items(): b.configure(bg=(BLUE if k==key else GLASS), fg=("white" if k==key else TEXT))
         for w in self.tpanel.winfo_children(): w.destroy()
         self._lv=[]
-        {"startup":self._t_startup,"large":self._t_large,"olddl":self._t_olddl,"dupes":self._t_dupes,
+        {"startup":self._t_startup,"large":self._t_large,"olddl":self._t_olddl,"mailatt":self._t_mailatt,"dupes":self._t_dupes,
          "uninstall":self._t_uninstall,"disk":self._t_disk,"maintain":self._t_maintain,
          "shots":self._t_shots,"shred":self._t_shred,"updater":self._t_updater,
          "leftovers":self._t_leftovers,"history":self._t_history,
@@ -2221,6 +2278,41 @@ class CleanMac(tk.Tk):
             tk.Label(inner, text="  Старых загрузок не найдено.", bg=GLASS, fg=MUTED).pack(anchor="w", padx=8, pady=8)
         self._actionbar(f"Найдено: {len(rows)} (~{human(sum(s for s,_,_ in rows))})",
                         lambda: self._trash_sel(lambda: self._tool('olddl')))
+
+    # --- Вложения Почты ---
+    @staticmethod
+    def _mail_bases():
+        """Каталоги Apple Mail с файлами-вложениями (загрузки + хранилища V*)."""
+        return [
+            os.path.join(HOME, "Library/Containers/com.apple.mail/Data/Library/Mail Downloads"),
+            os.path.join(HOME, "Library/Mail"),
+        ]
+
+    def _t_mailatt(self):
+        self._ptitle(L("Вложения Почты"),
+                     L("Крупные вложения Apple Mail (> 5 МБ). Сами письма не удаляются; "
+                       "на IMAP вложение можно скачать заново."))
+        tk.Label(self.tpanel, text=L("🔎 Сканирую…"), bg=BG0, fg=MUTED,
+                 font=("SF Pro Text",11)).pack(anchor="w")
+        threading.Thread(target=self._mailatt_w, daemon=True).start()
+
+    def _mailatt_w(self):
+        rows = scan_mail_attachments(self._mail_bases(), min_mb=5, top=200)
+        self.q.put(("tool", ("mailatt", rows), None))
+
+    def _render_mailatt(self, rows):
+        for w in self.tpanel.winfo_children(): w.destroy()
+        self._lv = []
+        self._ptitle(L("Вложения Почты"),
+                     L("Крупные вложения Apple Mail (> 5 МБ). Отметьте лишние → в Корзину. "
+                       "Сами письма не удаляются; на IMAP вложение можно скачать заново."))
+        inner = self._scrollarea()
+        for s, fp in rows:
+            self._checkrow(inner, fp, fp.replace(HOME, "~"), s)
+        if not rows:
+            tk.Label(inner, text=L("  Крупных вложений не найдено."), bg=GLASS, fg=MUTED).pack(anchor="w", padx=8, pady=8)
+        self._actionbar(f"{L('Найдено')}: {len(rows)} (~{human(sum(s for s,_ in rows))})",
+                        lambda: self._trash_sel(lambda: self._tool('mailatt')))
 
     # --- Дубликаты ---
     def _t_dupes(self):
@@ -3164,6 +3256,7 @@ class CleanMac(tk.Tk):
                     sub,data=a
                     if sub=="large": self._render_large(data)
                     elif sub=="olddl": self._render_olddl(data)
+                    elif sub=="mailatt": self._render_mailatt(data)
                     elif sub=="dupes": self._render_dupes(data)
                     elif sub=="extensions": self._render_extensions(data)
                 elif kind=="disk" and self.page=="tools": self._render_disk(a)

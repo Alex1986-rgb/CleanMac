@@ -108,6 +108,19 @@ object MediaStoreUtils {
                   selection = "${MediaStore.Files.FileColumns.DATA} LIKE ?",
                   selectionArgs = arrayOf("%/Download/%"))
 
+    /**
+     * Установочные .apk в общем хранилище — частый «забытый» мусор.
+     * Ищем по mime application/vnd.android.package-archive ИЛИ по имени *.apk
+     * (mime не всегда проиндексирован), по убыванию размера. Коллекция Files (external).
+     */
+    fun apkFiles(ctx: Context, limit: Int = 200): List<MediaFile> {
+        val sel = "${MediaStore.Files.FileColumns.MIME_TYPE} = ? OR " +
+            "${MediaStore.Files.FileColumns.DISPLAY_NAME} LIKE ?"
+        val args = arrayOf("application/vnd.android.package-archive", "%.apk")
+        return query(ctx, sort = "${MediaStore.Files.FileColumns.SIZE} DESC", limit = limit,
+                     selection = sel, selectionArgs = args)
+    }
+
     /** Группы дубликатов: одинаковые имя+размер, групп больше одной записи. */
     fun duplicateGroups(ctx: Context): List<List<MediaFile>> =
         query(ctx, sort = "${MediaStore.Files.FileColumns.SIZE} DESC", limit = 5000)

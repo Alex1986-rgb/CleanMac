@@ -627,6 +627,97 @@ class TestScanOldDownloads(unittest.TestCase):
         self.assertEqual([s for s, _, _ in res], [5000, 4000])
 
 
+class TestScanMailAttachments(unittest.TestCase):
+    """scan_mail_attachments: крупные файлы-вложения Apple Mail.
+    Чистая ФС-функция — без перехода по симлинкам, с пропуском защищённых путей."""
+
+    MB = 1024 * 1024
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _mkfile(self, rel, nbytes):
+        p = os.path.join(self.tmp, rel)
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, "wb") as f:
+            f.write(b"\0" * nbytes)
+        return p
+
+    def test_finds_big_skips_small(self):
+        big = self._mkfile("Attachments/1/big.pdf", 6 * self.MB)
+        small = self._mkfile("Attachments/2/small.pdf", 1 * self.MB)  # < порога
+        res = cm.scan_mail_attachments([self.tmp], min_mb=5, top=50)
+        paths = [p for _, p in res]
+        self.assertIn(big, paths)
+        self.assertNotIn(small, paths)
+        size, path = res[0]
+        self.assertEqual(path, big)
+        self.assertEqual(size, 6 * self.MB)
+
+    def test_sorted_by_size_desc(self):
+        self._mkfile("a.bin", 6 * self.MB)
+        self._mkfile("b.bin", 9 * self.MB)
+        self._mkfile("c.bin", 7 * self.MB)
+        res = cm.scan_mail_attachments([self.tmp], min_mb=5)
+        sizes = [s for s, _ in res]
+        self.assertEqual(sizes, sorted(sizes, reverse=True))
+        self.assertEqual(sizes, [9 * self.MB, 7 * self.MB, 6 * self.MB])
+
+    def test_symlink_file_skipped(self):
+        target = self._mkfile("real_big.bin", 8 * self.MB)
+        link = os.path.join(self.tmp, "link_big.bin")
+        try:
+            os.symlink(target, link)
+        except (OSError, NotImplementedError):
+            self.skipTest("симлинки недоступны")
+        res = cm.scan_mail_attachments([self.tmp], min_mb=5)
+        paths = [p for _, p in res]
+        self.assertIn(target, paths)
+        self.assertNotIn(link, paths)
+
+    def test_symlink_dir_not_followed(self):
+        outside = tempfile.mkdtemp()
+        try:
+            big = os.path.join(outside, "outside_big.bin")
+            with open(big, "wb") as f:
+                f.write(b"\0" * (8 * self.MB))
+            link = os.path.join(self.tmp, "dirlink")
+            try:
+                os.symlink(outside, link)
+            except (OSError, NotImplementedError):
+                self.skipTest("симлинки недоступны")
+            res = cm.scan_mail_attachments([self.tmp], min_mb=5)
+            paths = [p for _, p in res]
+            self.assertFalse(any(p.startswith(link) for p in paths))
+            self.assertNotIn(big, paths)
+        finally:
+            import shutil
+            shutil.rmtree(outside, ignore_errors=True)
+
+    def test_multiple_bases_no_duplicates(self):
+        # одна и та же база указана дважды — файл не должен дублироваться
+        big = self._mkfile("dup_big.bin", 6 * self.MB)
+        res = cm.scan_mail_attachments([self.tmp, self.tmp], min_mb=5)
+        paths = [p for _, p in res]
+        self.assertEqual(paths.count(big), 1)
+
+    def test_missing_and_empty_bases(self):
+        self.assertEqual(cm.scan_mail_attachments([os.path.join(self.tmp, "nope")]), [])
+        self.assertEqual(cm.scan_mail_attachments([]), [])
+        self.assertEqual(cm.scan_mail_attachments([""]), [])
+
+    def test_top_limit(self):
+        for i in range(5):
+            self._mkfile(f"f{i}.bin", (6 + i) * self.MB)
+        res = cm.scan_mail_attachments([self.tmp], min_mb=5, top=2)
+        self.assertEqual(len(res), 2)
+        self.assertEqual([s for s, _ in res], [10 * self.MB, 9 * self.MB])
+
+
 class TestParseChromiumExtension(unittest.TestCase):
     def test_plain_name(self):
         self.assertEqual(cm.parse_chromium_extension({"name": "uBlock Origin"}),

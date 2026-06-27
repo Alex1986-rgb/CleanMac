@@ -207,7 +207,7 @@ private sealed interface PendingOp {
 @Composable
 fun MediaHubScreen(ctx: Context) {
     var tab by remember { mutableIntStateOf(0) }
-    val titles = listOf("Крупные", "Видео", "Дубли", "Скриншоты", "Загрузки", "Мессенджеры")
+    val titles = listOf("Крупные", "Видео", "Дубли", "Скриншоты", "Загрузки", "Мессенджеры", "APK")
     Column(Modifier.fillMaxSize().background(Brand.bg0)) {
         Row(
             Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp)
@@ -233,7 +233,8 @@ fun MediaHubScreen(ctx: Context) {
             2 -> DuplicatesScreen(ctx)
             3 -> GenericMediaScreen(ctx, "Скриншоты") { MediaStoreUtils.screenshots(it) }
             4 -> GenericMediaScreen(ctx, "Загрузки") { MediaStoreUtils.downloads(it) }
-            else -> GenericMediaScreen(ctx, "Медиа мессенджеров") { MediaStoreUtils.messengerMedia(it) }
+            5 -> GenericMediaScreen(ctx, "Медиа мессенджеров") { MediaStoreUtils.messengerMedia(it) }
+            else -> GenericMediaScreen(ctx, "APK") { MediaStoreUtils.apkFiles(it) }
         }
     }
 }
