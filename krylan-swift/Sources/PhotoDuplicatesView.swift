@@ -52,48 +52,60 @@ final class PhotoScanner: ObservableObject {
     private func runExact() {
         scanning = true
         status = "Сканирую медиатеку…"
-        let assets = PHAsset.fetchAssets(with: .image, options: nil)
-        // Кандидаты в дубликаты: совпадают размеры и дата съёмки (упрощённая эвристика).
-        var buckets: [String: [PHAsset]] = [:]
-        assets.enumerateObjects { a, _, _ in
-            let key = "\(a.pixelWidth)x\(a.pixelHeight)-\(Int(a.creationDate?.timeIntervalSince1970 ?? 0))"
-            buckets[key, default: []].append(a)
+        // Тяжёлый перебор всей медиатеки — вне главного потока, чтобы не блокировать UI.
+        Task.detached(priority: .userInitiated) {
+            let assets = PHAsset.fetchAssets(with: .image, options: nil)
+            // Кандидаты в дубликаты: совпадают размеры и дата съёмки (упрощённая эвристика).
+            var buckets: [String: [PHAsset]] = [:]
+            assets.enumerateObjects { a, _, _ in
+                let key = "\(a.pixelWidth)x\(a.pixelHeight)-\(Int(a.creationDate?.timeIntervalSince1970 ?? 0))"
+                buckets[key, default: []].append(a)
+            }
+            let groups = buckets.values.filter { $0.count > 1 }
+                .map { DupGroup(assets: $0) }
+                .sorted { $0.assets.count > $1.assets.count }
+            await MainActor.run {
+                self.groups = groups
+                self.scanning = false
+                self.status = groups.isEmpty ? "Дубликатов не найдено"
+                    : "Похожих групп: \(groups.count), лишних снимков: \(self.extraCount)"
+            }
         }
-        groups = buckets.values.filter { $0.count > 1 }
-            .map { DupGroup(assets: $0) }
-            .sorted { $0.assets.count > $1.assets.count }
-        scanning = false
-        status = groups.isEmpty ? "Дубликатов не найдено"
-                                : "Похожих групп: \(groups.count), лишних снимков: \(extraCount)"
     }
 
     /// Серии: кадры подряд с паузой ≤10 с и одинаковым разрешением, от 3 штук.
     private func runSeries() {
         scanning = true
         status = "Ищу серии снимков…"
-        let opts = PHFetchOptions()
-        opts.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: true)]
-        let assets = PHAsset.fetchAssets(with: .image, options: opts)
-        var all: [PHAsset] = []
-        assets.enumerateObjects { a, _, _ in all.append(a) }
-        var found: [[PHAsset]] = []
-        var cur: [PHAsset] = []
-        for a in all {
-            if let last = cur.last, let d1 = last.creationDate, let d2 = a.creationDate,
-               d2.timeIntervalSince(d1) <= 10,
-               a.pixelWidth == last.pixelWidth, a.pixelHeight == last.pixelHeight {
-                cur.append(a)
-            } else {
-                if cur.count >= 3 { found.append(cur) }
-                cur = [a]
+        // Тяжёлый перебор всей медиатеки — вне главного потока.
+        Task.detached(priority: .userInitiated) {
+            let opts = PHFetchOptions()
+            opts.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: true)]
+            let assets = PHAsset.fetchAssets(with: .image, options: opts)
+            var all: [PHAsset] = []
+            assets.enumerateObjects { a, _, _ in all.append(a) }
+            var found: [[PHAsset]] = []
+            var cur: [PHAsset] = []
+            for a in all {
+                if let last = cur.last, let d1 = last.creationDate, let d2 = a.creationDate,
+                   d2.timeIntervalSince(d1) <= 10,
+                   a.pixelWidth == last.pixelWidth, a.pixelHeight == last.pixelHeight {
+                    cur.append(a)
+                } else {
+                    if cur.count >= 3 { found.append(cur) }
+                    cur = [a]
+                }
+            }
+            if cur.count >= 3 { found.append(cur) }
+            let groups = found.map { DupGroup(assets: $0) }
+                .sorted { $0.assets.count > $1.assets.count }
+            await MainActor.run {
+                self.groups = groups
+                self.scanning = false
+                self.status = groups.isEmpty ? "Серий не найдено"
+                    : "Серий: \(groups.count), лишних кадров: \(self.extraCount)"
             }
         }
-        if cur.count >= 3 { found.append(cur) }
-        groups = found.map { DupGroup(assets: $0) }
-            .sorted { $0.assets.count > $1.assets.count }
-        scanning = false
-        status = groups.isEmpty ? "Серий не найдено"
-                                : "Серий: \(groups.count), лишних кадров: \(extraCount)"
     }
 
     /// Размытые: оценка резкости по вариации Лапласиана миниатюры (меньше — размытее).
@@ -149,18 +161,24 @@ final class PhotoScanner: ObservableObject {
     private func runLive() {
         scanning = true
         status = "Ищу Live Photos…"
-        let opts = PHFetchOptions()
-        opts.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
-        opts.fetchLimit = 1000   // ограничиваем для производительности
-        let fetch = PHAsset.fetchAssets(with: .image, options: opts)
-        var liveAssets: [PHAsset] = []
-        fetch.enumerateObjects { a, _, _ in
-            if a.mediaSubtypes.contains(.photoLive) { liveAssets.append(a) }
+        // Перебор медиатеки — вне главного потока.
+        Task.detached(priority: .userInitiated) {
+            let opts = PHFetchOptions()
+            opts.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
+            opts.fetchLimit = 1000   // ограничиваем для производительности
+            let fetch = PHAsset.fetchAssets(with: .image, options: opts)
+            var liveAssets: [PHAsset] = []
+            fetch.enumerateObjects { a, _, _ in
+                if a.mediaSubtypes.contains(.photoLive) { liveAssets.append(a) }
+            }
+            let groups = liveAssets.prefix(200).map { DupGroup(assets: [$0]) }
+            await MainActor.run {
+                self.groups = Array(groups)
+                self.scanning = false
+                self.status = groups.isEmpty ? "Live Photos не найдено"
+                    : "Live Photos: \(groups.count) (занимают ~2× места)"
+            }
         }
-        groups = liveAssets.prefix(200).map { DupGroup(assets: [$0]) }
-        scanning = false
-        status = groups.isEmpty ? "Live Photos не найдено"
-                                : "Live Photos: \(groups.count) (занимают ~2× места)"
     }
 
     /// Вариация Лапласиана grayscale-миниатюры (классический показатель резкости).

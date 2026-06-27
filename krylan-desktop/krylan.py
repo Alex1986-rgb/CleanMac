@@ -1342,9 +1342,17 @@ def schedule_status():
         return False
 
 def schedule_enable():
-    """Еженедельная авто-очистка кэшей (понедельник 12:00). Всё уходит в Корзину."""
+    """Еженедельная авто-очистка кэшей (понедельник 12:00). Всё уходит в Корзину.
+    Возвращает True при успехе. Отсутствие планировщика (crontab/launchctl/schtasks)
+    не должно ронять Tk-callback — глушим как и schedule_status()."""
     import subprocess
     cmd = _sched_cmd()
+    try:
+        return _schedule_enable_impl(subprocess, cmd)
+    except Exception:
+        return False
+
+def _schedule_enable_impl(subprocess, cmd):
     if SYSTEM == "Darwin":
         args = "".join(f"<string>{c}</string>" for c in cmd)
         plist = (f'<?xml version="1.0" encoding="UTF-8"?>\n'
@@ -1372,9 +1380,17 @@ def schedule_enable():
                         "/ST", "12:00", "/TN", "KRYLAN Clean",
                         "/TR", " ".join(f'"{c}"' for c in cmd)], capture_output=True,
                        stdin=subprocess.DEVNULL, **_no_window_kwargs())
+    return True
 
 def schedule_disable():
+    """Снять авто-очистку. Отсутствие планировщика не должно ронять Tk-callback."""
     import subprocess
+    try:
+        return _schedule_disable_impl(subprocess)
+    except Exception:
+        return False
+
+def _schedule_disable_impl(subprocess):
     if SYSTEM == "Darwin":
         path = os.path.join(HOME, "Library/LaunchAgents", SCHED_LABEL + ".plist")
         subprocess.run(["launchctl", "unload", path], capture_output=True)
@@ -1389,6 +1405,7 @@ def schedule_disable():
     else:
         subprocess.run(["schtasks", "/Delete", "/F", "/TN", "KRYLAN Clean"], capture_output=True,
                        stdin=subprocess.DEVNULL, **_no_window_kwargs())
+    return True
 
 
 class Krylan(tk.Tk):
@@ -1656,7 +1673,9 @@ class Krylan(tk.Tk):
         steps.append(L("⚡️ Готово — компьютер ускорен"))
         out = L("🚀  Готово! Компьютер ускорен.") + "\n\n" + "\n".join("  • "+s for s in steps)
         out += "\n\n  " + L("Освобождено всего: ~{size}").format(size=human(freed+purged)) + "\n  " + L("Всё обратимо — очищенное в Корзине. Без дефрага SSD.")
-        self.q.put(("tout", out, None))
+        # Boost запускается со страницы «scan» (через _sout), поэтому результат нужно
+        # слать тегом "scanout" — тег "tout" рендерится только на странице tools и был бы потерян.
+        self.q.put(("scanout", out, None))
 
     # ---------- ✨ «волшебная кнопка»: один клик — всё безопасное ----------
     def run_optimize(self):
@@ -2314,7 +2333,10 @@ class Krylan(tk.Tk):
                         self.opt_out.see("end"); self.opt_out.configure(state="disabled")
                 elif kind == "optdone":
                     if self.page == "dash" and hasattr(self, "opt_out") and self.opt_out.winfo_exists():
-                        self.opt_out.configure(state="normal"); self.opt_out.insert("end", "\n" + a)
+                        # summary самодостаточен (содержит все шаги/пропуски): заменяем
+                        # живой прогресс целиком, иначе шаги дублируются в логе.
+                        self.opt_out.configure(state="normal")
+                        self.opt_out.delete("1.0", "end"); self.opt_out.insert("end", a)
                         self.opt_out.see("end"); self.opt_out.configure(state="disabled")
                         for w in self.opt_action.winfo_children(): w.destroy()
                         rev = b or {}

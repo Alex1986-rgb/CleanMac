@@ -24,16 +24,23 @@ final class ScreenshotScanner: ObservableObject {
 
     private func run() {
         scanning = true
-        let opts = PHFetchOptions()
-        opts.predicate = NSPredicate(format: "(mediaSubtypes & %d) != 0",
-                                     PHAssetMediaSubtype.photoScreenshot.rawValue)
-        opts.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
-        let fetch = PHAsset.fetchAssets(with: .image, options: opts)
-        var arr: [PHAsset] = []
-        fetch.enumerateObjects { a, _, _ in arr.append(a) }
-        assets = arr; selected = []
-        scanning = false
-        status = arr.isEmpty ? "Скриншотов не найдено" : "Скриншотов: \(arr.count)"
+        status = "Сканирую медиатеку…"
+        // Тяжёлый перебор всей медиатеки — вне главного потока, чтобы не блокировать UI.
+        Task.detached(priority: .userInitiated) {
+            let opts = PHFetchOptions()
+            opts.predicate = NSPredicate(format: "(mediaSubtypes & %d) != 0",
+                                         PHAssetMediaSubtype.photoScreenshot.rawValue)
+            opts.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
+            let fetch = PHAsset.fetchAssets(with: .image, options: opts)
+            var arr: [PHAsset] = []
+            fetch.enumerateObjects { a, _, _ in arr.append(a) }
+            await MainActor.run {
+                self.assets = arr
+                self.selected = []
+                self.scanning = false
+                self.status = arr.isEmpty ? "Скриншотов не найдено" : "Скриншотов: \(arr.count)"
+            }
+        }
     }
 
     func toggle(_ a: PHAsset) {

@@ -64,7 +64,10 @@ final class OptimizeEngine: ObservableObject {
             // 1) Реальная очистка собственного кэша (.cachesDirectory).
             statusLine = "Очищаю кэш приложения…"
             progress = 0.1
-            result.cacheFreedBytes = cleanOwnCache()
+            // Файловый I/O — вне главного потока, чтобы не подвешивать UI.
+            result.cacheFreedBytes = await Task.detached(priority: .userInitiated) {
+                Self.cleanOwnCache()
+            }.value
             await tick(0.25)
 
             // 2) Запрашиваем доступ к фото (один раз на все фото-сканы).
@@ -126,8 +129,9 @@ final class OptimizeEngine: ObservableObject {
 
     // MARK: - Кэш (реально, как CacheCleaner.clean)
 
-    private func cleanOwnCache() -> Int64 {
-        guard let url = cachesURL else { return 0 }
+    nonisolated private static func cleanOwnCache() -> Int64 {
+        guard let url = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
+        else { return 0 }
         let before = CacheCleaner.dirSize(url)
         let fm = FileManager.default
         if let items = try? fm.contentsOfDirectory(at: url, includingPropertiesForKeys: nil) {

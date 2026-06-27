@@ -24,15 +24,21 @@ final class VideoScanner: ObservableObject {
 
     private func run() {
         scanning = true
-        let opts = PHFetchOptions()
-        opts.sortDescriptors = [NSSortDescriptor(key: "duration", ascending: false)]
-        opts.fetchLimit = 50
-        let fetch = PHAsset.fetchAssets(with: .video, options: opts)
-        var arr: [PHAsset] = []
-        fetch.enumerateObjects { a, _, _ in arr.append(a) }
-        videos = arr
-        scanning = false
-        status = arr.isEmpty ? "Видео не найдено" : "Самых длинных видео: \(arr.count)"
+        status = "Сканирую медиатеку…"
+        // Сортировка всей медиатеки по длительности — вне главного потока, чтобы не блокировать UI.
+        Task.detached(priority: .userInitiated) {
+            let opts = PHFetchOptions()
+            opts.sortDescriptors = [NSSortDescriptor(key: "duration", ascending: false)]
+            opts.fetchLimit = 50
+            let fetch = PHAsset.fetchAssets(with: .video, options: opts)
+            var arr: [PHAsset] = []
+            fetch.enumerateObjects { a, _, _ in arr.append(a) }
+            await MainActor.run {
+                self.videos = arr
+                self.scanning = false
+                self.status = arr.isEmpty ? "Видео не найдено" : "Самых длинных видео: \(arr.count)"
+            }
+        }
     }
 
     func delete(_ a: PHAsset) {

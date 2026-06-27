@@ -38,6 +38,8 @@ import com.krylan.app.MediaFile
 import com.krylan.app.MediaStoreUtils
 import com.krylan.app.SystemInfo
 import com.krylan.app.ui.Brand
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /** Запрашивает доступ к медиа; показывает content только после разрешения. */
 @Composable
@@ -229,9 +231,20 @@ fun MediaHubScreen(ctx: Context) {
 private fun GenericMediaScreen(ctx: Context, title: String, loader: (Context) -> List<MediaFile>) {
     MediaPermissionGate(ctx) {
         var reload by remember { mutableIntStateOf(0) }
-        val files = remember(reload, title) { loader(ctx) }
+        // null = идёт загрузка; иначе результат (возможно пустой).
+        var files by remember { mutableStateOf<List<MediaFile>?>(null) }
         val actions = rememberMediaActions(ctx) { reload++ }
-        val total = files.sumOf { it.size }
+
+        // Тяжёлый запрос MediaStore — в IO, чтобы не блокировать главный поток.
+        LaunchedEffect(reload, title) {
+            files = null
+            files = withContext(Dispatchers.IO) {
+                try { loader(ctx) } catch (e: Exception) { emptyList() }
+            }
+        }
+
+        val list = files
+        val total = list?.sumOf { it.size } ?: 0L
         // Действие на строке: безопасно — «В корзину» (API 30+), иначе «Удалить».
         val rowLabel = if (actions.supportsTrash) "В корзину" else "Удалить"
 
@@ -242,16 +255,22 @@ private fun GenericMediaScreen(ctx: Context, title: String, loader: (Context) ->
                 contentPadding = PaddingValues(20.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                item {
-                    Text("$title · ${files.size} · ${SystemInfo.fmtSize(total)}",
-                        color = Brand.muted, fontSize = 13.sp,
-                        modifier = Modifier.padding(bottom = 4.dp))
-                }
-                items(files, key = { it.id }) { f ->
-                    FileRow(f, actionLabel = rowLabel) { actions.remove(listOf(f)) }
-                }
-                if (files.isEmpty()) item {
-                    Text("Ничего не найдено.", color = Brand.muted, fontSize = 14.sp)
+                if (list == null) {
+                    item {
+                        Text("Загрузка…", color = Brand.muted, fontSize = 14.sp)
+                    }
+                } else {
+                    item {
+                        Text("$title · ${list.size} · ${SystemInfo.fmtSize(total)}",
+                            color = Brand.muted, fontSize = 13.sp,
+                            modifier = Modifier.padding(bottom = 4.dp))
+                    }
+                    items(list, key = { it.id }) { f ->
+                        FileRow(f, actionLabel = rowLabel) { actions.remove(listOf(f)) }
+                    }
+                    if (list.isEmpty()) item {
+                        Text("Ничего не найдено.", color = Brand.muted, fontSize = 14.sp)
+                    }
                 }
             }
         }
@@ -290,9 +309,20 @@ private fun TrashBanner(actions: MediaActions) {
 fun DuplicatesScreen(ctx: Context) {
     MediaPermissionGate(ctx) {
         var reload by remember { mutableIntStateOf(0) }
-        val groups = remember(reload) { MediaStoreUtils.duplicateGroups(ctx) }
+        // null = идёт скан (до 5000 строк MediaStore); иначе результат (возможно пустой).
+        var groups by remember { mutableStateOf<List<List<MediaFile>>?>(null) }
         val actions = rememberMediaActions(ctx) { reload++ }
-        val wastedBytes = groups.sumOf { g -> g.first().size * (g.size - 1) }
+
+        // Тяжёлый скан дубликатов — в IO, чтобы не блокировать главный поток.
+        LaunchedEffect(reload) {
+            groups = null
+            groups = withContext(Dispatchers.IO) {
+                try { MediaStoreUtils.duplicateGroups(ctx) } catch (e: Exception) { emptyList() }
+            }
+        }
+
+        val list = groups
+        val wastedBytes = list?.sumOf { g -> g.first().size * (g.size - 1) } ?: 0L
         val dupLabelPrefix = if (actions.supportsTrash) "В корзину лишние" else "Удалить лишние"
 
         Column(Modifier.fillMaxSize().background(Brand.bg0)) {
@@ -302,6 +332,11 @@ fun DuplicatesScreen(ctx: Context) {
                 contentPadding = PaddingValues(20.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
+            if (list == null) {
+                item {
+                    Text("Сканируем дубликаты…", color = Brand.muted, fontSize = 14.sp)
+                }
+            } else {
             item {
                 Card(
                     colors = CardDefaults.cardColors(containerColor = Brand.glass),
@@ -309,13 +344,13 @@ fun DuplicatesScreen(ctx: Context) {
                     modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp)
                 ) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text("Групп дубликатов: ${groups.size}", color = Brand.text, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                        Text("Групп дубликатов: ${list.size}", color = Brand.text, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                         Text("Можно освободить до ${SystemInfo.fmtSize(wastedBytes)}", color = Brand.green, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                     }
                 }
             }
-            items(groups.size) { i ->
-                val g = groups[i]
+            items(list.size) { i ->
+                val g = list[i]
                 Card(
                     colors = CardDefaults.cardColors(containerColor = Brand.glass),
                     shape = RoundedCornerShape(16.dp),
@@ -330,8 +365,9 @@ fun DuplicatesScreen(ctx: Context) {
                     }
                 }
             }
-            if (groups.isEmpty()) item {
+            if (list.isEmpty()) item {
                 Text("Дубликаты не найдены — отлично!", color = Brand.green, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            }
             }
             }
         }

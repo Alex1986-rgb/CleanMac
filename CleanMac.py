@@ -392,11 +392,14 @@ def is_protected(path):
     return rp in PROTECTED or rp == os.path.realpath(HOME) or len(rp.strip("/").split("/")) < 2
 
 def to_trash(path):
-    if not os.path.exists(path): return False
+    # lexists, а не exists: битый симлинк (цель отсутствует) тоже нужно уметь убрать
+    # в Корзину — иначе шаг «битые файлы» молча ничего не делает. shutil.move
+    # переносит сам симлинк, не следуя за ним.
+    if not os.path.lexists(path): return False
     if is_protected(path): return False          # страховка: не трогаем системные/корневые папки
     base = os.path.basename(path.rstrip("/")) or "item"
     dest = os.path.join(TRASH, base)
-    if os.path.exists(dest): dest = os.path.join(TRASH, f"{base}-{int(time.time()*1000)}")
+    if os.path.lexists(dest): dest = os.path.join(TRASH, f"{base}-{int(time.time()*1000)}")
     try: shutil.move(path, dest); return True
     except Exception: return False
 

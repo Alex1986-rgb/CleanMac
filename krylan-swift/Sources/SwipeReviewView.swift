@@ -47,15 +47,22 @@ final class SwipeReviewModel: ObservableObject {
 
     private func run() {
         loading = true; status = "Загружаю медиатеку…"
-        let opts = PHFetchOptions()
-        opts.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
-        opts.fetchLimit = 300
-        let fetch = PHAsset.fetchAssets(with: .image, options: opts)
-        var arr: [PHAsset] = []
-        fetch.enumerateObjects { a, _, _ in arr.append(a) }
-        assets = arr; index = 0; marked = []; finished = false
-        loading = false
-        status = arr.isEmpty ? "Нет фото для разбора" : "Свайпай: влево — удалить, вправо — оставить"
+        // Перебор медиатеки — вне главного потока, чтобы не блокировать UI.
+        Task.detached(priority: .userInitiated) {
+            let opts = PHFetchOptions()
+            opts.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
+            opts.fetchLimit = 300
+            let fetch = PHAsset.fetchAssets(with: .image, options: opts)
+            var collected: [PHAsset] = []
+            fetch.enumerateObjects { a, _, _ in collected.append(a) }
+            let arr = collected
+            await MainActor.run {
+                self.assets = arr; self.index = 0; self.marked = []; self.finished = false
+                self.loading = false
+                self.status = arr.isEmpty ? "Нет фото для разбора"
+                    : "Свайпай: влево — удалить, вправо — оставить"
+            }
+        }
     }
 
     func keep() { advance() }

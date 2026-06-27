@@ -31,7 +31,7 @@ final class CacheCleaner: ObservableObject {
         refresh()
     }
 
-    static func dirSize(_ url: URL) -> Int64 {
+    nonisolated static func dirSize(_ url: URL) -> Int64 {
         let fm = FileManager.default
         guard let en = fm.enumerator(at: url, includingPropertiesForKeys: [.fileSizeKey]) else { return 0 }
         var total: Int64 = 0

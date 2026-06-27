@@ -879,5 +879,34 @@ class TestDnsFlushWindows(unittest.TestCase):
         self.assertIn("flushdns", label)
 
 
+class TestScheduleNoScheduler(unittest.TestCase):
+    """Регрессия: если планировщик (crontab/launchctl/schtasks) отсутствует,
+    schedule_enable/disable не должны ронять Tk-callback FileNotFoundError —
+    обязаны вернуть False, а не выбросить исключение."""
+
+    def setUp(self):
+        import subprocess
+        self._sub = subprocess
+        self._orig_run = subprocess.run
+        # Linux-ветка вызывает subprocess.run сразу (без записи plist на диск),
+        # поэтому подмена SYSTEM избегает побочных эффектов на тест-машине.
+        self._orig_system = krylan.SYSTEM
+        krylan.SYSTEM = "Linux"
+
+        def boom(*a, **k):
+            raise FileNotFoundError("scheduler binary missing")
+        subprocess.run = boom
+
+    def tearDown(self):
+        self._sub.run = self._orig_run
+        krylan.SYSTEM = self._orig_system
+
+    def test_enable_does_not_raise(self):
+        self.assertFalse(krylan.schedule_enable())
+
+    def test_disable_does_not_raise(self):
+        self.assertFalse(krylan.schedule_disable())
+
+
 if __name__ == "__main__":
     unittest.main()

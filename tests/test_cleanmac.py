@@ -42,6 +42,27 @@ class TestProtection(unittest.TestCase):
     def test_to_trash_missing(self):
         self.assertFalse(cm.to_trash("/no/such/path/xyz"))
 
+    def test_to_trash_broken_symlink(self):
+        # Регрессия: битый симлинк (цель отсутствует) должен уезжать в Корзину.
+        # Раньше to_trash() использовал os.path.exists (следует за ссылкой) и
+        # для битого симлинка возвращал False → шаг «битые файлы» молча давал 0.
+        work = tempfile.mkdtemp()
+        trash = tempfile.mkdtemp()
+        old_trash = cm.TRASH
+        cm.TRASH = trash
+        try:
+            link = os.path.join(work, "broken-link")
+            os.symlink(os.path.join(work, "no-such-target"), link)
+            self.assertTrue(os.path.islink(link))
+            self.assertFalse(os.path.exists(link))   # битый
+            self.assertTrue(cm.to_trash(link), "битый симлинк должен переместиться в Корзину")
+            self.assertFalse(os.path.lexists(link), "симлинк должен исчезнуть из исходного места")
+            self.assertTrue(os.path.lexists(os.path.join(trash, "broken-link")))
+        finally:
+            cm.TRASH = old_trash
+            import shutil as _sh
+            _sh.rmtree(work, ignore_errors=True); _sh.rmtree(trash, ignore_errors=True)
+
 
 class TestLocalization(unittest.TestCase):
     def test_translation_dict(self):

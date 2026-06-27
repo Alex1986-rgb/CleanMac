@@ -33,43 +33,56 @@ final class ContactScanner: ObservableObject {
     private func run(_ store: CNContactStore) {
         scanning = true
         status = "Сканирую контакты…"
-        let keys = [CNContactGivenNameKey, CNContactFamilyNameKey,
-                    CNContactPhoneNumbersKey] as [CNKeyDescriptor]
-        let req = CNContactFetchRequest(keysToFetch: keys)
-        var byName: [String: (count: Int, phones: Set<String>)] = [:]
-        var incompleteList: [ContactGroup] = []
-        do {
-            try store.enumerateContacts(with: req) { c, _ in
-                let name = (c.givenName + " " + c.familyName)
-                    .trimmingCharacters(in: .whitespaces)
-                let phones = c.phoneNumbers.map { $0.value.stringValue }
-                if name.isEmpty && !phones.isEmpty {
-                    incompleteList.append(ContactGroup(name: "Без имени", count: 1,
-                                                       phones: phones, subtitle: "нет имени"))
-                } else if !name.isEmpty && phones.isEmpty {
-                    incompleteList.append(ContactGroup(name: name, count: 1,
-                                                       phones: [], subtitle: "нет номера"))
+        // Перебор всей адресной книги — вне главного потока.
+        Task.detached(priority: .userInitiated) {
+            let keys = [CNContactGivenNameKey, CNContactFamilyNameKey,
+                        CNContactPhoneNumbersKey] as [CNKeyDescriptor]
+            let req = CNContactFetchRequest(keysToFetch: keys)
+            var byName: [String: (count: Int, phones: Set<String>)] = [:]
+            var incompleteList: [ContactGroup] = []
+            var failed = false
+            do {
+                try store.enumerateContacts(with: req) { c, _ in
+                    let name = (c.givenName + " " + c.familyName)
+                        .trimmingCharacters(in: .whitespaces)
+                    let phones = c.phoneNumbers.map { $0.value.stringValue }
+                    if name.isEmpty && !phones.isEmpty {
+                        incompleteList.append(ContactGroup(name: "Без имени", count: 1,
+                                                           phones: phones, subtitle: "нет имени"))
+                    } else if !name.isEmpty && phones.isEmpty {
+                        incompleteList.append(ContactGroup(name: name, count: 1,
+                                                           phones: [], subtitle: "нет номера"))
+                    }
+                    guard !name.isEmpty else { return }
+                    let key = name.lowercased()
+                    var entry = byName[key] ?? (0, [])
+                    entry.count += 1
+                    phones.forEach { entry.phones.insert($0) }
+                    byName[key] = entry
                 }
-                guard !name.isEmpty else { return }
-                let key = name.lowercased()
-                var entry = byName[key] ?? (0, [])
-                entry.count += 1
-                phones.forEach { entry.phones.insert($0) }
-                byName[key] = entry
+            } catch {
+                failed = true
             }
-            groups = byName
+            let didFail = failed
+            let groups = byName
                 .filter { $0.value.count > 1 }
                 .map { ContactGroup(name: $0.key.capitalized, count: $0.value.count,
                                     phones: Array($0.value.phones).sorted()) }
                 .sorted { $0.count > $1.count }
-            incomplete = incompleteList.sorted { $0.name < $1.name }
-            let parts = [groups.isEmpty ? nil : "дублей: \(groups.count)",
-                         incomplete.isEmpty ? nil : "неполных: \(incomplete.count)"].compactMap { $0 }
-            status = parts.isEmpty ? "Всё в порядке" : "Найдено — " + parts.joined(separator: ", ")
-        } catch {
-            status = "Не удалось прочитать контакты"
+            let incomplete = incompleteList.sorted { $0.name < $1.name }
+            await MainActor.run {
+                if didFail {
+                    self.status = "Не удалось прочитать контакты"
+                } else {
+                    self.groups = groups
+                    self.incomplete = incomplete
+                    let parts = [groups.isEmpty ? nil : "дублей: \(groups.count)",
+                                 incomplete.isEmpty ? nil : "неполных: \(incomplete.count)"].compactMap { $0 }
+                    self.status = parts.isEmpty ? "Всё в порядке" : "Найдено — " + parts.joined(separator: ", ")
+                }
+                self.scanning = false
+            }
         }
-        scanning = false
     }
 }
 

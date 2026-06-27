@@ -19,15 +19,58 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.krylan.app.MediaStoreUtils
+import com.krylan.app.StorageBreakdown
+import com.krylan.app.StorageInfo
 import com.krylan.app.SystemInfo
 import com.krylan.app.ui.Brand
 import com.krylan.app.ui.RingGauge
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+
+// Снимок данных экрана хранилища, посчитанный в IO.
+private data class StorageData(
+    val storage: StorageInfo,
+    val cache: Long,
+    val media: StorageBreakdown,
+)
 
 @Composable
 fun StorageScreen(ctx: Context) {
-    val storage = remember { SystemInfo.storage() }
-    val cache = remember { SystemInfo.cacheBytes(ctx) }
-    val media = remember { MediaStoreUtils.storageBreakdown(ctx) }
+    // null = идёт загрузка (StatFs + обход кэша + 4 запроса MediaStore — всё в IO).
+    var data by remember { mutableStateOf<StorageData?>(null) }
+
+    LaunchedEffect(Unit) {
+        data = withContext(Dispatchers.IO) {
+            try {
+                StorageData(
+                    storage = SystemInfo.storage(),
+                    cache = SystemInfo.cacheBytes(ctx),
+                    media = MediaStoreUtils.storageBreakdown(ctx),
+                )
+            } catch (e: Exception) {
+                StorageData(StorageInfo(0L, 0L), 0L, StorageBreakdown(0L, 0L, 0L, 0L))
+            }
+        }
+    }
+
+    val snapshot = data
+    if (snapshot == null) {
+        Column(
+            Modifier
+                .fillMaxSize()
+                .background(Brand.bg0)
+                .padding(20.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Text("Загрузка…", color = Brand.muted, fontSize = 14.sp)
+        }
+        return
+    }
+
+    val storage = snapshot.storage
+    val cache = snapshot.cache
+    val media = snapshot.media
 
     Column(
         Modifier
