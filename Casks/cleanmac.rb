@@ -1,8 +1,8 @@
 cask "cleanmac" do
   # Версия = последний ОПУБЛИКОВАННЫЙ релиз с .dmg (а не версия исходников).
   # Обновляется при каждом релизе: bump version + sha256 от собранного DMG.
-  version "2.41.0"
-  sha256 "fe77a5fce78722748cfc1585d7b13f85e91e77a55337609a070cc7f12e6b1486"
+  version "2.42.0"
+  sha256 "8a5dc44791b4cbf354f3f38078048593c3116a414a8195d8b10099a634bdc573"
 
   url "https://github.com/Alex1986-rgb/CleanMac/releases/download/v#{version}/CleanMac.dmg"
   name "CleanMac"

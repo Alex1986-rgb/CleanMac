@@ -49,7 +49,7 @@
          style="width:100%;max-width:780px;border-radius:22px;box-shadow:0 24px 70px #000a;margin-bottom:18px">
     <p class="tag">Красивый оптимизатор со «стеклянным» интерфейсом и фирменным <b>анимированным глобусом</b>. <b>🚀 Ускорить одной кнопкой</b>, Software Updater, бенчмарк диска, sunburst-карта, живой график интернета. Мощнее CleanMyMac и BoostSpeed — но <b>бесплатно</b>, с открытым кодом и <b>без вредных «бустеров»</b> (никакого дефрага SSD и чистки реестра).</p>
     <div class="badges">
-      <img src="https://img.shields.io/badge/version-2.41.0-37d39a" alt="version">
+      <img src="https://img.shields.io/badge/version-2.42.0-37d39a" alt="version">
       <img src="https://img.shields.io/badge/macOS-11%2B-4b8cf9" alt="macOS">
       <img src="https://img.shields.io/badge/Universal-Intel%20%2B%20Apple%20Silicon-a78bfa" alt="universal">
       <img src="https://img.shields.io/badge/license-MIT-f6bb45" alt="license">
@@ -89,6 +89,91 @@
     <div class="card"><div class="e">🖼</div><h3>Похожие изображения</h3><p>Perceptual hash находит визуально похожие фото — не только бит-в-бит дубли, но и пересжатые копии и кадры из серии. <span style="opacity:.7">(Desktop)</span></p></div>
     <div class="card"><div class="e">🎯</div><h3>Режим фокуса</h3><p>Обратимая пауза фоновых процессов: тише система, больше ресурсов задаче. Снимаете режим — всё возвращается. <span style="opacity:.7">(Desktop)</span></p></div>
     <div class="card"><div class="e">🧾</div><h3>Health Report</h3><p>HTML-отчёт о состоянии системы: метрики, диск, SMART — сохраняйте и сравнивайте во времени. <span style="opacity:.7">(Desktop)</span></p></div>
+  </section>
+
+  <section style="padding:18px 0 0">
+    <h2 style="text-align:center;font-size:26px;margin-bottom:6px">✨ Оптимизировать — умная кнопка для любого устройства</h2>
+    <p style="text-align:center;color:#8b93a3;margin:0 auto 18px;max-width:680px">Одна кнопка <b>✨ «Оптимизировать»</b> делает <b>РАЗНОЕ</b> на разных устройствах. KRYLAN сам определяет <b>ОС</b> (Windows / macOS / Linux) и <b>тип диска</b> (SSD или HDD) и подбирает только то, что на этом железе безопасно и полезно. SSD-дефраг, например, изнашивает накопитель — поэтому KRYLAN его <b>никогда</b> не делает.</p>
+    <div style="overflow-x:auto;background:var(--glass);border:1px solid var(--line);border-radius:18px;padding:6px 6px 2px;backdrop-filter:blur(12px)">
+      <table style="width:100%;border-collapse:collapse;font-size:14px;color:var(--text);min-width:560px">
+        <thead>
+          <tr style="text-align:left;color:var(--muted)">
+            <th style="padding:12px 14px;border-bottom:1px solid var(--line)">Функция</th>
+            <th style="padding:12px 14px;border-bottom:1px solid var(--line)">🪟 Windows</th>
+            <th style="padding:12px 14px;border-bottom:1px solid var(--line)">🍏 macOS</th>
+            <th style="padding:12px 14px;border-bottom:1px solid var(--line)">🐧 Linux</th>
+            <th style="padding:12px 14px;border-bottom:1px solid var(--line)">Почему адаптивно</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td style="padding:11px 14px;border-bottom:1px solid var(--line)">Кэши / логи / temp → Корзина</td>
+            <td style="padding:11px 14px;border-bottom:1px solid var(--line)">✅</td>
+            <td style="padding:11px 14px;border-bottom:1px solid var(--line)">✅</td>
+            <td style="padding:11px 14px;border-bottom:1px solid var(--line)">✅</td>
+            <td style="padding:11px 14px;border-bottom:1px solid var(--line);color:var(--muted)">Освобождает место обратимо на всех ОС</td>
+          </tr>
+          <tr>
+            <td style="padding:11px 14px;border-bottom:1px solid var(--line)">Кэш миниатюр</td>
+            <td style="padding:11px 14px;border-bottom:1px solid var(--line)">✅ <code>thumbcache</code></td>
+            <td style="padding:11px 14px;border-bottom:1px solid var(--line)">✅ Quick Look</td>
+            <td style="padding:11px 14px;border-bottom:1px solid var(--line)">✅ <code>~/.cache/thumbnails</code></td>
+            <td style="padding:11px 14px;border-bottom:1px solid var(--line);color:var(--muted)">У каждой ОС своё хранилище превью</td>
+          </tr>
+          <tr>
+            <td style="padding:11px 14px;border-bottom:1px solid var(--line)">Сброс DNS</td>
+            <td style="padding:11px 14px;border-bottom:1px solid var(--line)">✅ <code>flushdns</code></td>
+            <td style="padding:11px 14px;border-bottom:1px solid var(--line)">✅ <code>dscacheutil</code></td>
+            <td style="padding:11px 14px;border-bottom:1px solid var(--line)">✅ <code>resolvectl</code></td>
+            <td style="padding:11px 14px;border-bottom:1px solid var(--line);color:var(--muted)">Разные службы резолвинга в каждой ОС</td>
+          </tr>
+          <tr>
+            <td style="padding:11px 14px;border-bottom:1px solid var(--line)"><b>TRIM (обслуживание SSD)</b></td>
+            <td style="padding:11px 14px;border-bottom:1px solid var(--line)">✅ <code>defrag /L</code></td>
+            <td style="padding:11px 14px;border-bottom:1px solid var(--line)">✅ авто системой</td>
+            <td style="padding:11px 14px;border-bottom:1px solid var(--line)">✅ <code>fstrim</code></td>
+            <td style="padding:11px 14px;border-bottom:1px solid var(--line);color:var(--muted)">Поддерживает скорость SSD; на mac это делает сама система</td>
+          </tr>
+          <tr>
+            <td style="padding:11px 14px;border-bottom:1px solid var(--line)"><b>Дефрагментация (ТОЛЬКО HDD)</b></td>
+            <td style="padding:11px 14px;border-bottom:1px solid var(--line)">✅ <code>defrag /O</code></td>
+            <td style="padding:11px 14px;border-bottom:1px solid var(--line);color:var(--muted)">— не нужна (APFS)</td>
+            <td style="padding:11px 14px;border-bottom:1px solid var(--line);color:var(--muted)">— не нужна (ext4)</td>
+            <td style="padding:11px 14px;border-bottom:1px solid var(--line);color:var(--muted)">Нужна лишь магнитным дискам; совр. ФС не фрагментируются</td>
+          </tr>
+          <tr>
+            <td style="padding:11px 14px;border-bottom:1px solid var(--line)"><b>SSD-дефраг</b></td>
+            <td style="padding:11px 14px;border-bottom:1px solid var(--line);color:#ff6b6b">❌ никогда</td>
+            <td style="padding:11px 14px;border-bottom:1px solid var(--line);color:#ff6b6b">❌ никогда</td>
+            <td style="padding:11px 14px;border-bottom:1px solid var(--line);color:#ff6b6b">❌ никогда</td>
+            <td style="padding:11px 14px;border-bottom:1px solid var(--line);color:var(--muted)">Вредно — изнашивает накопитель</td>
+          </tr>
+          <tr>
+            <td style="padding:11px 14px;border-bottom:1px solid var(--line)">Пакетные кэши</td>
+            <td style="padding:11px 14px;border-bottom:1px solid var(--line);color:var(--muted)">—</td>
+            <td style="padding:11px 14px;border-bottom:1px solid var(--line)">✅ <code>brew cleanup</code></td>
+            <td style="padding:11px 14px;border-bottom:1px solid var(--line)">✅ <code>apt clean</code> + journal</td>
+            <td style="padding:11px 14px;border-bottom:1px solid var(--line);color:var(--muted)">Чистится только там, где есть пакетный менеджер</td>
+          </tr>
+          <tr>
+            <td style="padding:11px 14px;border-bottom:1px solid var(--line)">Разгрузка памяти</td>
+            <td style="padding:11px 14px;border-bottom:1px solid var(--line);color:var(--muted)">— нет безопасного userland</td>
+            <td style="padding:11px 14px;border-bottom:1px solid var(--line)">✅ <code>purge</code></td>
+            <td style="padding:11px 14px;border-bottom:1px solid var(--line)">✅ <code>sync</code></td>
+            <td style="padding:11px 14px;border-bottom:1px solid var(--line);color:var(--muted)">На Windows нет безопасной userland-команды</td>
+          </tr>
+          <tr>
+            <td style="padding:11px 14px">Пустые папки · битые файлы · остатки удалённых программ</td>
+            <td style="padding:11px 14px">✅</td>
+            <td style="padding:11px 14px">✅</td>
+            <td style="padding:11px 14px">✅</td>
+            <td style="padding:11px 14px;color:var(--muted)">Универсальная уборка для всех ОС</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note"><b>Дополнительно только на macOS:</b> удаление снимков APFS, перестройка Launch Services, сброс Dock. <b>Права:</b> команды с админ/root KRYLAN пытается выполнить сам; при отказе — пропуск с пометкой, без запроса пароля. После прохода приложение само показывает <b>«Выполнено»</b> и <b>«Пропущено на этом устройстве»</b>.</div>
+    <div class="note"><b>Только безопасное.</b> Кнопка не трогает реестр, не делает SSD-дефраг, не отключает службы и не чистит Корзину автоматически. Пользовательские данные (дубли, крупные и старые файлы) кнопка <b>только показывает</b> — разбираете их вы вручную. 🪽 <b>Дай устройству крылья</b> — но без вреда.</div>
   </section>
 
   <section style="padding:18px 0 0">
