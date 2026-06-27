@@ -4,25 +4,83 @@ import SwiftUI
 import Photos
 import Contacts
 
-/// Координатор навигации: позволяет любой вью переключить активную вкладку
-/// (нужно, чтобы карточка результата вела на «Фото-дубли», «Скриншоты» и т.д.).
+/// 5 верхнеуровневых вкладок iOS. Каждая группирует один или несколько разделов (Section).
+enum Tab: String, CaseIterable, Identifiable {
+    case dashboard = "Дашборд"
+    case storage   = "Хранилище"
+    case media     = "Фото"
+    case system    = "Система"
+    case more      = "Ещё"
+    var id: String { rawValue }
+
+    var icon: String {
+        switch self {
+        case .dashboard: return "gauge.with.dots.needle.67percent"
+        case .storage:   return "internaldrive"
+        case .media:     return "photo.on.rectangle.angled"
+        case .system:    return "gearshape.2"
+        case .more:      return "ellipsis.circle"
+        }
+    }
+}
+
+extension Section {
+    /// К какой верхнеуровневой вкладке iOS относится раздел.
+    var tab: Tab {
+        switch self {
+        case .dashboard:                      return .dashboard
+        case .storage, .cleanup, .battery:    return .storage
+        case .review, .photos, .shots, .videos: return .media
+        case .contacts, .calendar, .tips:     return .system
+        case .about:                          return .more
+        }
+    }
+}
+
+/// Координатор навигации: позволяет любой вью переключить активную вкладку и
+/// при необходимости запушить под-экран (нужно, чтобы карточка результата
+/// дашборда вела на «Фото-дубли», «Скриншоты», «Контакты» и т.д.).
 @MainActor
 final class AppCoordinator: ObservableObject {
-    @Published var tab: Section
+    // iOS: выбранная верхнеуровневая вкладка + стек навигации внутри неё.
+    @Published var tab: Tab = .dashboard
+    @Published var path: [Section] = []
+    // macOS: выбранный раздел в NavigationSplitView (длинный список допустим).
+    @Published var macSection: Section? = .dashboard
 
     init() {
-        // Стартовая вкладка из launch-аргумента -KrylanTab (тестовый хук) либо дашборд.
+        // Стартовый раздел из launch-аргумента -KrylanTab (тестовый хук).
         let args = ProcessInfo.processInfo.arguments
         if let i = args.firstIndex(of: "-KrylanTab"), i + 1 < args.count,
            let s = Section.allCases.first(where: { $0.key == args[i + 1] }) {
-            tab = s
-        } else {
-            tab = .dashboard
+            go(to: s)
         }
     }
 
+    /// Перейти к разделу: переключить вкладку и, если раздел — под-экран хаба,
+    /// запушить его в стек этой вкладки. Работает и для iOS, и для macOS.
     func go(to section: Section) {
-        withAnimation { tab = section }
+        macSection = section
+        withAnimation {
+            tab = section.tab
+            // Корни вкладок (Дашборд, хаб «Хранилище», хаб «Фото», хаб «Система», «Ещё»)
+            // открываются без push. Конкретные под-экраны — пушим в стек.
+            if section.isSubScreen {
+                path = [section]
+            } else {
+                path = []
+            }
+        }
+    }
+}
+
+extension Section {
+    /// Под-экран, который нужно пушить в стек вкладки (а не показывать как корень).
+    var isSubScreen: Bool {
+        switch self {
+        case .dashboard, .about: return false   // корни своих вкладок
+        default:                 return true    // всё остальное доступно через хаб → push
+        }
     }
 }
 

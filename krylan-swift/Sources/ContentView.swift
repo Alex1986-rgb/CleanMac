@@ -1,6 +1,10 @@
-// Навигация KRYLAN: вкладки (TabView) на iOS, NavigationSplitView на macOS.
+// Навигация KRYLAN.
+// iOS: 5 верхнеуровневых вкладок (TabView) с под-навигацией через хаб-экраны.
+// macOS: NavigationSplitView со сгруппированным по секциям списком разделов.
 import SwiftUI
 
+/// Разделы приложения. На iOS сгруппированы в 5 вкладок (см. Section.tab),
+/// на macOS показываются единым списком, сгруппированным заголовками.
 enum Section: String, CaseIterable, Identifiable {
     case dashboard = "Дашборд"
     case storage   = "Хранилище"
@@ -48,6 +52,23 @@ enum Section: String, CaseIterable, Identifiable {
         case .about:     return "info.circle"
         }
     }
+    /// Короткий подзаголовок для карточек хаб-экранов.
+    var subtitle: String {
+        switch self {
+        case .dashboard: return "Состояние устройства"
+        case .storage:   return "Что занимает место"
+        case .battery:   return "Здоровье аккумулятора"
+        case .cleanup:   return "Очистка кэша"
+        case .review:    return "Свайп-разбор фотоплёнки"
+        case .photos:    return "Похожие снимки в группах"
+        case .shots:     return "Найти и удалить скриншоты"
+        case .videos:    return "Самые тяжёлые ролики"
+        case .contacts:  return "Дубли и неполные записи"
+        case .calendar:  return "Старые события"
+        case .tips:      return "Советы по устройству"
+        case .about:     return "О приложении KRYLAN"
+        }
+    }
 }
 
 struct ContentView: View {
@@ -74,6 +95,7 @@ struct ContentView: View {
         #endif
     }
 
+    /// Корневой экран раздела (без обёрток навигации).
     @ViewBuilder private func screen(_ s: Section) -> some View {
         switch s {
         case .dashboard: DashboardView(monitor: monitor)
@@ -92,20 +114,46 @@ struct ContentView: View {
     }
 
     #if os(iOS)
+    /// Корень верхнеуровневой вкладки: дашборд / хаб / одиночный экран.
+    @ViewBuilder private func tabRoot(_ t: Tab) -> some View {
+        switch t {
+        case .dashboard: DashboardView(monitor: monitor)
+        case .storage:   StorageHubView(monitor: monitor)
+        case .media:     MediaHubView()
+        case .system:    SystemHubView(monitor: monitor)
+        case .more:      MoreHubView()
+        }
+    }
+
     private var content: some View {
         TabView(selection: $coord.tab) {
-            ForEach(Section.allCases) { s in
-                NavigationStack {
-                    screen(s)
-                        .navigationTitle(s.rawValue)
-                        .navigationBarTitleDisplayMode(.inline)
+            ForEach(Tab.allCases) { t in
+                NavigationStack(path: pathBinding(for: t)) {
+                    tabRoot(t)
+                        .navigationTitle(t.rawValue)
+                        .navigationBarTitleDisplayMode(.large)
+                        // Любой раздел, запушенный как Section, рендерится своим экраном.
+                        .navigationDestination(for: Section.self) { s in
+                            screen(s)
+                                .navigationTitle(s.rawValue)
+                                .navigationBarTitleDisplayMode(.inline)
+                        }
                 }
-                .tabItem { Label(s.rawValue, systemImage: s.icon) }
-                .tag(s)
+                .tabItem { Label(t.rawValue, systemImage: t.icon) }
+                .tag(t)
             }
         }
         .tint(Brand.green)
         .preferredColorScheme(.dark)   // бренд KRYLAN — тёмная тема
+    }
+
+    /// Стек навигации храним только для текущей вкладки; у остальных он пуст.
+    /// Этого достаточно: coord.go переключает вкладку и заполняет path для неё.
+    private func pathBinding(for t: Tab) -> Binding<[Section]> {
+        Binding(
+            get: { coord.tab == t ? coord.path : [] },
+            set: { if coord.tab == t { coord.path = $0 } }
+        )
     }
     #else
     private var content: some View {
@@ -117,17 +165,109 @@ struct ContentView: View {
             .padding(.horizontal).padding(.top, 10).padding(.bottom, 6)
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            List(Section.allCases, selection: $coord.tab) { s in
-                Label(s.rawValue, systemImage: s.icon).tag(s)
+            // Длинный список допустим, но сгруппирован секциями по верхнеуровневым вкладкам.
+            List(selection: $coord.macSection) {
+                ForEach(Tab.allCases) { group in
+                    SwiftUI.Section(group.rawValue) {
+                        ForEach(Section.allCases.filter { $0.tab == group }) { s in
+                            Label(s.rawValue, systemImage: s.icon).tag(s)
+                        }
+                    }
+                }
             }
         } detail: {
-            screen(coord.tab)
+            screen(coord.macSection ?? .dashboard)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(Brand.bg0)
         }
     }
     #endif
 }
+
+// MARK: - Хаб-экраны (iOS)
+
+#if os(iOS)
+/// Переиспользуемая карточка-ссылка на под-экран внутри хаба.
+private struct HubLink: View {
+    let section: Section
+    var body: some View {
+        NavigationLink(value: section) {
+            HStack(spacing: 14) {
+                Image(systemName: section.icon)
+                    .font(.title3)
+                    .foregroundStyle(Brand.green)
+                    .frame(width: 30)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(section.rawValue).font(.body.weight(.semibold)).foregroundStyle(Brand.text)
+                    Text(section.subtitle).font(.caption).foregroundStyle(Brand.muted)
+                }
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.right").font(.caption.bold()).foregroundStyle(Brand.muted)
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 16).fill(Brand.glass))
+            .overlay(RoundedRectangle(cornerRadius: 16).stroke(Brand.green.opacity(0.18), lineWidth: 1))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct HubScroll<Content: View>: View {
+    @ViewBuilder var content: Content
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 12) { content }
+                .padding(16)
+        }
+        .background(Brand.bg0.ignoresSafeArea())
+    }
+}
+
+/// Вкладка «Хранилище»: Хранилище + Очистка + Батарея.
+struct StorageHubView: View {
+    @ObservedObject var monitor: SystemMonitor
+    var body: some View {
+        HubScroll {
+            HubLink(section: .storage)
+            HubLink(section: .cleanup)
+            HubLink(section: .battery)
+        }
+    }
+}
+
+/// Вкладка «Фото»: Разбор + Фото-дубли + Скриншоты + Видео.
+struct MediaHubView: View {
+    var body: some View {
+        HubScroll {
+            HubLink(section: .review)
+            HubLink(section: .photos)
+            HubLink(section: .shots)
+            HubLink(section: .videos)
+        }
+    }
+}
+
+/// Вкладка «Система»: Контакты + Календарь + Советы.
+struct SystemHubView: View {
+    @ObservedObject var monitor: SystemMonitor
+    var body: some View {
+        HubScroll {
+            HubLink(section: .contacts)
+            HubLink(section: .calendar)
+            HubLink(section: .tips)
+        }
+    }
+}
+
+/// Вкладка «Ещё»: О программе (и всё, что не влезло в основные вкладки).
+struct MoreHubView: View {
+    var body: some View {
+        AboutScreen()
+    }
+}
+#endif
 
 struct AboutScreen: View {
     var body: some View {
