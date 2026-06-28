@@ -10,20 +10,13 @@ struct DashboardView: View {
         ScrollView {
             VStack(spacing: 16) {
 
-                // Подзаголовок (титул показывает нав-бар)
-                HStack {
-                    Text("Состояние в реальном времени")
-                        .font(.subheadline).foregroundStyle(Brand.muted)
-                    Spacer(minLength: 0)
-                }
-
                 // ✨ Главная кнопка: один тап делает всё безопасное (sandbox iOS).
                 Button(action: { engine.run() }) {
                     HStack(spacing: 10) {
                         if engine.phase == .running {
                             ProgressView()
                                 .progressViewStyle(.circular)
-                                .tint(Color(red: 0.04, green: 0.08, blue: 0.06))
+                                .tint(Color(red: 0.02, green: 0.05, blue: 0.10))
                         } else if engine.phase == .done {
                             Image(systemName: "checkmark.circle.fill").font(.title3.bold())
                         }
@@ -31,7 +24,7 @@ struct DashboardView: View {
                              : (engine.phase == .done ? "Оптимизировано" : "✨ Оптимизировать"))
                             .font(.headline)
                     }
-                    .foregroundStyle(Color(red: 0.04, green: 0.08, blue: 0.06))
+                    .foregroundStyle(Color(red: 0.02, green: 0.05, blue: 0.10))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 15)
                     .background(
@@ -39,7 +32,7 @@ struct DashboardView: View {
                                        startPoint: .leading, endPoint: .trailing)
                     )
                     .clipShape(Capsule())
-                    .shadow(color: Brand.green.opacity(0.35), radius: 12, y: 4)
+                    .shadow(color: Brand.green.opacity(0.45), radius: 16, y: 4)
                 }
                 .buttonStyle(.plain)
                 .disabled(engine.phase == .running)
@@ -64,45 +57,9 @@ struct DashboardView: View {
                         .transition(.opacity.combined(with: .move(edge: .top)))
                 }
 
-                // Фирменный анимированный глобус KRYLAN
-                GlobeView()
+                // ★ HUD-«рубка»: радиальная компоновка (планета + 6 гейджей).
+                hudCockpit
                     .frame(maxWidth: .infinity)
-
-                // Health-герой
-                VStack(spacing: 0) {
-                    ZStack {
-                        Circle().stroke(Brand.track, lineWidth: 16)
-                        Circle().trim(from: 0, to: monitor.healthScore / 100)
-                            .stroke(Brand.load(100 - monitor.healthScore),
-                                    style: StrokeStyle(lineWidth: 16, lineCap: .round))
-                            .rotationEffect(.degrees(-90))
-                            .animation(.easeOut(duration: 0.5), value: monitor.healthScore)
-                        VStack(spacing: 0) {
-                            Text("\(Int(monitor.healthScore))")
-                                .font(.system(size: 46, weight: .bold)).foregroundStyle(Brand.text)
-                            Text(monitor.healthLabel)
-                                .font(.subheadline.bold()).foregroundStyle(Brand.load(100 - monitor.healthScore))
-                        }
-                    }
-                    .frame(width: 160, height: 160)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 22)
-                .background(RoundedRectangle(cornerRadius: 20).fill(Brand.glass))
-
-                // Кольца метрик
-                HStack(spacing: 0) {
-                    Spacer(minLength: 0)
-                    ring(monitor.memoryUsedPercent, "ПАМЯТЬ")
-                    Spacer(minLength: 0)
-                    ring(monitor.diskUsedPercent, "ДИСК")
-                    Spacer(minLength: 0)
-                    ring(Double(monitor.batteryPercent), "БАТАРЕЯ", invert: true)
-                    Spacer(minLength: 0)
-                }
-                .padding(.vertical, 18)
-                .frame(maxWidth: .infinity)
-                .background(RoundedRectangle(cornerRadius: 20).fill(Brand.glass))
 
                 // Карточки
                 infoCard("internaldrive.fill", "Хранилище",
@@ -148,6 +105,100 @@ struct DashboardView: View {
         }
         .background(StarfieldView())
     }
+
+    // MARK: - HUD «рубка» (радиальная компоновка)
+
+    /// 6 метрик по углам орбиты: ЗДОРОВЬЕ −120, CPU −60, ОЗУ 0, ДИСК 60, SWAP 120, БАТАРЕЯ 180.
+    private var gauges: [(value: Double, label: String, invert: Bool, angle: Double)] {
+        [
+            (monitor.healthScore,             "ЗДОР", false, -120),
+            (monitor.cpuUsedPercent,          "CPU",  false,  -60),
+            (monitor.memoryUsedPercent,       "ОЗУ",  false,    0),
+            (monitor.diskUsedPercent,         "ДИСК", false,   60),
+            (monitor.swapUsedPercent,         "SWAP", false,  120),
+            (Double(monitor.batteryPercent),  "БАТ",  true,   180),
+        ]
+    }
+
+    private var hudCockpit: some View {
+        GeometryReader { geo in
+            let W = geo.size.width
+            let H = geo.size.height
+            let topInset: CGFloat = 34          // место под часы/интернет/ЭКГ
+            let cx = W / 2
+            let cy = topInset + (H - topInset) / 2
+            let gaugeSize: CGFloat = 64
+            // Орбита: не выходим за края (учитываем половину гейджа + поля).
+            let orbit = min(W / 2, (H - topInset) / 2) - gaugeSize / 2 - 6
+            let planet: CGFloat = min(orbit * 1.6, 150)
+
+            ZStack {
+                // Коннекторы от центра к каждому гейджу (светящиеся cyan).
+                Canvas { ctx, _ in
+                    for g in gauges {
+                        let a = g.angle * .pi / 180
+                        let p = CGPoint(x: cx + cos(a) * orbit, y: cy + sin(a) * orbit)
+                        let inner = CGPoint(x: cx + cos(a) * (planet / 2 * 0.62),
+                                            y: cy + sin(a) * (planet / 2 * 0.62))
+                        var path = Path(); path.move(to: inner); path.addLine(to: p)
+                        ctx.stroke(path, with: .color(Brand.cyan.opacity(0.30)), lineWidth: 3)
+                        ctx.stroke(path, with: .color(Brand.cyan.opacity(0.65)), lineWidth: 1)
+                        // узелок у центра
+                        let nr: CGFloat = 2.5
+                        ctx.fill(Path(ellipseIn: CGRect(x: inner.x - nr, y: inner.y - nr, width: nr*2, height: nr*2)),
+                                 with: .color(Brand.cyan.opacity(0.7)))
+                    }
+                }
+
+                // Центральная планета + имя устройства.
+                VStack(spacing: 2) {
+                    GlobeView(height: planet)
+                        .frame(width: planet, height: planet)
+                    Text(monitor.deviceName)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Brand.text)
+                        .lineLimit(1)
+                        .frame(maxWidth: planet * 1.3)
+                }
+                .position(x: cx, y: cy)
+
+                // 6 орбитальных гейджей.
+                ForEach(Array(gauges.enumerated()), id: \.offset) { _, g in
+                    let a = g.angle * .pi / 180
+                    MiniGauge(value: g.value, label: g.label, invert: g.invert, size: gaugeSize)
+                        .position(x: cx + cos(a) * orbit, y: cy + sin(a) * orbit)
+                }
+
+                // Часы HH:MM сверху.
+                TimelineView(.periodic(from: .now, by: 1)) { _ in
+                    Text(Self.clock.string(from: Date()))
+                        .font(.system(size: 15, weight: .bold, design: .monospaced))
+                        .foregroundStyle(Brand.cyan)
+                }
+                .position(x: cx, y: 12)
+
+                // Интернет ↓/↑ справа.
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text("↓ \(monitor.netDownLabel)")
+                        .foregroundStyle(Brand.green)
+                    Text("↑ \(monitor.netUpLabel)")
+                        .foregroundStyle(Brand.blue)
+                }
+                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                .position(x: W - 44, y: 14)
+
+                // Мини-ЭКГ слева.
+                ECGView(color: Brand.green, level: monitor.cpuUsedPercent / 100)
+                    .frame(width: 72, height: 26)
+                    .position(x: 44, y: 14)
+            }
+        }
+        .frame(height: 340)
+    }
+
+    private static let clock: DateFormatter = {
+        let f = DateFormatter(); f.dateFormat = "HH:mm"; return f
+    }()
 
     // MARK: - Карточка результата one-tap
 
@@ -255,22 +306,6 @@ struct DashboardView: View {
             out.append((Brand.green, "Всё в порядке — устройство работает оптимально."))
         }
         return out
-    }
-
-    private func ring(_ value: Double, _ label: String, invert: Bool = false) -> some View {
-        let color = invert ? Brand.load(100 - value) : Brand.load(value)
-        return VStack(spacing: 8) {
-            ZStack {
-                Circle().stroke(Brand.track, lineWidth: 9)
-                Circle().trim(from: 0, to: min(1, value / 100))
-                    .stroke(color, style: StrokeStyle(lineWidth: 9, lineCap: .round))
-                    .rotationEffect(.degrees(-90))
-                    .animation(.easeOut(duration: 0.4), value: value)
-                Text("\(Int(value))%").font(.callout.bold()).foregroundStyle(Brand.text)
-            }
-            .frame(width: 70, height: 70)
-            Text(label).font(.caption2).foregroundStyle(Brand.muted)
-        }
     }
 
     private func infoCard(_ icon: String, _ title: String, _ value: String, _ sub: String, _ tint: Color) -> some View {

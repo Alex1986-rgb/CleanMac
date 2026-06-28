@@ -3,6 +3,7 @@
 import SwiftUI
 
 struct GlobeView: View {
+    var height: CGFloat = 220
     // Неон-циан эталона (ярче, чем системный Brand.cyan).
     private let neon = Color(red: 0.13, green: 0.83, blue: 0.93)
     // Узлы-«города» — розовый.
@@ -76,6 +77,6 @@ struct GlobeView: View {
             }
         }
         .frame(maxWidth: .infinity)
-        .frame(height: 220)
+        .frame(height: height)
     }
 }

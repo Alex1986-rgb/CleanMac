@@ -5,7 +5,7 @@ KRYLAN Desktop — кросс-платформенный оптимизатор:
 «Дай устройству крылья». Создатель: Кырлан Александр Сергеевич.
 Зависимости: psutil, send2trash.  Запуск: python krylan.py
 """
-import os, sys, platform, threading, queue, math, hashlib, json
+import os, sys, platform, threading, queue, math, hashlib, json, random, time
 import tkinter as tk
 from tkinter import messagebox, filedialog
 import psutil
@@ -23,10 +23,12 @@ VERSION = "1.16.0"
 SYSTEM = platform.system()           # Windows / Darwin / Linux
 HOME = os.path.expanduser("~")
 
-# ---------- палитра ----------
-BG0, SIDEBAR, GLASS, TRACK, TEXT, MUTED = "#11151d", "#0e1219", "#222b3a", "#333d4e", "#eef2f8", "#8a94a6"
-GREEN, BLUE, YELLOW, RED, PURPLE = "#37d39a", "#4b8cf9", "#f6bb45", "#f2685f", "#a78bfa"
-CYAN = "#22d3ee"
+# ---------- палитра: navy HUD (как в macOS CleanMac) ----------
+# Глубокий навигационный синий с неоновыми акцентами. Тёмная тема для всего UI;
+# фон дашборда рисуется радиальным свечением (см. _grad), поэтому BG0 — его край.
+BG0, SIDEBAR, GLASS, TRACK, TEXT, MUTED = "#091327", "#0a1426", "#102444", "#22436f", "#e4eefb", "#7088b2"
+GREEN, BLUE, YELLOW, RED, PURPLE = "#2fe5a0", "#2f8fff", "#ffd60a", "#ff5a52", "#a98bff"
+CYAN = "#36d6ff"
 
 def _blend(h1, h2, t):
     """Линейная интерполяция двух hex-цветов (#rrggbb) в hex. t∈[0,1]."""
@@ -36,6 +38,12 @@ def _blend(h1, h2, t):
     return "#%02x%02x%02x" % tuple(int(a[i]+(b[i]-a[i])*t) for i in range(3))
 
 def load_color(p): return krylan_core.load_color(p, GREEN, YELLOW, RED)
+
+def col_for(p, inv=False):
+    """Цвет HUD-гейджа по значению 0..100. inv=True — где БОЛЬШЕ это хорошо
+    (здоровье, батарея); иначе хорошо МАЛЕНЬКОЕ (загрузка cpu/ram/disk)."""
+    v = p if inv else 100 - p
+    return GREEN if v >= 50 else YELLOW if v >= 25 else RED
 
 human = krylan_core.human
 
@@ -2528,8 +2536,9 @@ class Krylan(tk.Tk):
         self.configure(bg=BG0)
         self.q = queue.Queue()
         self.page = None
-        self.disp = {"cpu":0,"ram":0,"disk":0,"batt":0}
+        self.disp = {"cpu":0,"ram":0,"disk":0,"batt":0,"health":100}
         self.tgt = dict(self.disp)
+        self.swap_mb = 0            # текущий объём swap (МБ) для HUD-гейджа
         self.info = {}
         self.found = {}
         self._paused = set()           # PID приостановленных (Режим фокуса)
@@ -2570,13 +2579,108 @@ class Krylan(tk.Tk):
         for w in self.main.winfo_children(): w.destroy()
         {"dash":self.show_dash, "scan":self.show_scan, "procs":self.show_procs, "clean":self.show_clean, "tools":self.show_tools, "about":self.show_about}[key]()
 
-    # ---------- кольца ----------
+    # ---------- HUD-фон: радиальное свечение + звёздное небо ----------
+    def _grad(self, c, w, h):
+        """Радиальное свечение HUD: ярче к центру-верху, темнее к краям."""
+        base = "#060d1e"; glow = "#173d72"
+        c.create_rectangle(0, 0, w, h, fill=base, outline=base)
+        cxp, cyp = w*0.5, h*0.30
+        rings = 11; maxr = max(w, h)*1.0
+        for i in range(rings, 0, -1):
+            t = i/rings; rr = maxr*t
+            col = _blend(glow, base, t)        # внешние кольца тёмные, центр — свечение
+            c.create_oval(cxp-rr, cyp-rr*0.85, cxp+rr, cyp+rr*0.85, fill=col, outline=col)
+        self._starfield(c, w, h)
+
+    def _starfield(self, c, w, h):
+        """Натуральное звёздное небо: звёзды разного размера, мерцание, блики у ярких."""
+        if not hasattr(self, "_stars"):
+            rnd = random.Random(42); self._stars = []
+            for _ in range(80):
+                self._stars.append((rnd.random(), rnd.random(),
+                                    rnd.uniform(0.4, 2.2),       # размер
+                                    rnd.uniform(0, 6.28),        # фаза мерцания
+                                    rnd.uniform(0.25, 1.0),      # базовая яркость
+                                    rnd.uniform(0.02, 0.09),     # скорость мерцания
+                                    rnd.random() < 0.08))        # яркая (с бликом-крестом)
+        fr = getattr(self, "fr", 0)
+        for fx, fy, sz, ph, bb, spd, bright in self._stars:
+            x, y = fx*w, fy*h
+            tw = bb*(0.5 + 0.5*math.sin(fr*spd + ph))
+            r = sz*(0.55 + 0.55*tw)
+            v = min(255, int(190*tw)+18)
+            col = "#%02x%02x%02x" % (v, v, min(255, v+22))   # чуть голубоватый белый
+            c.create_oval(x-r, y-r, x+r, y+r, fill=col, outline=col)
+            if bright and tw > 0.62:                          # тонкий блик-крест у ярких
+                g = r*2.8; gc = _blend("#cfe0ff", BG0, 1-(tw-0.62)/0.38*0.55)
+                c.create_line(x-g, y, x+g, y, fill=gc, width=1)
+                c.create_line(x, y-g, x, y+g, fill=gc, width=1)
+
+    # ---------- кольцо-гейдж HUD: насечки + светящаяся дуга ----------
     def _ring(self, c, cx, cy, r, frac, color, w, val, label):
-        c.create_oval(cx-r,cy-r,cx+r,cy+r, outline=TRACK, width=w)
-        if frac > 0.01:
-            c.create_arc(cx-r,cy-r,cx+r,cy+r, start=90, extent=-frac*359.9, style="arc", outline=color, width=w)
-        c.create_text(cx,cy-3, text=val, fill=TEXT, font=("Segoe UI", 18, "bold"))
-        c.create_text(cx,cy+r+14, text=label, fill=MUTED, font=("Segoe UI", 10))
+        glow = _blend(color, BG0, 0.5)
+        # внешний круг-след
+        c.create_oval(cx-r, cy-r, cx+r, cy+r, outline=TRACK, width=w)
+        # HUD-насечки по периметру: горят неоном до текущего значения; каждая 6-я — длинная
+        N = 28
+        for i in range(N):
+            a = math.radians(90 - (i/N)*360); lit = (i/N) <= frac; major = (i % 6 == 0)
+            rr1 = r+4; rr2 = r + (13 if major else (10 if lit else 7))
+            c.create_line(cx+rr1*math.cos(a), cy-rr1*math.sin(a),
+                          cx+rr2*math.cos(a), cy-rr2*math.sin(a),
+                          fill=(color if lit else _blend(color, BG0, 0.68)),
+                          width=(2 if (lit or major) else 1))
+        # дуга прогресса со свечением + белая точка-конец
+        if frac > 0.001:
+            ext = -frac*359.9
+            c.create_arc(cx-r, cy-r, cx+r, cy+r, start=90, extent=ext, style="arc", outline=glow, width=w+7)
+            c.create_arc(cx-r, cy-r, cx+r, cy+r, start=90, extent=ext, style="arc", outline=color, width=w)
+            ea = math.radians(90+ext); px = cx+r*math.cos(ea); py = cy-r*math.sin(ea)
+            c.create_oval(px-w/2-1, py-w/2-1, px+w/2+1, py+w/2+1, fill="#ffffff", outline=color)
+        # внутреннее декоративное кольцо (HUD-глубина)
+        ri = r-w-6
+        if ri > 6: c.create_oval(cx-ri, cy-ri, cx+ri, cy+ri, outline=_blend(color, BG0, 0.8), width=1)
+        c.create_text(cx, cy-2, text=val, fill=TEXT, font=("Segoe UI", 14, "bold"))
+        c.create_text(cx, cy+r+15, text=label, fill=MUTED, font=("Segoe UI", 9, "bold"))
+
+    # ---------- бегущая кардиограмма «пульс системы» ----------
+    def _ekg(self, c, x, y, w, h, fr, color):
+        """ЭКГ-волна со свечением, бегущая слева направо."""
+        def beat(t):
+            if 0.12 < t < 0.17:  return 0.18*math.sin((t-0.12)/0.05*math.pi)   # P
+            if 0.18 < t < 0.205: return -0.12                                  # Q
+            if 0.205 < t < 0.235:return 1.0                                    # R
+            if 0.235 < t < 0.27: return -0.42                                  # S
+            if 0.32 < t < 0.45:  return 0.24*math.sin((t-0.32)/0.13*math.pi)   # T
+            return 0.0
+        baseline = y+h*0.55; amp = h*0.42; cyc = 118.0; off = (fr*1.7) % cyc
+        pts = []
+        for px in range(0, int(w)+1, 3):
+            t = ((px+off) % cyc)/cyc
+            pts += [x+px, baseline-beat(t)*amp]
+        if len(pts) >= 4:
+            c.create_line(*pts, fill=_blend(color, BG0, 0.40), width=4, capstyle="round")
+            c.create_line(*pts, fill=color, width=2, capstyle="round")
+        hx = x+((cyc-off+0.22*cyc) % cyc)
+        c.create_oval(hx-3, baseline-amp-3, hx+3, baseline-amp+3, fill=color, outline=color)
+
+    # ---------- характеристики устройства (имя/чип/ОЗУ/ОС) ----------
+    def _device_info(self):
+        if hasattr(self, "_devinfo"): return self._devinfo
+        import socket as _sk
+        try: name = _sk.gethostname().split(".")[0]
+        except Exception: name = "Device"
+        try:
+            import multiprocessing as _mp
+            cores = self.info.get("cores") or _mp.cpu_count()
+        except Exception:
+            cores = self.info.get("cores", "?")
+        ram = human(self.info.get("ram_total", 0)) if self.info.get("ram_total") else ""
+        self._devinfo = {"name": name or os_label(),
+                         "chip": f"{cores}-ядерный CPU" if cores else "",
+                         "ram": ram,
+                         "os": f"{platform.system()} {platform.release()}".strip()}
+        return self._devinfo
 
     # ---------- фирменный глобус (вращающаяся каркасная планета) ----------
     def _globe(self, c, cx, cy, r, fr):
@@ -2644,41 +2748,60 @@ class Krylan(tk.Tk):
 
     def _draw_dash(self):
         if not (self.page=="dash" and self.cv.winfo_exists()): return
-        c = self.cv; c.delete("all"); W = c.winfo_width() or 640
-        rings = [("cpu","CPU",f'{int(self.disp["cpu"])}%'),("ram",L("ОЗУ"),f'{int(self.disp["ram"])}%'),
-                 ("disk",L("ДИСК"),f'{int(self.disp["disk"])}%'),("batt",L("БАТАРЕЯ"),
-                  (f'{int(self.disp["batt"])}%' if self.info.get("batt") is not None else "—"))]
-        gap = W/4
-        for i,(k,lbl,val) in enumerate(rings):
-            inv = (k == "batt")
-            p = self.disp[k]; col = load_color(100-p) if inv else load_color(p)
-            self._ring(c, int(gap*i+gap/2), 70, 48, min(1,p/100), col, 12, val, lbl)
-        # карточка инфо
-        c.create_rectangle(20,150,W-20,282, fill=GLASS, outline=GLASS)
-        info = [L("ОС: {os}").format(os=self.info.get('os','—')),
-                L("Диск: свободно {free} из {total}").format(free=human(self.info.get('disk_free',0)), total=human(self.info.get('disk_total',0))),
-                L("ОЗУ: {total} всего, занято {pct}%").format(total=human(self.info.get('ram_total',0)), pct=int(self.disp['ram'])),
-                L("CPU: {cores} ядер").format(cores=self.info.get('cores','?')),
-                L("Сеть: ↓ {down}/с   ↑ {up}/с").format(down=human(self.info.get('net_down',0)), up=human(self.info.get('net_up',0)))]
-        for i,line in enumerate(info):
-            c.create_text(40,173+i*22, anchor="w", fill=TEXT, font=("Segoe UI", 11), text=line)
-        # карточка рекомендаций
-        adv = disk_advice(self.disp["disk"], self.disp["ram"],
-                          self.info.get("batt") if self.info.get("batt") is not None else None)
-        ay0 = 296; ah = 20 + len(adv)*22
-        c.create_rectangle(20, ay0, W-20, ay0+ah, fill=GLASS, outline=GLASS)
-        c.create_text(40, ay0+14, anchor="w", fill=MUTED, font=("Segoe UI", 10, "bold"), text=L("РЕКОМЕНДАЦИИ"))
-        for i,(col,text) in enumerate(adv):
-            c.create_oval(40, ay0+30+i*22, 50, ay0+40+i*22, fill=col, outline=col)
-            c.create_text(60, ay0+35+i*22, anchor="w", fill=TEXT, font=("Segoe UI", 11), text=text)
-        # фирменный глобус — герой-элемент по центру под рекомендациями
-        gy0 = ay0 + ah + 22
-        gr = 64
-        gcy = gy0 + gr + 16
-        self._globe(c, W//2, gcy, gr, getattr(self, "fr", 0))
-        c.create_text(W//2, gcy+gr+22, fill=MUTED, font=("Segoe UI", 9, "bold"),
-                      text="KRYLAN · " + L("Дай устройству крылья"))
-        c.configure(scrollregion=(0,0,W,gcy+gr+40))
+        c = self.cv; c.delete("all")
+        W = c.winfo_width() or 760; H = c.winfo_height() or 600
+        self._grad(c, W, H)
+        fr = getattr(self, "fr", 0)
+        # ===== радиальная «рубка»: планета в центре, метрики по углам =====
+        cx = W/2; cy = H*0.47
+        gr = max(54, min(W*0.115, H*0.165, 110))
+        gauge_r = max(26, min(38, min(W, H)*0.05))
+        orbit = min(gr+90, cy-gauge_r-24, (H-cy)-gauge_r-44, W/2-gauge_r-16)
+        orbit = max(orbit, gr+gauge_r+20)
+        # часы — верх-центр (HUD)
+        c.create_text(cx, 20, fill=CYAN, font=("Consolas", 22, "bold"), text=time.strftime("%H:%M"))
+        c.create_text(cx, 41, fill=MUTED, font=("Segoe UI", 9, "bold"), text="СИСТЕМА · РЕАЛЬНОЕ ВРЕМЯ")
+        # интернет — верх-право
+        c.create_text(W-22, 18, anchor="e", fill=MUTED, font=("Segoe UI", 10, "bold"), text="🌐 ИНТЕРНЕТ")
+        c.create_text(W-22, 40, anchor="e", fill=GREEN, font=("Segoe UI", 13, "bold"),
+                      text=f"↓ {human(self.info.get('net_down', 0))}/с")
+        c.create_text(W-22, 60, anchor="e", fill=BLUE, font=("Segoe UI", 13, "bold"),
+                      text=f"↑ {human(self.info.get('net_up', 0))}/с")
+        # кардиограмма «пульс системы» — верх-лево (ЭКГ)
+        c.create_text(22, 13, anchor="w", fill=MUTED, font=("Segoe UI", 9, "bold"), text="♥ ПУЛЬС СИСТЕМЫ")
+        self._ekg(c, 22, 22, max(140, cx-150), 42, fr, RED)
+        # ===== метрики-гейджи вокруг планеты =====
+        sval = human(self.swap_mb*1024*1024).replace(" ", "")
+        batt = self.info.get("batt")
+        gauges = [("ЗДОРОВЬЕ", str(int(self.disp["health"])), self.disp["health"]/100,
+                   col_for(self.disp["health"], inv=True)),
+                  ("CPU", f'{int(self.disp["cpu"])}%', self.disp["cpu"]/100, col_for(self.disp["cpu"])),
+                  (L("ОЗУ"), f'{int(self.disp["ram"])}%', self.disp["ram"]/100, col_for(self.disp["ram"])),
+                  (L("ДИСК"), f'{int(self.disp["disk"])}%', self.disp["disk"]/100, col_for(self.disp["disk"])),
+                  ("SWAP", sval, min(1, self.swap_mb/8192.0), CYAN),
+                  (L("БАТАРЕЯ"), (f'{int(self.disp["batt"])}%' if batt is not None else "—"),
+                   self.disp["batt"]/100, col_for(self.disp["batt"], inv=True))]
+        angles = [-120, -60, 0, 60, 120, 180]   # верх-центр (часы) и низ-центр (устройство) свободны
+        for (label, val, frac, color), deg in zip(gauges, angles):
+            a = math.radians(deg)
+            gxp = cx+orbit*math.cos(a); gyp = cy+orbit*math.sin(a)
+            ex = cx+gr*math.cos(a); ey = cy+gr*math.sin(a)
+            lx = gxp-gauge_r*math.cos(a); ly = gyp-gauge_r*math.sin(a)
+            c.create_line(ex, ey, lx, ly, fill=_blend(CYAN, BG0, 0.42), width=1)   # светящийся коннектор
+            c.create_oval(ex-2, ey-2, ex+2, ey+2, fill=CYAN, outline=CYAN)         # узел у планеты
+            c.create_oval(lx-2, ly-2, lx+2, ly+2, fill=_blend(color, BG0, 0.2), outline=color)  # узел у гейджа
+            self._ring(c, gxp, gyp, gauge_r, min(1, frac), color, 8, val, label)
+        # ===== ЦЕНТР: вращающаяся планета-устройство =====
+        self._globe(c, cx, cy, gr, fr)
+        # характеристики устройства — под планетой
+        di = self._device_info()
+        c.create_text(cx, cy+gr+18, fill=TEXT, font=("Segoe UI", 14, "bold"), text=di["name"])
+        sub = f'{di["chip"]} · {di["ram"]}' if di["chip"] and di["ram"] else (di["chip"] or di["ram"])
+        if sub:
+            c.create_text(cx, cy+gr+38, fill=CYAN, font=("Segoe UI", 10, "bold"), text=sub)
+        c.create_text(cx, H-16, fill=MUTED, font=("Segoe UI", 9),
+                      text=f'{os_label()} · {di["os"]}')
+        c.configure(scrollregion=(0, 0, W, H))
 
     # ---------- очистка ----------
     def show_clean(self):
@@ -4004,6 +4127,10 @@ class Krylan(tk.Tk):
                 ram = psutil.virtual_memory().percent
                 du = psutil.disk_usage(HOME if SYSTEM != "Windows" else os.environ.get("SystemDrive", "C:") + "\\")
                 b = psutil.sensors_battery()
+                try: swap_mb = psutil.swap_memory().used / (1024 * 1024)
+                except Exception: swap_mb = 0
+                # «Здоровье» 0..100: чем меньше загрузка cpu/ram/disk — тем выше.
+                health = max(0, 100 - (0.30*cpu + 0.35*ram + 0.35*du.percent))
                 up = down = 0
                 try:
                     cur = psutil.net_io_counters(); now = time.time(); dt = max(0.2, now - prev_t)
@@ -4012,6 +4139,7 @@ class Krylan(tk.Tk):
                 except Exception: pass
                 self.q.put(("stats", {"cpu":cpu,"ram":ram,"disk":du.percent,
                             "batt": (b.percent if b else None),
+                            "health": health, "swap_mb": swap_mb,
                             "disk_free": du.free, "disk_total": du.total,
                             "net_up": max(0,up), "net_down": max(0,down)}, None))
             except Exception: pass
@@ -4029,7 +4157,9 @@ class Krylan(tk.Tk):
             while True:
                 kind,a,b = self.q.get_nowait()
                 if kind == "stats":
-                    self.tgt.update({"cpu":a["cpu"],"ram":a["ram"],"disk":a["disk"],"batt":a["batt"] or 0})
+                    self.tgt.update({"cpu":a["cpu"],"ram":a["ram"],"disk":a["disk"],"batt":a["batt"] or 0,
+                                     "health":a.get("health",100)})
+                    self.swap_mb = a.get("swap_mb", 0)
                     self.info["batt"] = a["batt"]; self.info["disk_free"]=a["disk_free"]; self.info["disk_total"]=a["disk_total"]
                     self.info["net_up"]=a.get("net_up",0); self.info["net_down"]=a.get("net_down",0)
                     self.info["os"] = self.info.get("os","")

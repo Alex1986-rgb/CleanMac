@@ -13,6 +13,8 @@ final class SystemMonitor: ObservableObject {
     @Published var batteryPercent = 100
     @Published var diskUsedPercent: Double = 0
     @Published var memoryUsedPercent: Double = 0
+    @Published var cpuUsedPercent: Double = 0
+    @Published var swapUsedPercent: Double = 0
     @Published var netDownBps: Double = 0   // скорость загрузки, байт/с
     @Published var netUpBps: Double = 0     // скорость отдачи, байт/с
     @Published var netDownHist: [Double] = Array(repeating: 0, count: 40)
@@ -22,6 +24,7 @@ final class SystemMonitor: ObservableObject {
     private var prevRecv: UInt64 = 0
     private var prevSent: UInt64 = 0
     private var prevNetTime: TimeInterval = 0
+    private var prevCPUTicks: (user: Double, sys: Double, idle: Double, nice: Double)?
 
     /// Человекочитаемая скорость, напр. «1.2 МБ/с».
     var netDownLabel: String { Self.humanRate(netDownBps) }
@@ -37,8 +40,18 @@ final class SystemMonitor: ObservableObject {
     var healthScore: Double {
         let ramOk = 100 - memoryUsedPercent
         let diskOk = 100 - diskUsedPercent
+        let cpuOk = 100 - cpuUsedPercent
         let battOk = Double(batteryPercent)
-        return max(0, min(100, 0.4 * ramOk + 0.4 * diskOk + 0.2 * battOk))
+        return max(0, min(100, 0.3 * ramOk + 0.3 * diskOk + 0.2 * cpuOk + 0.2 * battOk))
+    }
+
+    /// Имя устройства для подписи под планетой.
+    var deviceName: String {
+        #if os(iOS)
+        return UIDevice.current.name
+        #else
+        return Host.current().localizedName ?? "Mac"
+        #endif
     }
 
     var healthLabel: String {
@@ -67,6 +80,10 @@ final class SystemMonitor: ObservableObject {
         // --- ОЗУ ---
         ramTotalGB = Int(Double(ProcessInfo.processInfo.physicalMemory) / 1_073_741_824)
         memoryUsedPercent = Self.memoryUsedPercent()
+        // --- CPU (дельта тиков) ---
+        cpuUsedPercent = cpuUsedPercentTick()
+        // --- SWAP ---
+        swapUsedPercent = Self.swapUsedPercent()
         // --- Батарея ---
         #if os(iOS)
         let lvl = UIDevice.current.batteryLevel
@@ -107,6 +124,36 @@ final class SystemMonitor: ObservableObject {
             sent += UInt64(data.pointee.ifi_obytes)
         }
         return (recv, sent)
+    }
+
+    /// % загрузки CPU по дельте host тиков (user+sys+nice / total). Работает на macOS и iOS.
+    private func cpuUsedPercentTick() -> Double {
+        var count = mach_msg_type_number_t(MemoryLayout<host_cpu_load_info_data_t>.size / MemoryLayout<integer_t>.size)
+        var info = host_cpu_load_info_data_t()
+        let kr = withUnsafeMutablePointer(to: &info) { p in
+            p.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                host_statistics(mach_host_self(), HOST_CPU_LOAD_INFO, $0, &count)
+            }
+        }
+        guard kr == KERN_SUCCESS else { return cpuUsedPercent }
+        let user = Double(info.cpu_ticks.0)
+        let sys  = Double(info.cpu_ticks.1)
+        let idle = Double(info.cpu_ticks.2)
+        let nice = Double(info.cpu_ticks.3)
+        defer { prevCPUTicks = (user, sys, idle, nice) }
+        guard let prev = prevCPUTicks else { return 0 }
+        let du = user - prev.user, ds = sys - prev.sys, di = idle - prev.idle, dn = nice - prev.nice
+        let total = du + ds + di + dn
+        guard total > 0 else { return cpuUsedPercent }
+        return max(0, min(100, (du + ds + dn) / total * 100))
+    }
+
+    /// % использования swap через sysctl vm.swapusage (доступно и в песочнице iOS).
+    static func swapUsedPercent() -> Double {
+        var usage = xsw_usage()
+        var size = MemoryLayout<xsw_usage>.size
+        guard sysctlbyname("vm.swapusage", &usage, &size, nil, 0) == 0, usage.xsu_total > 0 else { return 0 }
+        return min(100, Double(usage.xsu_used) / Double(usage.xsu_total) * 100)
     }
 
     /// % занятой физической памяти через Mach (работает на macOS и iOS).

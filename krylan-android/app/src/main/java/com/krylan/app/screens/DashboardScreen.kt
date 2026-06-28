@@ -39,12 +39,16 @@ import androidx.compose.ui.unit.sp
 import com.krylan.app.MediaStoreUtils
 import com.krylan.app.SystemInfo
 import com.krylan.app.ui.Brand
-import com.krylan.app.ui.GlobeView
+import com.krylan.app.ui.HudConsole
+import com.krylan.app.ui.HudMetric
 import com.krylan.app.ui.RingGauge
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale as JLocale
 
 // Индекс вкладки «Медиа» = ordinal enum Tab в MainActivity (Dashboard0/Storage1/Cleanup2/Media3/Apps4).
 private const val TAB_MEDIA_DASH = 3
@@ -67,10 +71,24 @@ fun DashboardScreen(ctx: Context, onNavigate: (Int) -> Unit = {}) {
         upHist.add(net.upBps.toFloat()); if (upHist.size > 40) upHist.removeAt(0)
     }
 
+    // Часы для HUD (обновляются вместе с tick).
+    val clock = remember(tick) {
+        SimpleDateFormat("HH:mm:ss", JLocale.US).format(Date())
+    }
+    // Нормированная ЭКГ-линия 0..1 из истории скачивания (для мини-кардиограммы слева).
+    val ekg = remember(tick) {
+        val peak = (downHist.maxOrNull() ?: 1f).coerceAtLeast(1f)
+        downHist.map { (it / peak).coerceIn(0f, 1f) }
+    }
+
     Column(
         Modifier
             .fillMaxSize()
-            .background(Brand.bg0)
+            .background(
+                Brush.radialGradient(
+                    colors = listOf(Brand.glowIn, Brand.bg0, Brand.glowOut)
+                )
+            )
             .verticalScroll(rememberScrollState())
             .padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -141,51 +159,34 @@ fun DashboardScreen(ctx: Context, onNavigate: (Int) -> Unit = {}) {
         // Умные подсказки с реальными счётчиками и переходом на нужную вкладку.
         SmartSuggestions(ctx, onNavigate)
 
-        // Фирменный анимированный глобус KRYLAN
-        Card(
-            colors = CardDefaults.cardColors(containerColor = Brand.glass),
-            shape = RoundedCornerShape(20.dp),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Box(
-                Modifier.fillMaxWidth().height(220.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                GlobeView(Modifier.fillMaxSize())
-            }
+        // HUD-«рубка» KRYLAN: радиальный дашборд (планета в центре, гейджи по кругу).
+        val downPct = run {
+            val peak = (downHist.maxOrNull() ?: 1f).coerceAtLeast(1f)
+            (net.downBps.toFloat() / peak).coerceIn(0f, 1f)
         }
-
-        // Health-герой
-        Card(
-            colors = CardDefaults.cardColors(containerColor = Brand.glass),
-            shape = RoundedCornerShape(20.dp),
+        val hudMetrics = listOf(
+            // -120: ЗДОРОВЬЕ (выше — лучше → цвет по запасу)
+            HudMetric("ЗДОРОВЬЕ", "${health.toInt()}", health / 100f, Brand.load(100f - health)),
+            // -60: ОЗУ
+            HudMetric("ОЗУ", "${ramPct.toInt()}%", ramPct / 100f, Brand.load(ramPct)),
+            // 0: ДИСК
+            HudMetric("ДИСК", "${storage.usedPercent.toInt()}%", storage.usedPercent / 100f, Brand.load(storage.usedPercent)),
+            // 60: ПАМЯТЬ (нагрузка ОЗУ как «загрузка системы»)
+            HudMetric("CPU", "${ramPct.toInt()}%", ramPct / 100f, Brand.load(ramPct)),
+            // 120: СЕТЬ (доля от пика загрузки)
+            HudMetric("СЕТЬ", SystemInfo.fmtRate(net.downBps), downPct, Brand.cyan),
+            // 180: БАТАРЕЯ (выше — лучше)
+            HudMetric("БАТАРЕЯ", "$battery%", battery / 100f, Brand.load(100f - battery)),
+        )
+        HudConsole(
+            metrics = hudMetrics,
+            deviceName = android.os.Build.MODEL ?: Brand.NAME,
+            clock = clock,
+            downRate = SystemInfo.fmtRate(net.downBps),
+            upRate = SystemInfo.fmtRate(net.upBps),
+            ekg = ekg,
             modifier = Modifier.fillMaxWidth()
-        ) {
-            Box(Modifier.fillMaxWidth().padding(vertical = 22.dp), contentAlignment = Alignment.Center) {
-                RingGauge(progress = health / 100f, color = Brand.load(100f - health), size = 160.dp, stroke = 16.dp) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("${health.toInt()}", color = Brand.text, fontSize = 44.sp, fontWeight = FontWeight.Bold)
-                        Text(healthLabel, color = Brand.load(100f - health), fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                    }
-                }
-            }
-        }
-
-        // Кольца метрик
-        Card(
-            colors = CardDefaults.cardColors(containerColor = Brand.glass),
-            shape = RoundedCornerShape(20.dp),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Row(
-                Modifier.fillMaxWidth().padding(vertical = 18.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly
-            ) {
-                MetricRing(ramPct, "ПАМЯТЬ")
-                MetricRing(storage.usedPercent, "ДИСК")
-                MetricRing(battery.toFloat(), "БАТАРЕЯ", invert = true)
-            }
-        }
+        )
 
         InfoCard(Icons.Filled.Storage, "Хранилище",
             "${"%.0f".format(SystemInfo.gb(storage.freeBytes))} ГБ свободно",

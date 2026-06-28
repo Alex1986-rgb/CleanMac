@@ -16,11 +16,15 @@ struct StarfieldView: View {
         TimelineView(.animation) { tl in
             let t = tl.date.timeIntervalSinceReferenceDate
             Canvas { ctx, size in
-                // фон-градиент
+                // База navy.
+                ctx.fill(Path(CGRect(origin: .zero, size: size)), with: .color(Brand.bg0))
+                // Радиальное свечение «рубки»: ярче центр-верх, гаснет к краям.
+                let gc = CGPoint(x: size.width * 0.5, y: size.height * 0.38)
+                let gr = max(size.width, size.height) * 0.85
                 ctx.fill(Path(CGRect(origin: .zero, size: size)),
-                         with: .linearGradient(Gradient(colors: [Brand.bg0, Brand.bg1]),
-                                               startPoint: .zero,
-                                               endPoint: CGPoint(x: 0, y: size.height)))
+                         with: .radialGradient(
+                            Gradient(colors: [Brand.glow.opacity(0.85), Brand.bg0, Brand.bg1]),
+                            center: gc, startRadius: 0, endRadius: gr))
                 // звёзды
                 for s in stars {
                     let tw = 0.45 + 0.55 * (0.5 + 0.5 * sin(t * 1.6 + s.phase))
