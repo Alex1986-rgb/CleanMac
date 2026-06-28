@@ -418,6 +418,39 @@ I18N = {
         "Used {pct}% · free {free} of {total}",
     "⚠️ Меньше 10% свободного места замедляет систему — освободите диск.":
         "⚠️ Less than 10% free space slows the system down — free up the disk.",
+    # --- 🩺 Диск-доктор (read-only проверка на ошибки) ---
+    "🩺 Диск-доктор": "🩺 Disk Doctor",
+    "🩺 Проверяю диск на ошибки (только чтение)…":
+        "🩺 Checking the disk for errors (read-only)…",
+    "🩺  Диск-доктор (только чтение)": "🩺  Disk Doctor (read-only)",
+    "⚠️ Найдены ошибки — нужна проверка/ремонт.":
+        "⚠️ Errors found — a check/repair is needed.",
+    "✅ Ошибок не найдено — диск в порядке.":
+        "✅ No errors found — the disk is OK.",
+    "Не удалось определить итог — см. вывод выше.":
+        "Could not determine the result — see the output above.",
+    "chkdsk недоступен в этой среде.": "chkdsk is not available in this environment.",
+    "diskutil недоступен в этой среде.": "diskutil is not available in this environment.",
+    "Нет вывода — возможно, нужны права администратора.":
+        "No output — administrator rights may be required.",
+    "SMART (здоровье диска):": "SMART (disk health):",
+    "Установите smartmontools: sudo apt install smartmontools":
+        "Install smartmontools: sudo apt install smartmontools",
+    "Не удалось прочитать SMART (нужны права root?).":
+        "Could not read SMART (root rights needed?).",
+    "ℹ️ fsck на смонтированном диске не запускается — это небезопасно.":
+        "ℹ️ fsck is not run on a mounted disk — that would be unsafe.",
+    "не удалось выполнить проверку: {e}": "could not run the check: {e}",
+    "Диск-доктор только читает состояние и ничего не меняет.":
+        "Disk Doctor only reads the state and changes nothing.",
+    # --- вес/статус автозагрузки ---
+    "вкл": "on", "выкл": "off", "статус ?": "status ?",
+    "Системная автозагрузка (Location · Command):":
+        "System startup (Location · Command):",
+    "«вкл/выкл» — реальный статус из реестра. "
+    "Отключить: Диспетчер задач → вкладка «Автозагрузка».":
+        "“on/off” is the real status from the registry. "
+        "Disable: Task Manager → Startup tab.",
     # --- 🔥 Шредер (безвозвратное затирание) ---
     "🔥 Шредер": "🔥 Shredder",
     "🔥  Шредер — безвозвратное затирание файлов":
@@ -1004,6 +1037,130 @@ def disk_health_report():
     if du.percent > 90:
         lines.append("  " + L("⚠️ Меньше 10% свободного места замедляет систему — освободите диск.") + "\n")
     return "".join(lines)
+
+# ---------- Диск-доктор: read-only проверка диска на ошибки (аналог BoostSpeed) ----------
+# ВАЖНО: только ЧТЕНИЕ. Ничего не чинит и не меняет:
+#   • Windows: chkdsk БЕЗ флагов — read-only скан, без /f (не требует перезагрузки).
+#   • macOS:   diskutil verifyVolume / — НЕ repairVolume.
+#   • Linux:   smartctl -H — НЕ fsck (на смонтированном ФС никогда).
+def parse_disk_check(text):
+    """Парсер итога read-only проверки диска (chkdsk / verifyVolume) → dict.
+
+    ЧИСТАЯ функция (тестируется на сэмплах). Возвращает:
+      {"errors": bool|None, "summary": str}
+        • errors=False — явно «ошибок не найдено» (No problems / appears to be OK …);
+        • errors=True  — явно найдены ошибки / проблемы / corruption;
+        • errors=None  — не смогли уверенно определить (пустой/непонятный вывод).
+    Берёт первую уверенную сигнатуру; «ошибки» имеют приоритет над «всё ок»,
+    чтобы не проглядеть реальную проблему."""
+    low = (text or "").lower()
+    if not low.strip():
+        return {"errors": None, "summary": ""}
+    # сначала ищем явные индикаторы ПРОБЛЕМ (приоритет над «ок»)
+    bad = (
+        "found problems", "errors found", "corruption", "corrupt",
+        "failed to verify", "could not be verified",
+        "windows found problems", "errors on the volume",
+        "bad sectors", "the volume was found to be corrupt",
+        "repair the volume",
+    )
+    for sig in bad:
+        if sig in low:
+            return {"errors": True, "summary": L("⚠️ Найдены ошибки — нужна проверка/ремонт.")}
+    good = (
+        "no problems", "found no problems", "appears to be ok",
+        "the volume appears to be ok", "windows has scanned the file system and found no problems",
+        "no further action is required", "0 kb in bad sectors",
+        "the volume seems to be ok", "verification successful",
+    )
+    for sig in good:
+        if sig in low:
+            return {"errors": False, "summary": L("✅ Ошибок не найдено — диск в порядке.")}
+    return {"errors": None, "summary": L("Не удалось определить итог — см. вывод выше.")}
+
+def disk_doctor_report():
+    """Read-only «Диск-доктор»: проверка диска на ошибки + здоровье, по ОС.
+    Ничего не чинит и не меняет. Команды через run() (без консолей, с таймаутами,
+    graceful при отсутствии бинарника/прав)."""
+    lines = ["🩺  " + L("Диск-доктор (только чтение)") + "\n\n"]
+    raw = ""
+    try:
+        if SYSTEM == "Windows":
+            # chkdsk БЕЗ /f → read-only скан, не требует перезагрузки, ничего не правит.
+            drive = os.environ.get("SystemDrive", "C:")
+            r = run(["chkdsk", drive], timeout=300)
+            raw = (r.stdout or "") + "\n" + (r.stderr or "")
+            if r.returncode == 127:
+                lines.append("  " + L("chkdsk недоступен в этой среде.") + "\n")
+            elif not raw.strip():
+                lines.append("  " + L("Нет вывода — возможно, нужны права администратора.") + "\n")
+            else:
+                tail = [x.strip() for x in raw.splitlines() if x.strip()][-6:]
+                lines += ["  " + x + "\n" for x in tail]
+            verdict = parse_disk_check(raw)
+            lines.append("\n  " + verdict["summary"] + "\n")
+            # дополняем SMART, если доступно
+            sr = run(["powershell", "-NoProfile", "-NonInteractive", "-Command",
+                      "Get-PhysicalDisk | Select-Object FriendlyName,HealthStatus | Format-List"],
+                     timeout=30)
+            sbody = [x.strip() for x in (sr.stdout or "").splitlines() if x.strip()]
+            if sbody:
+                lines.append("\n  " + L("SMART (здоровье диска):") + "\n")
+                lines += ["    " + x + "\n" for x in sbody]
+        elif SYSTEM == "Darwin":
+            # verifyVolume — read-only; repairVolume НЕ вызываем.
+            r = run(["diskutil", "verifyVolume", "/"], timeout=300)
+            raw = (r.stdout or "") + "\n" + (r.stderr or "")
+            if r.returncode == 127:
+                lines.append("  " + L("diskutil недоступен в этой среде.") + "\n")
+            elif not raw.strip():
+                lines.append("  " + L("Нет вывода — возможно, нужны права администратора.") + "\n")
+            else:
+                tail = [x.strip() for x in raw.splitlines() if x.strip()][-8:]
+                lines += ["  " + x + "\n" for x in tail]
+            verdict = parse_disk_check(raw)
+            lines.append("\n  " + verdict["summary"] + "\n")
+        else:
+            # Linux: только SMART (read-only). fsck на смонтированном НЕ запускаем.
+            r = run(["smartctl", "-H", "/dev/sda"], timeout=30)
+            if r.returncode == 127:
+                lines.append("  " + L("Установите smartmontools: sudo apt install smartmontools") + "\n")
+            elif r.stdout:
+                lines += ["  " + x + "\n" for x in r.stdout.splitlines()[-6:]]
+                verdict = parse_disk_check(r.stdout)
+                if verdict["errors"] is not None:
+                    lines.append("\n  " + verdict["summary"] + "\n")
+            else:
+                lines.append("  " + L("Не удалось прочитать SMART (нужны права root?).") + "\n")
+            lines.append("\n  " + L("ℹ️ fsck на смонтированном диске не запускается — это небезопасно.") + "\n")
+    except Exception as e:
+        lines.append("  " + L("не удалось выполнить проверку: {e}").format(e=e) + "\n")
+    lines.append("\n  " + L("Диск-доктор только читает состояние и ничего не меняет.") + "\n")
+    return "".join(lines)
+
+# ---------- вес/статус автозагрузки (Windows StartupApproved) ----------
+def parse_startup_approved(blob):
+    """Статус записи автозагрузки из реестра ...\\StartupApproved\\Run.
+
+    ЧИСТАЯ функция (тестируется). Значение — REG_BINARY (12 байт): первый байт
+    кодирует включённость. Соглашение Windows: чётный первый байт = ВКЛЮЧЕНО
+    (0x02, 0x06 …), нечётный = ОТКЛЮЧЕНО (0x03, 0x07 …). Принимает bytes/
+    bytearray/list[int]; при пустом/непонятном входе → None (неизвестно).
+    Возвращает True (вкл) / False (выкл) / None (неизвестно)."""
+    if blob is None:
+        return None
+    try:
+        first = blob[0]
+    except (IndexError, TypeError):
+        return None
+    if isinstance(first, (bytes, bytearray)):
+        first = first[0] if first else None
+    if first is None:
+        return None
+    try:
+        return (int(first) % 2) == 0
+    except (TypeError, ValueError):
+        return None
 
 # ---------- Software Updater: устаревшие приложения через нативный менеджер ----------
 # Только ЧТЕНИЕ списка. Обновление пользователь запускает сам (команда-подсказка).
@@ -2295,7 +2452,8 @@ class Krylan(tk.Tk):
                          ("🗺 Карта диска", self.t_diskmap), ("🧳 Деинсталлятор", self.t_uninstall),
                          ("📂 Пустые папки", self.t_empty), ("🧩 Битые файлы", self.t_broken),
                          ("📈 Что выросло", self.t_growth),
-                         ("🔒 Приватность", self.t_privacy), ("🧩 Расширения браузеров", self.t_extensions), ("🩺 Диск", self.t_smart),
+                         ("🔒 Приватность", self.t_privacy), ("🧩 Расширения браузеров", self.t_extensions),
+                         ("🩺 Диск", self.t_smart), ("🩺 Диск-доктор", self.t_diskdoctor),
                          ("🔥 Шредер", self.t_shred),
                          ("🔄 Обновления", self.t_updates), ("📄 Отчёт", self.t_report)]:
             self._btn(bar, L(lbl), GLASS, cmd).pack(side="left", padx=4)
@@ -2317,18 +2475,49 @@ class Krylan(tk.Tk):
         if SYSTEM == "Windows":
             try:
                 import winreg
+                # карта «вкл/выкл» из StartupApproved\Run (байтовый флаг)
+                approved = {}
+                try:
+                    ak = winreg.OpenKey(winreg.HKEY_CURRENT_USER,
+                                        r"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run")
+                    try:
+                        j = 0
+                        while True:
+                            try:
+                                an, av, _ = winreg.EnumValue(ak, j)
+                                approved[an] = parse_startup_approved(av); j += 1
+                            except OSError: break
+                    finally:
+                        winreg.CloseKey(ak)
+                except Exception:
+                    pass  # ключа может не быть — тогда статус неизвестен
                 k = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Run")
                 try:
                     i = 0
                     while True:
                         try:
-                            n, v, _ = winreg.EnumValue(k, i); lines.append(f"  • {n}\n      {v}\n"); i += 1
+                            n, v, _ = winreg.EnumValue(k, i)
+                            st = approved.get(n)
+                            tag = (L("вкл") if st else L("выкл")) if st is not None else L("статус ?")
+                            lines.append(f"  • {n}  [{tag}]\n      {v}\n"); i += 1
                         except OSError: break
                 finally:
                     winreg.CloseKey(k)
             except Exception as e:
                 lines.append("  " + L("ошибка чтения реестра: {e}").format(e=e) + "\n")
-            lines.append("\n" + L("Отключить: Диспетчер задач → вкладка «Автозагрузка».") + "\n")
+            # Win32_StartupCommand: Location/Command (если доступно)
+            try:
+                r = run(["powershell", "-NoProfile", "-NonInteractive", "-Command",
+                         "Get-CimInstance Win32_StartupCommand | "
+                         "Select-Object Name,Location,Command | Format-List"], timeout=30)
+                body = [x.strip() for x in (r.stdout or "").splitlines() if x.strip()]
+                if body:
+                    lines.append("\n" + L("Системная автозагрузка (Location · Command):") + "\n")
+                    lines += ["  " + x + "\n" for x in body]
+            except Exception:
+                pass
+            lines.append("\n" + L("«вкл/выкл» — реальный статус из реестра. "
+                                  "Отключить: Диспетчер задач → вкладка «Автозагрузка».") + "\n")
         elif SYSTEM == "Darwin":
             la = os.path.join(HOME, "Library/LaunchAgents")
             for f in (sorted(os.listdir(la)) if os.path.isdir(la) else []): lines.append(f"  • {f}\n")
@@ -2694,6 +2883,11 @@ class Krylan(tk.Tk):
     def t_smart(self):
         self._out(L("🩺 Читаю состояние диска…"))
         threading.Thread(target=lambda: self.q.put(("tout", disk_health_report(), None)), daemon=True).start()
+
+    def t_diskdoctor(self):
+        # read-only проверка диска на ошибки (ничего не чинит); может идти долго
+        self._out(L("🩺 Проверяю диск на ошибки (только чтение)…"))
+        threading.Thread(target=lambda: self.q.put(("tout", disk_doctor_report(), None)), daemon=True).start()
 
     # ---------- о программе ----------
     def show_about(self):

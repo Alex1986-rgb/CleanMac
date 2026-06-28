@@ -1265,5 +1265,63 @@ class TestShredFile(unittest.TestCase):
             self.assertFalse(os.path.exists(f))
 
 
+class TestStartupApproved(unittest.TestCase):
+    def test_enabled_even_first_byte(self):
+        # первый байт чётный (0x02) → включено
+        blob = bytes([0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+        self.assertIs(krylan.parse_startup_approved(blob), True)
+
+    def test_enabled_zero_first_byte(self):
+        self.assertIs(krylan.parse_startup_approved(bytes([0x00] + [0]*11)), True)
+
+    def test_disabled_odd_first_byte(self):
+        # первый байт нечётный (0x03) → отключено
+        blob = bytes([0x03, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+        self.assertIs(krylan.parse_startup_approved(blob), False)
+
+    def test_accepts_list_of_ints(self):
+        self.assertIs(krylan.parse_startup_approved([6, 0, 0]), True)
+        self.assertIs(krylan.parse_startup_approved([7, 0, 0]), False)
+
+    def test_empty_or_none(self):
+        self.assertIsNone(krylan.parse_startup_approved(b""))
+        self.assertIsNone(krylan.parse_startup_approved([]))
+        self.assertIsNone(krylan.parse_startup_approved(None))
+
+
+class TestDiskCheck(unittest.TestCase):
+    def test_no_errors_chkdsk(self):
+        txt = ("Windows has scanned the file system and found no problems.\n"
+               "No further action is required.\n")
+        r = krylan.parse_disk_check(txt)
+        self.assertIs(r["errors"], False)
+        self.assertTrue(r["summary"])
+
+    def test_no_errors_verifyvolume(self):
+        txt = "Verifying volume.\nThe volume appears to be OK.\n"
+        self.assertIs(krylan.parse_disk_check(txt)["errors"], False)
+
+    def test_errors_found_chkdsk(self):
+        txt = ("Windows found problems with the file system.\n"
+               "Run CHKDSK with the /F (fix) option to correct these.\n")
+        self.assertIs(krylan.parse_disk_check(txt)["errors"], True)
+
+    def test_errors_corruption(self):
+        txt = "The volume was found to be corrupt and unusable.\n"
+        self.assertIs(krylan.parse_disk_check(txt)["errors"], True)
+
+    def test_errors_take_priority_over_ok(self):
+        # если в выводе есть и «ок», и «проблемы» — считаем как ошибки
+        txt = "The volume appears to be OK\nbut errors found on the volume.\n"
+        self.assertIs(krylan.parse_disk_check(txt)["errors"], True)
+
+    def test_empty_unknown(self):
+        self.assertIsNone(krylan.parse_disk_check("")["errors"])
+        self.assertIsNone(krylan.parse_disk_check("   \n  ")["errors"])
+
+    def test_unrecognized_unknown(self):
+        self.assertIsNone(krylan.parse_disk_check("some unrelated text")["errors"])
+
+
 if __name__ == "__main__":
     unittest.main()
