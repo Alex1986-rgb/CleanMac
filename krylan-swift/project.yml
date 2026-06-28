@@ -13,7 +13,8 @@ settings:
     CURRENT_PROJECT_VERSION: "1"
     ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
     ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
-    DEVELOPMENT_TEAM: ""   # ← впишите свой Apple Team ID после регистрации
+    CODE_SIGN_STYLE: Automatic   # Xcode сам создаст профиль; нужно лишь выбрать свой Apple ID (Team)
+    DEVELOPMENT_TEAM: ""         # ← пусто: выберите команду в Xcode → Signing & Capabilities
 targets:
   KRYLAN-macOS:
     type: application
