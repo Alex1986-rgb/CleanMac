@@ -8,6 +8,7 @@ final class ScreenshotScanner: ObservableObject {
     @Published var selected = Set<String>()
     @Published var status = "Готово к сканированию"
     @Published var scanning = false
+    @Published var bannerMoved = 0              // >0 — показать баннер «Недавно удалённые»
 
     func scan() {
         status = "Запрос доступа к фото…"
@@ -49,10 +50,12 @@ final class ScreenshotScanner: ObservableObject {
     }
 
     func selectAll() { selected = Set(assets.map(\.localIdentifier)) }
+    func clearSelection() { selected.removeAll() }
 
     func deleteSelected() {
         let del = assets.filter { selected.contains($0.localIdentifier) }
         guard !del.isEmpty else { return }
+        let count = del.count
         PHPhotoLibrary.shared().performChanges({
             PHAssetChangeRequest.deleteAssets(del as NSArray)
         }) { [weak self] ok, _ in
@@ -60,7 +63,8 @@ final class ScreenshotScanner: ObservableObject {
                 guard let self, ok else { return }
                 self.assets.removeAll { self.selected.contains($0.localIdentifier) }
                 self.selected = []
-                self.status = "Перенесено в «Недавно удалённые» (хранится 30 дней)"
+                self.bannerMoved = count
+                self.status = "Перенесено в «Недавно удалённые»: \(count)"
             }
         }
     }
@@ -68,13 +72,14 @@ final class ScreenshotScanner: ObservableObject {
 
 struct ScreenshotsView: View {
     @StateObject private var scanner = ScreenshotScanner()
+    @State private var confirmDelete = false
     private let cols = [GridItem(.adaptive(minimum: 76), spacing: 8)]
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 PageHeader(title: "Скриншоты")
-                Text("Скриншоты копятся незаметно и редко нужны спустя время. Выберите лишние — удаление обратимо 30 дней.")
+                Text("Скриншоты копятся незаметно и редко нужны спустя время. Отметьте лишние галочкой и удалите все разом — обратимо 30 дней.")
                     .font(.callout).foregroundStyle(Brand.muted)
 
                 HStack(spacing: 12) {
@@ -86,30 +91,33 @@ struct ScreenshotsView: View {
                     Text(scanner.status).font(.subheadline.bold()).foregroundStyle(Brand.green)
                 }
 
-                if !scanner.assets.isEmpty {
-                    HStack {
-                        Button("Выбрать все") { scanner.selectAll() }
-                            .font(.caption.bold()).foregroundStyle(Brand.blue).buttonStyle(.plain)
-                        Spacer()
-                        Button { scanner.deleteSelected() } label: {
-                            Text("Удалить (\(scanner.selected.count))")
-                                .font(.caption.bold())
-                                .foregroundStyle(scanner.selected.isEmpty ? Brand.muted : Brand.red)
-                        }.buttonStyle(.plain).disabled(scanner.selected.isEmpty)
+                if scanner.bannerMoved > 0 {
+                    RecentlyDeletedBanner(movedCount: scanner.bannerMoved) {
+                        scanner.bannerMoved = 0
                     }
+                }
+
+                if scanner.assets.isEmpty {
+                    if !scanner.scanning {
+                        EmptyStateView(icon: "camera.viewfinder",
+                                       title: "Скриншотов нет",
+                                       subtitle: "Нажмите «Сканировать», чтобы собрать все скриншоты из медиатеки.")
+                    }
+                } else {
+                    SelectionActionBar(
+                        selectedCount: scanner.selected.count,
+                        totalCount: scanner.assets.count,
+                        onSelectAll: { scanner.selectAll() },
+                        onClear: { scanner.clearSelection() },
+                        onDelete: { confirmDelete = true }
+                    )
 
                     LazyVGrid(columns: cols, spacing: 8) {
                         ForEach(scanner.assets, id: \.localIdentifier) { asset in
-                            ZStack(alignment: .topTrailing) {
-                                AssetThumb(asset: asset)
-                                if scanner.selected.contains(asset.localIdentifier) {
-                                    Image(systemName: "checkmark.circle.fill")
-                                        .foregroundStyle(Brand.green)
-                                        .background(Circle().fill(.black.opacity(0.6)))
-                                        .padding(4)
-                                }
-                            }
-                            .onTapGesture { scanner.toggle(asset) }
+                            AssetThumb(asset: asset,
+                                       selected: scanner.selected.contains(asset.localIdentifier))
+                                .contentShape(Rectangle())
+                                .onTapGesture { scanner.toggle(asset) }
                         }
                     }
                     .padding(14)
@@ -120,5 +128,12 @@ struct ScreenshotsView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .background(StarfieldView())
+        .confirmationDialog("Удалить выбранные скриншоты?",
+                            isPresented: $confirmDelete, titleVisibility: .visible) {
+            Button("Удалить (\(scanner.selected.count))", role: .destructive) { scanner.deleteSelected() }
+            Button("Отмена", role: .cancel) {}
+        } message: {
+            Text("Дальше появится системный запрос. Скриншоты перенесутся в «Недавно удалённые»; место освободится только после очистки этого альбома.")
+        }
     }
 }

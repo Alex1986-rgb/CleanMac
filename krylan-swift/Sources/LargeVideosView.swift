@@ -23,12 +23,46 @@ struct VideoGroup: Identifiable {
 final class VideoScanner: ObservableObject {
     @Published var videos: [PHAsset] = []       // режим «Крупные»
     @Published var groups: [VideoGroup] = []    // режим «Похожие»
+    @Published var selected = Set<String>()     // выбранные ролики (по localIdentifier)
     @Published var status = "Готово к сканированию"
     @Published var scanning = false
     @Published var mode: VideoScanMode = .large
+    @Published var bannerMoved = 0              // >0 — показать баннер «Недавно удалённые»
 
     /// Сколько роликов можно убрать (по одному лишнему в каждой группе).
     var extraCount: Int { groups.reduce(0) { $0 + $1.assets.count - 1 } }
+
+    /// Суммарная оценка «веса» выбранных роликов (прокси, без точных байт).
+    var selectedSizeEstimate: Double {
+        videos.filter { selected.contains($0.localIdentifier) }
+            .reduce(0) { $0 + Self.sizeEstimate($1) }
+    }
+
+    func toggle(_ a: PHAsset) {
+        if selected.contains(a.localIdentifier) { selected.remove(a.localIdentifier) }
+        else { selected.insert(a.localIdentifier) }
+    }
+
+    func selectAll() { selected = Set(videos.map(\.localIdentifier)) }
+    func clearSelection() { selected.removeAll() }
+
+    /// Удаляет ВСЕ выбранные ролики одним системным подтверждением.
+    func deleteSelected() {
+        let del = videos.filter { selected.contains($0.localIdentifier) }
+        guard !del.isEmpty else { return }
+        let count = del.count
+        PHPhotoLibrary.shared().performChanges({
+            PHAssetChangeRequest.deleteAssets(del as NSArray)
+        }) { [weak self] ok, _ in
+            Task { @MainActor in
+                guard let self, ok else { return }
+                self.videos.removeAll { self.selected.contains($0.localIdentifier) }
+                self.selected.removeAll()
+                self.bannerMoved = count
+                self.status = "Перенесено в «Недавно удалённые»: \(count)"
+            }
+        }
+    }
 
     func scan() {
         status = "Запрос доступа к фото…"
@@ -50,6 +84,7 @@ final class VideoScanner: ObservableObject {
         scanning = true
         status = "Сканирую медиатеку…"
         groups = []
+        selected.removeAll()
         // Сортировка всей медиатеки по длительности — вне главного потока, чтобы не блокировать UI.
         Task.detached(priority: .userInitiated) {
             let opts = PHFetchOptions()
@@ -72,6 +107,7 @@ final class VideoScanner: ObservableObject {
         scanning = true
         status = "Ищу похожие видео…"
         videos = []
+        selected.removeAll()
         // Тяжёлый перебор всей медиатеки — вне главного потока.
         Task.detached(priority: .userInitiated) {
             let opts = PHFetchOptions()
@@ -121,23 +157,11 @@ final class VideoScanner: ObservableObject {
         Double(a.pixelWidth) * Double(a.pixelHeight) * a.duration
     }
 
-    /// Удаление одного ролика (режим «Крупные»).
-    func delete(_ a: PHAsset) {
-        PHPhotoLibrary.shared().performChanges({
-            PHAssetChangeRequest.deleteAssets([a] as NSArray)
-        }) { [weak self] ok, _ in
-            Task { @MainActor in
-                guard let self, ok else { return }
-                self.videos.removeAll { $0.localIdentifier == a.localIdentifier }
-                self.status = "Перенесено в «Недавно удалённые»"
-            }
-        }
-    }
-
     /// Удаляет все ролики группы кроме первого — через системное подтверждение.
     func deleteExtras(in group: VideoGroup) {
         let extras = Array(group.assets.dropFirst())
         guard !extras.isEmpty else { return }
+        let count = extras.count
         PHPhotoLibrary.shared().performChanges({
             PHAssetChangeRequest.deleteAssets(extras as NSArray)
         }) { [weak self] ok, _ in
@@ -145,7 +169,8 @@ final class VideoScanner: ObservableObject {
                 guard let self else { return }
                 if ok {
                     self.groups.removeAll { $0.id == group.id }
-                    self.status = "Перенесено в «Недавно удалённые» (хранится 30 дней)"
+                    self.bannerMoved = count
+                    self.status = "Перенесено в «Недавно удалённые»: \(count)"
                 }
             }
         }
@@ -154,13 +179,15 @@ final class VideoScanner: ObservableObject {
 
 struct LargeVideosView: View {
     @StateObject private var scanner = VideoScanner()
+    @State private var confirmDeleteSelected = false
+    @State private var confirmGroup: VideoGroup?
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 PageHeader(title: "Видео")
                 Text(scanner.mode == .large
-                     ? "Длинные видео — главные потребители места. Топ-50 по длительности."
+                     ? "Длинные видео — главные потребители места. Топ-50 по длительности. Отметьте лишние галочкой и удалите все разом."
                      : "Похожие ролики: близкая длительность (±2 c) и близкий размер. Размер — оценка по битрейту, без точных байт.")
                     .font(.callout).foregroundStyle(Brand.muted)
 
@@ -178,70 +205,132 @@ struct LargeVideosView: View {
                     Text(scanner.status).font(.subheadline.bold()).foregroundStyle(Brand.green)
                 }
 
+                if scanner.bannerMoved > 0 {
+                    RecentlyDeletedBanner(movedCount: scanner.bannerMoved) {
+                        scanner.bannerMoved = 0
+                    }
+                }
+
                 if scanner.mode == .large {
-                    largeList
+                    largeMode
                 } else {
-                    similarList
+                    similarMode
                 }
             }
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .background(StarfieldView())
-    }
-
-    @ViewBuilder private var largeList: some View {
-        ForEach(scanner.videos, id: \.localIdentifier) { v in
-            HStack(spacing: 12) {
-                AssetThumb(asset: v)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(Self.fmtDuration(v.duration))
-                        .font(.headline).foregroundStyle(Brand.text)
-                    Text("\(v.pixelWidth)×\(v.pixelHeight)")
-                        .font(.caption).foregroundStyle(Brand.muted)
-                    if let d = v.creationDate {
-                        Text(d.formatted(date: .abbreviated, time: .omitted))
-                            .font(.caption2).foregroundStyle(Brand.muted)
-                    }
-                }
-                Spacer(minLength: 0)
-                Button { scanner.delete(v) } label: {
-                    Text("Удалить").font(.caption.bold()).foregroundStyle(Brand.red)
-                }.buttonStyle(.plain)
+        .confirmationDialog("Удалить выбранные видео?",
+                            isPresented: $confirmDeleteSelected, titleVisibility: .visible) {
+            Button("Удалить (\(scanner.selected.count))", role: .destructive) { scanner.deleteSelected() }
+            Button("Отмена", role: .cancel) {}
+        } message: {
+            Text("Дальше появится системный запрос подтверждения. Видео перенесутся в «Недавно удалённые», место освободится только после очистки этого альбома.")
+        }
+        .confirmationDialog("Удалить лишние ролики группы?",
+                            isPresented: Binding(get: { confirmGroup != nil },
+                                                 set: { if !$0 { confirmGroup = nil } }),
+                            titleVisibility: .visible) {
+            Button("Удалить", role: .destructive) {
+                if let g = confirmGroup { scanner.deleteExtras(in: g) }
+                confirmGroup = nil
             }
-            .padding(12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 16).fill(Brand.glass))
+            Button("Отмена", role: .cancel) { confirmGroup = nil }
+        } message: {
+            Text("Останется первый ролик, остальные перейдут в «Недавно удалённые».")
         }
     }
 
-    @ViewBuilder private var similarList: some View {
-        ForEach(scanner.groups) { group in
-            VStack(alignment: .leading, spacing: 10) {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(Array(group.assets.prefix(8).enumerated()), id: \.offset) { _, asset in
-                            VStack(spacing: 4) {
-                                AssetThumb(asset: asset)
-                                Text(Self.fmtDuration(asset.duration))
-                                    .font(.caption2.bold()).foregroundStyle(Brand.muted)
+    // MARK: режим «Крупные» — мультивыбор
+
+    @ViewBuilder private var largeMode: some View {
+        if scanner.videos.isEmpty {
+            if !scanner.scanning {
+                EmptyStateView(icon: "film.stack",
+                               title: "Список пуст",
+                               subtitle: "Нажмите «Сканировать», чтобы найти самые длинные видео.")
+            }
+        } else {
+            SelectionActionBar(
+                selectedCount: scanner.selected.count,
+                totalCount: scanner.videos.count,
+                subtitle: scanner.selected.isEmpty ? "" : "≈ \(Self.fmtSize(scanner.selectedSizeEstimate))",
+                onSelectAll: { scanner.selectAll() },
+                onClear: { scanner.clearSelection() },
+                onDelete: { confirmDeleteSelected = true }
+            )
+            ForEach(scanner.videos, id: \.localIdentifier) { v in
+                videoRow(v)
+            }
+        }
+    }
+
+    private func videoRow(_ v: PHAsset) -> some View {
+        let isSel = scanner.selected.contains(v.localIdentifier)
+        return HStack(spacing: 12) {
+            AssetThumb(asset: v, selected: isSel)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(Self.fmtDuration(v.duration))
+                    .font(.headline).foregroundStyle(Brand.text)
+                Text("\(v.pixelWidth)×\(v.pixelHeight) · ≈ \(Self.fmtSize(VideoScanner.sizeEstimate(v)))")
+                    .font(.caption).foregroundStyle(Brand.muted)
+                if let d = v.creationDate {
+                    Text(d.formatted(date: .abbreviated, time: .omitted))
+                        .font(.caption2).foregroundStyle(Brand.muted)
+                }
+            }
+            Spacer(minLength: 0)
+            Image(systemName: isSel ? "checkmark.circle.fill" : "circle")
+                .foregroundStyle(isSel ? Brand.green : Brand.muted)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 16)
+            .fill(isSel ? Brand.green.opacity(0.12) : Brand.glass))
+        .overlay(RoundedRectangle(cornerRadius: 16)
+            .strokeBorder(isSel ? Brand.green.opacity(0.5) : .clear, lineWidth: 1))
+        .contentShape(Rectangle())
+        .onTapGesture { scanner.toggle(v) }
+    }
+
+    // MARK: режим «Похожие» — групповое удаление лишних
+
+    @ViewBuilder private var similarMode: some View {
+        if scanner.groups.isEmpty {
+            if !scanner.scanning {
+                EmptyStateView(icon: "square.stack.3d.up",
+                               title: "Похожих не найдено",
+                               subtitle: "Запустите сканирование — соберём группы роликов близкой длины и размера.")
+            }
+        } else {
+            ForEach(scanner.groups) { group in
+                VStack(alignment: .leading, spacing: 10) {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(Array(group.assets.prefix(8).enumerated()), id: \.offset) { _, asset in
+                                VStack(spacing: 4) {
+                                    AssetThumb(asset: asset)
+                                    Text(Self.fmtDuration(asset.duration))
+                                        .font(.caption2.bold()).foregroundStyle(Brand.muted)
+                                }
                             }
                         }
                     }
+                    HStack {
+                        Text("\(group.assets.count) похожих ролика · ~\(Self.fmtDuration(group.assets.first?.duration ?? 0))")
+                            .font(.caption.bold()).foregroundStyle(Brand.muted)
+                        Spacer()
+                        Button { confirmGroup = group } label: {
+                            Text("Удалить лишние (\(group.assets.count - 1))")
+                                .font(.caption.bold()).foregroundStyle(Brand.red)
+                        }.buttonStyle(.plain)
+                    }
                 }
-                HStack {
-                    Text("\(group.assets.count) похожих ролика · ~\(Self.fmtDuration(group.assets.first?.duration ?? 0))")
-                        .font(.caption.bold()).foregroundStyle(Brand.muted)
-                    Spacer()
-                    Button { scanner.deleteExtras(in: group) } label: {
-                        Text("Удалить лишние (\(group.assets.count - 1))")
-                            .font(.caption.bold()).foregroundStyle(Brand.red)
-                    }.buttonStyle(.plain)
-                }
+                .padding(14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(RoundedRectangle(cornerRadius: 16).fill(Brand.glass))
             }
-            .padding(14)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 16).fill(Brand.glass))
         }
     }
 
@@ -249,5 +338,14 @@ struct LargeVideosView: View {
         let t = Int(s)
         return t >= 3600 ? String(format: "%d:%02d:%02d", t/3600, t%3600/60, t%60)
                          : String(format: "%d:%02d", t/60, t%60)
+    }
+
+    /// Перевод прокси-оценки «вес = пиксели × длительность» в читаемые байты.
+    /// Коэффициент ≈ 0.07 байта на (пиксель·сек) — грубая, честная оценка H.264, без точных байт.
+    static func fmtSize(_ estimate: Double) -> String {
+        let bytes = estimate * 0.07
+        let u = ["Б", "КБ", "МБ", "ГБ"]; var v = bytes; var i = 0
+        while v >= 1024 && i < u.count - 1 { v /= 1024; i += 1 }
+        return i == 0 ? "\(Int(v)) \(u[i])" : String(format: "%.1f %@", v, u[i])
     }
 }

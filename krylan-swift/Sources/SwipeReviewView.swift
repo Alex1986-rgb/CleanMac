@@ -16,6 +16,7 @@ final class SwipeReviewModel: ObservableObject {
     @Published var status = "Готово к разбору"
     @Published var loading = false
     @Published var finished = false
+    @Published var bannerMoved = 0              // >0 — показать баннер «Недавно удалённые»
 
     /// Грубая, честная оценка размера снимка (без приватных API): ~0.3 байта на пиксель (JPEG).
     static func estBytes(_ a: PHAsset) -> Int64 {
@@ -87,7 +88,8 @@ final class SwipeReviewModel: ObservableObject {
             Task { @MainActor in
                 guard let self else { return }
                 if ok {
-                    self.status = "Освобождено ≈ \(Self.fmt(self.freedEstimate)) — в «Недавно удалённые»"
+                    self.bannerMoved = toDelete.count
+                    self.status = "Перенесено в «Недавно удалённые» ≈ \(Self.fmt(self.freedEstimate))"
                     self.marked = []
                 } else {
                     self.status = "Удаление отменено"
@@ -101,6 +103,7 @@ final class SwipeReviewModel: ObservableObject {
 struct SwipeReviewView: View {
     @StateObject private var m = SwipeReviewModel()
     @State private var drag: CGSize = .zero
+    @State private var confirmCommit = false
 
     var body: some View {
         ScrollView {
@@ -160,11 +163,16 @@ struct SwipeReviewView: View {
                             .font(.headline).foregroundStyle(Brand.text)
                         Text(m.status).font(.subheadline).foregroundStyle(Brand.muted)
                         if !m.marked.isEmpty {
-                            Button { m.commit() } label: {
+                            Button { confirmCommit = true } label: {
                                 Text("Удалить помеченные").bold()
                                     .padding(.horizontal, 22).padding(.vertical, 12)
                                     .background(Brand.red).foregroundStyle(.white).clipShape(Capsule())
                             }.buttonStyle(.plain)
+                        }
+                        if m.bannerMoved > 0 {
+                            RecentlyDeletedBanner(movedCount: m.bannerMoved) {
+                                m.bannerMoved = 0
+                            }
                         }
                         Button { m.load() } label: {
                             Text("Разобрать ещё раз").font(.subheadline.bold()).foregroundStyle(Brand.green)
@@ -177,6 +185,13 @@ struct SwipeReviewView: View {
             .frame(maxWidth: .infinity)
         }
         .background(StarfieldView())
+        .confirmationDialog("Удалить помеченные фото?",
+                            isPresented: $confirmCommit, titleVisibility: .visible) {
+            Button("Удалить (\(m.marked.count))", role: .destructive) { m.commit() }
+            Button("Отмена", role: .cancel) {}
+        } message: {
+            Text("Дальше появится системный запрос. Фото перенесутся в «Недавно удалённые»; место освободится только после очистки этого альбома.")
+        }
     }
 
     private func tag(_ text: String, _ color: Color, _ show: Bool) -> some View {

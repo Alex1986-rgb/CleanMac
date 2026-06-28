@@ -28,10 +28,44 @@ enum PhotoScanMode: String, CaseIterable, Identifiable {
 final class PhotoScanner: ObservableObject {
     @Published var status = "Готово к сканированию"
     @Published var groups: [DupGroup] = []
+    @Published var selected = Set<String>()     // выбранные снимки (для .blurry/.live)
     @Published var scanning = false
     @Published var mode: PhotoScanMode = .exact
+    @Published var bannerMoved = 0              // >0 — показать баннер «Недавно удалённые»
 
     var extraCount: Int { groups.reduce(0) { $0 + $1.assets.count - 1 } }
+
+    /// Плоский список снимков (по 1 кадру на группу) для режимов с мультивыбором.
+    var flatAssets: [PHAsset] { groups.compactMap { $0.assets.first } }
+
+    func toggle(_ a: PHAsset) {
+        if selected.contains(a.localIdentifier) { selected.remove(a.localIdentifier) }
+        else { selected.insert(a.localIdentifier) }
+    }
+
+    func selectAll() { selected = Set(flatAssets.map(\.localIdentifier)) }
+    func clearSelection() { selected.removeAll() }
+
+    /// Удаляет ВСЕ выбранные снимки одним системным подтверждением (для .blurry/.live).
+    func deleteSelected() {
+        let del = flatAssets.filter { selected.contains($0.localIdentifier) }
+        guard !del.isEmpty else { return }
+        let count = del.count
+        PHPhotoLibrary.shared().performChanges({
+            PHAssetChangeRequest.deleteAssets(del as NSArray)
+        }) { [weak self] ok, _ in
+            Task { @MainActor in
+                guard let self, ok else { return }
+                self.groups.removeAll { g in
+                    guard let a = g.assets.first else { return false }
+                    return self.selected.contains(a.localIdentifier)
+                }
+                self.selected.removeAll()
+                self.bannerMoved = count
+                self.status = "Перенесено в «Недавно удалённые»: \(count)"
+            }
+        }
+    }
 
     func scan() {
         status = "Запрос доступа к фото…"
@@ -41,6 +75,7 @@ final class PhotoScanner: ObservableObject {
                 guard st == .authorized || st == .limited else {
                     self.status = "Нет доступа к медиатеке"; return
                 }
+                self.selected.removeAll()
                 switch self.mode {
                 case .exact:  self.runExact()
                 case .series: self.runSeries()
@@ -286,6 +321,7 @@ final class PhotoScanner: ObservableObject {
             .filter { $0.offset != best }
             .map { $0.element }
         guard !toDelete.isEmpty else { return }
+        let count = toDelete.count
         PHPhotoLibrary.shared().performChanges({
             PHAssetChangeRequest.deleteAssets(toDelete as NSArray)
         }) { [weak self] ok, _ in
@@ -293,37 +329,8 @@ final class PhotoScanner: ObservableObject {
                 guard let self else { return }
                 if ok {
                     self.groups.removeAll { $0.id == group.id }
-                    self.status = "Оставлен лучший кадр, остальные — в «Недавно удалённые» (30 дней)"
-                }
-            }
-        }
-    }
-
-    /// Удаляет один снимок (для режима «Размытые»).
-    func deleteOne(_ group: DupGroup) {
-        guard let asset = group.assets.first else { return }
-        PHPhotoLibrary.shared().performChanges({
-            PHAssetChangeRequest.deleteAssets([asset] as NSArray)
-        }) { [weak self] ok, _ in
-            Task { @MainActor in
-                guard let self, ok else { return }
-                self.groups.removeAll { $0.id == group.id }
-                self.status = "Перенесено в «Недавно удалённые»"
-            }
-        }
-    }
-
-    /// Удаляет все снимки группы кроме первого — через системное подтверждение.
-    func deleteExtras(in group: DupGroup) {
-        let extras = Array(group.assets.dropFirst())
-        PHPhotoLibrary.shared().performChanges({
-            PHAssetChangeRequest.deleteAssets(extras as NSArray)
-        }) { [weak self] ok, _ in
-            Task { @MainActor in
-                guard let self else { return }
-                if ok {
-                    self.groups.removeAll { $0.id == group.id }
-                    self.status = "Перенесено в «Недавно удалённые» (хранится 30 дней)"
+                    self.bannerMoved = count
+                    self.status = "Оставлен лучший кадр, остальные — в «Недавно удалённые»: \(count)"
                 }
             }
         }
@@ -332,11 +339,18 @@ final class PhotoScanner: ObservableObject {
 
 struct PhotoDuplicatesView: View {
     @StateObject private var scanner = PhotoScanner()
+    @State private var confirmDeleteSelected = false
+    @State private var confirmGroup: DupGroup?
+
+    /// Режимы с плоским мультивыбором (по 1 кадру на «группу»).
+    private var isFlatSelectMode: Bool { scanner.mode == .blurry || scanner.mode == .live }
+    private let cols = [GridItem(.adaptive(minimum: 76), spacing: 8)]
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                Text("Поиск похожих фото по размеру и дате (PhotoKit). Удалённое попадает в «Недавно удалённые».")
+                PageHeader(title: "Фото")
+                Text(modeHint)
                     .font(.callout).foregroundStyle(Brand.muted)
 
                 Picker("Режим", selection: $scanner.mode) {
@@ -353,72 +367,129 @@ struct PhotoDuplicatesView: View {
                     Text(scanner.status).font(.subheadline.bold()).foregroundStyle(Brand.green)
                 }
 
-                if scanner.mode == .blurry || scanner.mode == .live {
-                    ForEach(scanner.groups) { group in
-                        HStack(spacing: 12) {
-                            if let asset = group.assets.first { AssetThumb(asset: asset) }
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(scanner.mode == .live ? "Live Photo" : "Размытый кадр")
-                                    .font(.subheadline.bold()).foregroundStyle(Brand.text)
-                                if let d = group.assets.first?.creationDate {
-                                    Text(d.formatted(date: .abbreviated, time: .shortened))
-                                        .font(.caption2).foregroundStyle(Brand.muted)
-                                }
-                            }
-                            Spacer(minLength: 0)
-                            Button { scanner.deleteOne(group) } label: {
-                                Text("Удалить").font(.caption.bold()).foregroundStyle(Brand.red)
-                            }.buttonStyle(.plain)
-                        }
-                        .padding(12)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(RoundedRectangle(cornerRadius: 16).fill(Brand.glass))
+                if scanner.bannerMoved > 0 {
+                    RecentlyDeletedBanner(movedCount: scanner.bannerMoved) {
+                        scanner.bannerMoved = 0
                     }
+                }
+
+                if scanner.groups.isEmpty {
+                    if !scanner.scanning {
+                        EmptyStateView(icon: "photo.on.rectangle.angled",
+                                       title: "Пусто",
+                                       subtitle: "Нажмите «Сканировать» для выбранного режима.")
+                    }
+                } else if isFlatSelectMode {
+                    flatSelectGrid
                 } else {
-                    ForEach(scanner.groups) { group in
-                        VStack(alignment: .leading, spacing: 10) {
-                            ScrollView(.horizontal, showsIndicators: false) {
-                                HStack(spacing: 8) {
-                                    ForEach(Array(group.assets.prefix(8).enumerated()), id: \.offset) { idx, asset in
-                                        AssetThumb(asset: asset, isBest: group.bestIndex == idx)
-                                    }
-                                }
-                            }
-                            HStack {
-                                Text("\(group.assets.count) похожих снимка")
-                                    .font(.caption.bold()).foregroundStyle(Brand.muted)
-                                Spacer()
-                                Button { scanner.keepBest(in: group) } label: {
-                                    Text("Оставить лучший (удалить \(group.assets.count - 1))")
-                                        .font(.caption.bold()).foregroundStyle(Brand.green)
-                                }.buttonStyle(.plain)
-                            }
-                        }
-                        .padding(14)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(RoundedRectangle(cornerRadius: 16).fill(Brand.glass))
-                        .onAppear { scanner.computeBest(for: group) }
-                    }
+                    groupList
                 }
             }
             .padding(16)
             .frame(maxWidth: .infinity)
         }
         .background(StarfieldView())
+        .confirmationDialog(scanner.mode == .live ? "Удалить выбранные Live Photos?" : "Удалить выбранные снимки?",
+                            isPresented: $confirmDeleteSelected, titleVisibility: .visible) {
+            Button("Удалить (\(scanner.selected.count))", role: .destructive) { scanner.deleteSelected() }
+            Button("Отмена", role: .cancel) {}
+        } message: {
+            Text("Дальше появится системный запрос. Снимки перенесутся в «Недавно удалённые»; место освободится только после очистки этого альбома.")
+        }
+        .confirmationDialog("Оставить лучший кадр?",
+                            isPresented: Binding(get: { confirmGroup != nil },
+                                                 set: { if !$0 { confirmGroup = nil } }),
+                            titleVisibility: .visible) {
+            Button("Оставить лучший, удалить остальные", role: .destructive) {
+                if let g = confirmGroup { scanner.keepBest(in: g) }
+                confirmGroup = nil
+            }
+            Button("Отмена", role: .cancel) { confirmGroup = nil }
+        } message: {
+            Text("Останется кадр с пометкой «★ лучший», остальные перейдут в «Недавно удалённые».")
+        }
+    }
+
+    private var modeHint: String {
+        switch scanner.mode {
+        case .exact:  return "Похожие фото по размеру и дате. Оставьте лучший кадр — остальные в «Недавно удалённые»."
+        case .series: return "Серии снимков подряд. Оставьте лучший кадр — остальные в «Недавно удалённые»."
+        case .blurry: return "Возможно размытые кадры. Отметьте лишние галочкой и удалите все разом."
+        case .live:   return "Live Photos занимают ~2× места (кадр + видео). Отметьте лишние и удалите все разом."
+        }
+    }
+
+    // MARK: .blurry / .live — плоский мультивыбор
+
+    @ViewBuilder private var flatSelectGrid: some View {
+        SelectionActionBar(
+            selectedCount: scanner.selected.count,
+            totalCount: scanner.flatAssets.count,
+            onSelectAll: { scanner.selectAll() },
+            onClear: { scanner.clearSelection() },
+            onDelete: { confirmDeleteSelected = true }
+        )
+        LazyVGrid(columns: cols, spacing: 8) {
+            ForEach(scanner.flatAssets, id: \.localIdentifier) { asset in
+                AssetThumb(asset: asset,
+                           selected: scanner.selected.contains(asset.localIdentifier))
+                    .contentShape(Rectangle())
+                    .onTapGesture { scanner.toggle(asset) }
+            }
+        }
+        .padding(14)
+        .background(RoundedRectangle(cornerRadius: 16).fill(Brand.glass))
+    }
+
+    // MARK: .exact / .series — группы «оставить лучший»
+
+    @ViewBuilder private var groupList: some View {
+        ForEach(scanner.groups) { group in
+            VStack(alignment: .leading, spacing: 10) {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(Array(group.assets.prefix(8).enumerated()), id: \.offset) { idx, asset in
+                            AssetThumb(asset: asset, isBest: group.bestIndex == idx)
+                        }
+                    }
+                }
+                HStack {
+                    Text("\(group.assets.count) похожих снимка")
+                        .font(.caption.bold()).foregroundStyle(Brand.muted)
+                    Spacer()
+                    Button { confirmGroup = group } label: {
+                        Text("Оставить лучший (удалить \(group.assets.count - 1))")
+                            .font(.caption.bold()).foregroundStyle(Brand.green)
+                    }.buttonStyle(.plain)
+                }
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 16).fill(Brand.glass))
+            .onAppear { scanner.computeBest(for: group) }
+        }
     }
 }
 
 /// Миниатюра PHAsset (общая для iOS/macOS).
+/// `selected == nil` — кружок выбора не показываем (обычный режим просмотра).
+/// `selected == true/false` — режим мультивыбора с индикатором в углу.
 struct AssetThumb: View {
     let asset: PHAsset
     var isBest: Bool = false
+    var selected: Bool? = nil
     @State private var image: Image?
+
+    private var isSelected: Bool { selected == true }
 
     var body: some View {
         ZStack(alignment: .topLeading) {
             RoundedRectangle(cornerRadius: 10).fill(Brand.track)
             if let image {
                 image.resizable().scaledToFill()
+            }
+            if isSelected {
+                RoundedRectangle(cornerRadius: 10).fill(Brand.green.opacity(0.22))
             }
             if isBest {
                 Text("★ лучший")
@@ -431,11 +502,22 @@ struct AssetThumb: View {
         }
         .frame(width: 72, height: 72)
         .clipShape(RoundedRectangle(cornerRadius: 10))
+        .overlay(alignment: .topTrailing) {
+            if let selected {
+                SelectionCircle(isSelected: selected).padding(4)
+            }
+        }
         .overlay(
             RoundedRectangle(cornerRadius: 10)
-                .strokeBorder(isBest ? Brand.green : .clear, lineWidth: 2)
+                .strokeBorder(strokeColor, lineWidth: 2)
         )
         .onAppear(perform: load)
+    }
+
+    private var strokeColor: Color {
+        if isSelected { return Brand.green }
+        if isBest { return Brand.green }
+        return .clear
     }
 
     private func load() {
