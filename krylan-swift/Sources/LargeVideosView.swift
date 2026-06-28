@@ -61,16 +61,26 @@ final class VideoScanner: ObservableObject {
         let del = videos.filter { selected.contains($0.localIdentifier) }
         guard !del.isEmpty else { return }
         let count = del.count
+        let limited = PHPhotoLibrary.authorizationStatus(for: .readWrite) == .limited
         PHPhotoLibrary.shared().performChanges({
             PHAssetChangeRequest.deleteAssets(del as NSArray)
-        }) { [weak self] ok, _ in
+        }) { [weak self] ok, err in
             Task { @MainActor in
-                guard let self, ok else { return }
-                self.videos.removeAll { self.selected.contains($0.localIdentifier) }
-                self.selected.removeAll()
-                self.bannerMoved = count
-                Haptics.success()
-                self.status = "Перенесено в «Недавно удалённые»: \(count)"
+                guard let self else { return }
+                if ok {
+                    self.videos.removeAll { self.selected.contains($0.localIdentifier) }
+                    self.selected.removeAll()
+                    self.bannerMoved = count
+                    Haptics.success()
+                    self.status = "Перенесено в «Недавно удалённые»: \(count). Освободится после очистки этого альбома."
+                } else if let err = err as NSError?, err.code == 3072 || err.domain == "Photos" && err.code == -1 {
+                    // Пользователь нажал «Отмена» в системном диалоге.
+                    self.status = "Удаление отменено — подтвердите «Удалить» в системном окне."
+                } else if limited {
+                    self.status = "Нет полного доступа к Фото. Настройки → KRYLAN → Фото → «Все фотографии», иначе удаление блокируется."
+                } else {
+                    self.status = "Не удалось удалить: \(err?.localizedDescription ?? "проверьте доступ к Фото в Настройках")."
+                }
             }
         }
     }
