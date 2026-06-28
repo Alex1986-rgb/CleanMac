@@ -45,6 +45,14 @@
 <body>
 <div class="wrap">
   <header>
+    <div style="display:flex;align-items:center;gap:18px;justify-content:center;margin-bottom:18px">
+      <img class="icon" src="icon.png" alt="Иконка приложения KRYLAN"
+           style="width:104px;height:104px;border-radius:24px;box-shadow:0 20px 60px #0009">
+      <div style="text-align:left">
+        <div style="font-size:34px;font-weight:800;letter-spacing:-.5px;line-height:1">KRYLAN</div>
+        <div style="color:var(--green);font-size:15px;font-weight:600;margin-top:4px">Дай устройству крылья 🪽</div>
+      </div>
+    </div>
     <img src="hero.png" alt="KRYLAN — Дай устройству крылья"
          style="width:100%;max-width:780px;border-radius:22px;box-shadow:0 24px 70px #000a;margin-bottom:18px">
     <p class="tag">Красивый оптимизатор со «стеклянным» интерфейсом и фирменным <b>анимированным глобусом</b>. <b>🚀 Ускорить одной кнопкой</b>, Software Updater, бенчмарк диска, sunburst-карта, живой график интернета. Мощнее CleanMyMac и BoostSpeed — но <b>бесплатно</b>, с открытым кодом и <b>без вредных «бустеров»</b> (никакого дефрага SSD и чистки реестра).</p>
@@ -89,6 +97,14 @@
     <div class="card"><div class="e">🖼</div><h3>Похожие изображения</h3><p>Perceptual hash находит визуально похожие фото — не только бит-в-бит дубли, но и пересжатые копии и кадры из серии. <span style="opacity:.7">(Desktop)</span></p></div>
     <div class="card"><div class="e">🎯</div><h3>Режим фокуса</h3><p>Обратимая пауза фоновых процессов: тише система, больше ресурсов задаче. Снимаете режим — всё возвращается. <span style="opacity:.7">(Desktop)</span></p></div>
     <div class="card"><div class="e">🧾</div><h3>Health Report</h3><p>HTML-отчёт о состоянии системы: метрики, диск, SMART — сохраняйте и сравнивайте во времени. <span style="opacity:.7">(Desktop)</span></p></div>
+    <div class="card"><div class="e">🩻</div><h3>Диск-доктор</h3><p>Проверка целостности диска и файловой системы плюс SMART-состояние накопителя — узнаёте о проблемах до того, как они станут потерей данных. <span style="opacity:.7">(macOS + Desktop)</span></p></div>
+    <div class="card"><div class="e">🧬</div><h3>VACUUM баз браузеров</h3><p>Сжимает раздувшиеся SQLite-базы Chrome/Firefox/Edge (история, кэш, cookies) — место освобождается, браузер шустрее. <span style="opacity:.7">(macOS + Desktop)</span></p></div>
+    <div class="card"><div class="e">📚</div><h3>«Большие и старые»</h3><p>Крупные файлы, к которым давно не прикасались — лучшие кандидаты на удаление. Плюс отдельно крупные и старые загрузки. <span style="opacity:.7">(macOS + Desktop)</span></p></div>
+    <div class="card"><div class="e">📨</div><h3>Вложения Почты</h3><p>Находит тяжёлые вложения в локальном хранилище Mail.app, которые годами съедают гигабайты. <span style="opacity:.7">(macOS)</span></p></div>
+    <div class="card"><div class="e">🧮</div><h3>Дубликаты (blake2b)</h3><p>Быстрый контентный поиск точных дублей по хешу blake2b — освобождайте место без риска удалить нужное. <span style="opacity:.7">(Desktop)</span></p></div>
+    <div class="card"><div class="e">📤</div><h3>Экспорт находок</h3><p>Выгрузка результатов сканирования в <b>CSV</b> или <b>HTML</b> — разобрать список спокойно вне приложения или передать коллеге. <span style="opacity:.7">(Desktop)</span></p></div>
+    <div class="card"><div class="e">🧯</div><h3>Bloatware-листер · контекст-меню</h3><p>Список предустановленного «мусорного» ПО и менеджер пунктов контекстного меню Проводника. <span style="opacity:.7">(Windows)</span></p></div>
+    <div class="card"><div class="e">📦</div><h3>Snap / Flatpak · journald</h3><p>Чистит старые ревизии Snap и Flatpak и сжимает журналы journald — типичные «пожиратели» места на Linux. <span style="opacity:.7">(Linux)</span></p></div>
   </section>
 
   <section style="padding:18px 0 0">
@@ -190,6 +206,13 @@
             <td style="padding:11px 14px;border-bottom:1px solid var(--line);color:var(--muted)">На Windows нет безопасной userland-команды</td>
           </tr>
           <tr>
+            <td style="padding:11px 14px;border-bottom:1px solid var(--line)">Предпросмотр оптимизации (что и сколько освободит)</td>
+            <td style="padding:11px 14px;border-bottom:1px solid var(--line)">✅</td>
+            <td style="padding:11px 14px;border-bottom:1px solid var(--line)">✅</td>
+            <td style="padding:11px 14px;border-bottom:1px solid var(--line)">✅</td>
+            <td style="padding:11px 14px;border-bottom:1px solid var(--line);color:var(--muted)">Сначала показываем, потом чистим — никаких сюрпризов</td>
+          </tr>
+          <tr>
             <td style="padding:11px 14px">Пустые папки · битые файлы · остатки удалённых программ</td>
             <td style="padding:11px 14px">✅</td>
             <td style="padding:11px 14px">✅</td>
@@ -208,9 +231,9 @@
     <p style="text-align:center;color:#8b93a3;margin:-8px 0 18px">Анимированный <b>глобус</b>, метрики и <b>скорость интернета ↓/↑ в реальном времени</b> — теперь на каждой платформе.</p>
     <div class="grid">
       <div class="card"><div class="e">🍏</div><h3>macOS — доступно</h3><p>CleanMac, universal (Intel + Apple Silicon). Smart Care, бенчмарк диска, sunburst-карта, глобус, живой график интернета.</p></div>
-      <div class="card"><div class="e">🪟</div><h3>Windows / Linux — доступно</h3><p>KRYLAN Desktop: глобус, Software Updater (winget/brew/apt), похожие изображения, режим фокуса, Health Report. Один код для всех ПК.</p></div>
-      <div class="card"><div class="e">📱</div><h3>iPhone / iPad — доступно</h3><p>KRYLAN для iOS: глобус, фото-интеллект (дубли/серии/размытые/Live), <b>swipe-разбор фото</b>, скриншоты, видео, контакты, виджет диска.</p></div>
-      <div class="card"><div class="e">🤖</div><h3>Android — доступно</h3><p>KRYLAN для Android: глобус, медиа-хаб (крупные/дубли/скриншоты/мессенджеры) с <b>корзиной и undo</b>, менеджер приложений и неиспользуемые.</p></div>
+      <div class="card"><div class="e">🪟</div><h3>Windows / Linux — доступно</h3><p>KRYLAN Desktop: глобус, предпросмотр оптимизации, Software Updater (winget/brew/apt), похожие изображения, режим фокуса, диск-доктор, VACUUM баз браузеров, шредер, экспорт находок CSV/HTML, Health Report. Один код для всех ПК.</p></div>
+      <div class="card"><div class="e">📱</div><h3>iPhone / iPad — доступно</h3><p>KRYLAN для iOS: глобус, фото-интеллект (дубли/серии/размытые/Live + <b>авто-лучший кадр</b>), <b>swipe-разбор фото</b>, скриншоты, похожие видео, контакты (дубли + неполные), <b>календарь</b> (старые события), «Недавно удалённые», виджет, навигация 5 вкладок.</p></div>
+      <div class="card"><div class="e">🤖</div><h3>Android — доступно</h3><p>KRYLAN для Android: глобус, <b>умные подсказки</b>, медиа-хаб (крупные/дубли/скриншоты/загрузки/мессенджеры/видео) с <b>корзиной, undo и сортировкой</b>, менеджер приложений + неиспользуемые, <b>APK-чистильщик</b>, виджет диска.</p></div>
     </div>
   </section>
 
@@ -235,7 +258,7 @@
 
   <section id="install" style="padding:24px 0 0">
     <h2 style="text-align:center;font-size:26px;margin-bottom:6px">📖 Установка и использование</h2>
-    <p style="text-align:center;color:var(--muted);margin-bottom:18px">Пошагово для каждого устройства. Версия 2.44.0.</p>
+    <p style="text-align:center;color:var(--muted);margin-bottom:18px">Пошагово для каждого устройства. Версия 2.46.0.</p>
 
     <div class="card" style="margin-bottom:16px">
       <h3>🍏 macOS — CleanMac</h3>
