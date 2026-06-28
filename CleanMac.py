@@ -1585,9 +1585,7 @@ class CleanMac(tk.Tk):
                                      fg="#0b1410", radius=16, padx=20, pady=12,
                                      font=("SF Pro Display", 15, "bold"))
         self.magic_btn.pack(side="right", padx=(0,10))
-        # «Ускорить» остаётся как быстрый вариант (алиас облегчённого набора)
-        self.boost_btn=self._btn(head, L("⚡ Ускорить"), BLUE, self._boost_now)
-        self.boost_btn.pack(side="right", padx=(0,8))
+        # Единственная главная кнопка — «✨ Оптимизировать». Вторичную «Ускорить» убрали.
         # строка живого прогресса оптимизации (под шапкой)
         self.magic_prog=tk.Label(self.main, text="", bg=BG0, fg=GREEN,
                                  font=("SF Pro Text", 12, "bold"), anchor="w")
@@ -3521,9 +3519,6 @@ class CleanMac(tk.Tk):
                     messagebox.showinfo("CleanMac", f"Оптимизация выполнена.\nОсвобождено кэша: {human(a)}.")
                     if self.page=="autopilot": self._ap_refresh()
                 elif kind=="boosted":
-                    try: self.boost_btn.configure(text="  ✓ Готово  ")
-                    except Exception: pass
-                    self.after(1800, lambda: self.boost_btn.configure(text=L("⚡ Ускорить")) if hasattr(self,"boost_btn") else None)
                     steps="\n".join("• "+s for s in (b or []))
                     messagebox.showinfo("CleanMac",
                         f"🚀 Готово! Компьютер ускорен.\n\nОсвобождено всего: ~{human(a)}\n\n{steps}\n\n"

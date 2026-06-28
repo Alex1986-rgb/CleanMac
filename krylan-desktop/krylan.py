@@ -2736,7 +2736,7 @@ class Krylan(tk.Tk):
         tk.Label(self.main, text=L("Полная проверка одним кликом: кэши · корзина · старые загрузки · дубликаты."),
                  bg=BG0, fg=MUTED, font=("Segoe UI", 10)).pack(anchor="w", padx=24, pady=(0,10))
         bar = tk.Frame(self.main, bg=BG0); bar.pack(fill="x", padx=24)
-        self._btn(bar, L("🚀 Ускорить — очистить и разгрузить"), GREEN, self.run_boost).pack(side="left", padx=(0,8))
+        # Главная «✨ Оптимизировать» — на дашборде; здесь оставляем только Сканер.
         self._btn(bar, L("🔍 Сканировать"), BLUE, self.run_scan).pack(side="left")
         # планировщик
         self.sched_lbl = tk.Label(bar, text="", bg=BG0, fg=MUTED, font=("Segoe UI", 10)); self.sched_lbl.pack(side="right")

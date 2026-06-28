@@ -24,12 +24,11 @@ struct DashboardView: View {
                             ProgressView()
                                 .progressViewStyle(.circular)
                                 .tint(Color(red: 0.04, green: 0.08, blue: 0.06))
-                        } else {
-                            Image(systemName: engine.phase == .done ? "checkmark.circle.fill" : "sparkles")
-                                .font(.title3.bold())
+                        } else if engine.phase == .done {
+                            Image(systemName: "checkmark.circle.fill").font(.title3.bold())
                         }
                         Text(engine.phase == .running ? "Оптимизирую…"
-                             : (engine.phase == .done ? "Оптимизировано" : "Оптимизировать"))
+                             : (engine.phase == .done ? "Оптимизировано" : "✨ Оптимизировать"))
                             .font(.headline)
                     }
                     .foregroundStyle(Color(red: 0.04, green: 0.08, blue: 0.06))
