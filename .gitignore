@@ -31,3 +31,8 @@ krylan-android/keystore.properties
 krylan-swift/KRYLAN.xcodeproj/
 *.xcuserstate
 autopilot/autoupdate.log
+
+build/
+dist/
+CleanMac.dmg
+*.spec~

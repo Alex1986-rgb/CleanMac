@@ -6,6 +6,13 @@
     <description>«Дай устройству крылья» — обновления KRYLAN CleanMac.</description>
     <language>ru</language>
     <item>
+      <title>v2.47.0</title>
+      <sparkle:version>2.47.0</sparkle:version>
+      <sparkle:shortVersionString>2.47.0</sparkle:shortVersionString>
+      <pubDate>2026-06-28T11:52:17Z</pubDate>
+      <enclosure url="https://github.com/Alex1986-rgb/CleanMac/releases/download/v2.47.0/CleanMac.dmg" sparkle:version="2.47.0" type="application/octet-stream" length="24542159"/>
+    </item>
+    <item>
       <title>v2.46.0</title>
       <sparkle:version>2.46.0</sparkle:version>
       <sparkle:shortVersionString>2.46.0</sparkle:shortVersionString>
