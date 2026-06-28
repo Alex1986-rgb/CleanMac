@@ -1323,5 +1323,254 @@ class TestDiskCheck(unittest.TestCase):
         self.assertIsNone(krylan.parse_disk_check("some unrelated text")["errors"])
 
 
+class TestParseJournalDiskUsage(unittest.TestCase):
+    """parse_journal_disk_usage: текст `journalctl --disk-usage` → байты."""
+
+    def test_gigabytes(self):
+        txt = "Archived and active journals take up 1.2G in the file system."
+        self.assertEqual(krylan.parse_journal_disk_usage(txt), int(1.2 * 1024**3))
+
+    def test_megabytes_with_b(self):
+        txt = "Journals take up 512.0M in the file system."
+        self.assertEqual(krylan.parse_journal_disk_usage(txt), int(512.0 * 1024**2))
+
+    def test_iec_suffix(self):
+        # "1.5GiB" — IEC-форма тоже разбирается
+        self.assertEqual(krylan.parse_journal_disk_usage("take up 1.5GiB ..."),
+                         int(1.5 * 1024**3))
+
+    def test_comma_decimal(self):
+        # локали с запятой как десятичным разделителем
+        self.assertEqual(krylan.parse_journal_disk_usage("1,5G in fs"),
+                         int(1.5 * 1024**3))
+
+    def test_plain_bytes(self):
+        self.assertEqual(krylan.parse_journal_disk_usage("take up 4096B"), 4096)
+
+    def test_empty_and_garbage(self):
+        self.assertIsNone(krylan.parse_journal_disk_usage(""))
+        self.assertIsNone(krylan.parse_journal_disk_usage(None))
+        self.assertIsNone(krylan.parse_journal_disk_usage("no numbers here"))
+
+
+class TestJournaldVacuum(unittest.TestCase):
+    """journald_vacuum: на не-Linux пропуск; на Linux без root — пометка прав."""
+
+    def test_non_linux_skips(self):
+        orig = krylan.SYSTEM
+        try:
+            krylan.SYSTEM = "Darwin"
+            size, label, did = krylan.journald_vacuum(dry=False)
+            self.assertIsNone(size)
+            self.assertEqual(label, "")
+            self.assertFalse(did)
+        finally:
+            krylan.SYSTEM = orig
+
+    def test_linux_dry_run_does_not_vacuum(self):
+        # dry: читает размер, НЕ вызывает vacuum, did=False
+        orig_sys, orig_run = krylan.SYSTEM, krylan.run
+        calls = []
+
+        def fake_run(args, timeout=60):
+            calls.append(args)
+            import subprocess
+            if args[:2] == ["journalctl", "--disk-usage"]:
+                return subprocess.CompletedProcess(args, 0, "Journals take up 300.0M in fs.", "")
+            return subprocess.CompletedProcess(args, 0, "", "")
+
+        try:
+            krylan.SYSTEM = "Linux"
+            krylan.run = fake_run
+            size, label, did = krylan.journald_vacuum(dry=True)
+        finally:
+            krylan.SYSTEM, krylan.run = orig_sys, orig_run
+        self.assertEqual(size, int(300.0 * 1024**2))
+        self.assertFalse(did)
+        # никакого --vacuum-size в dry-режиме
+        self.assertFalse(any("--vacuum-size=100M" in a for a in calls))
+
+    def test_linux_no_root_marks_needs_privileges(self):
+        orig_sys, orig_run, orig_root = krylan.SYSTEM, krylan.run, krylan.has_root
+        calls = []
+
+        def fake_run(args, timeout=60):
+            calls.append(args)
+            import subprocess
+            if args[:2] == ["journalctl", "--disk-usage"]:
+                return subprocess.CompletedProcess(args, 0, "take up 1.0G in fs", "")
+            return subprocess.CompletedProcess(args, 0, "", "")
+
+        try:
+            krylan.SYSTEM = "Linux"
+            krylan.run = fake_run
+            krylan.has_root = lambda: False
+            size, label, did = krylan.journald_vacuum(dry=False)
+        finally:
+            krylan.SYSTEM, krylan.run, krylan.has_root = orig_sys, orig_run, orig_root
+        self.assertFalse(did)
+        self.assertIn("root", label.lower())
+        # без root vacuum НЕ выполняется (bounded-команда не зовётся)
+        self.assertFalse(any("--vacuum-size=100M" in a for a in calls))
+
+    def test_linux_root_vacuums_bounded(self):
+        orig_sys, orig_run, orig_root = krylan.SYSTEM, krylan.run, krylan.has_root
+        calls = []
+
+        def fake_run(args, timeout=60):
+            calls.append(args)
+            import subprocess
+            if args[:2] == ["journalctl", "--disk-usage"]:
+                return subprocess.CompletedProcess(args, 0, "take up 2.0G in fs", "")
+            return subprocess.CompletedProcess(args, 0, "", "")
+
+        try:
+            krylan.SYSTEM = "Linux"
+            krylan.run = fake_run
+            krylan.has_root = lambda: True
+            size, label, did = krylan.journald_vacuum(dry=False)
+        finally:
+            krylan.SYSTEM, krylan.run, krylan.has_root = orig_sys, orig_run, orig_root
+        self.assertTrue(did)
+        # bounded: оставляет 100М, НЕ полный wipe (--rotate/--vacuum-time не используем)
+        self.assertTrue(any(a == ["journalctl", "--vacuum-size=100M"] for a in calls))
+
+
+class TestFindBrokenShortcuts(unittest.TestCase):
+    """find_broken_shortcuts: .desktop с несуществующей целью → найден;
+    с существующей → нет. Не дублирует find_broken_files (0-байт/симлинки)."""
+
+    def _write(self, path, text):
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(text)
+
+    def test_desktop_broken_and_valid(self):
+        base = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, base, ignore_errors=True)
+        # битый: Exec указывает на несуществующий бинарь
+        self._write(os.path.join(base, "broken.desktop"),
+                    "[Desktop Entry]\nType=Application\nName=Broken\n"
+                    "Exec=/no/such/krylan/binary-xyz --flag\n")
+        # рабочий: Exec на существующий бинарь (sh почти всегда в PATH/абс. пути)
+        real = "/bin/sh" if os.path.exists("/bin/sh") else sys.executable
+        self._write(os.path.join(base, "good.desktop"),
+                    "[Desktop Entry]\nType=Application\nName=Good\n"
+                    "Exec=%s\n" % real)
+        res = krylan.find_broken_shortcuts([base])
+        names = {os.path.basename(p) for _k, p in res}
+        self.assertIn("broken.desktop", names)
+        self.assertNotIn("good.desktop", names)
+
+    def test_tryexec_priority(self):
+        base = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, base, ignore_errors=True)
+        # TryExec на отсутствующий путь → битый, даже если Exec валиден
+        self._write(os.path.join(base, "t.desktop"),
+                    "[Desktop Entry]\nTryExec=/no/such/krylan/try\nExec=/bin/sh\n")
+        res = krylan.find_broken_shortcuts([base])
+        self.assertIn("t.desktop", {os.path.basename(p) for _k, p in res})
+
+    def test_url_link_broken(self):
+        base = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, base, ignore_errors=True)
+        # Link на несуществующий локальный путь → битый
+        self._write(os.path.join(base, "link.desktop"),
+                    "[Desktop Entry]\nType=Link\nURL=file:///no/such/krylan/target\n")
+        # http-ссылка считается рабочей (не локальная)
+        self._write(os.path.join(base, "web.desktop"),
+                    "[Desktop Entry]\nType=Link\nURL=https://example.com\n")
+        res = krylan.find_broken_shortcuts([base])
+        names = {os.path.basename(p) for _k, p in res}
+        self.assertIn("link.desktop", names)
+        self.assertNotIn("web.desktop", names)
+
+    def test_empty_lnk(self):
+        base = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, base, ignore_errors=True)
+        open(os.path.join(base, "empty.lnk"), "w").close()        # 0 байт → битый
+        with open(os.path.join(base, "ok.lnk"), "wb") as f:
+            f.write(b"L\x00\x00\x00")                              # не пустой → не трогаем
+        res = krylan.find_broken_shortcuts([base])
+        names = {os.path.basename(p) for _k, p in res}
+        self.assertIn("empty.lnk", names)
+        self.assertNotIn("ok.lnk", names)
+
+    def test_no_false_positive_on_plain_files(self):
+        # не-ярлыки игнорируются полностью
+        base = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, base, ignore_errors=True)
+        with open(os.path.join(base, "doc.txt"), "w") as f:
+            f.write("hello")
+        self.assertEqual(krylan.find_broken_shortcuts([base]), [])
+
+
+class TestScanBigOld(unittest.TestCase):
+    """scan_big_old: фильтр размер≥N МБ И возраст≥M дней на temp-дереве."""
+
+    def _mk(self, path, mb, age_days, now):
+        with open(path, "wb") as f:
+            f.write(b"x" * (mb * 1024 * 1024))
+        t = now - age_days * 86400
+        os.utime(path, (t, t))
+
+    def test_size_and_age_filter(self):
+        base = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, base, ignore_errors=True)
+        import time
+        now = time.time()
+        # большой + старый → попадает
+        self._mk(os.path.join(base, "big_old.bin"), 3, 400, now)
+        # большой, но свежий → нет (возраст < порога)
+        self._mk(os.path.join(base, "big_new.bin"), 3, 10, now)
+        # маленький, но старый → нет (размер < порога)
+        self._mk(os.path.join(base, "small_old.bin"), 1, 400, now)
+        res = krylan.scan_big_old(base, min_mb=2, min_days=180, now=now)
+        names = {os.path.basename(p) for _s, p, _a in res}
+        self.assertIn("big_old.bin", names)
+        self.assertNotIn("big_new.bin", names)
+        self.assertNotIn("small_old.bin", names)
+
+    def test_sorted_by_size_desc_with_age(self):
+        base = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, base, ignore_errors=True)
+        import time
+        now = time.time()
+        self._mk(os.path.join(base, "a.bin"), 2, 300, now)
+        self._mk(os.path.join(base, "b.bin"), 5, 300, now)
+        res = krylan.scan_big_old(base, min_mb=2, min_days=180, now=now)
+        sizes = [s for s, _p, _a in res]
+        self.assertEqual(sizes, sorted(sizes, reverse=True))
+        self.assertEqual(os.path.basename(res[0][1]), "b.bin")   # 5 МБ первым
+        # возраст вычислен в днях (≈300)
+        self.assertTrue(all(290 <= a <= 310 for _s, _p, a in res))
+
+    def test_skips_symlinks(self):
+        base = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, base, ignore_errors=True)
+        import time
+        now = time.time()
+        target = os.path.join(base, "real.bin")
+        self._mk(target, 3, 400, now)
+        link = os.path.join(base, "link.bin")
+        os.symlink(target, link)
+        res = krylan.scan_big_old(base, min_mb=2, min_days=180, now=now)
+        names = [os.path.basename(p) for _s, p, _a in res]
+        self.assertIn("real.bin", names)
+        self.assertNotIn("link.bin", names)   # симлинк не считаем
+
+    def test_top_limit(self):
+        base = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, base, ignore_errors=True)
+        import time
+        now = time.time()
+        for i in range(4):
+            self._mk(os.path.join(base, f"f{i}.bin"), 2 + i, 400, now)
+        res = krylan.scan_big_old(base, min_mb=2, min_days=180, top=2, now=now)
+        self.assertEqual(len(res), 2)   # только топ-2 по размеру
+
+    def test_missing_base(self):
+        self.assertEqual(krylan.scan_big_old("/no/such/krylan/path", 1, 1), [])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -223,6 +223,14 @@ I18N = {
     "📦 Кэш apt и журналы systemd очищены": "📦 apt cache and systemd journals cleaned",
     "⏭ Кэш apt/журналы пропущены — нужны права root":
         "⏭ apt cache/journals skipped — needs root",
+    # --- journald vacuum (Linux) ---
+    "🗒 Журналы systemd: {size}": "🗒 systemd journals: {size}",
+    "🗒 Журналы systemd ужаты до 100 МБ (было {size})":
+        "🗒 systemd journals vacuumed to 100 MB (was {size})",
+    "⏭ Ужатие журналов пропущено — нужны права root":
+        "⏭ Journal vacuum skipped — needs root",
+    "🗒 Журналы systemd будут ужаты до 100 МБ (сейчас {size})":
+        "🗒 systemd journals will be vacuumed to 100 MB (now {size})",
     "⏭ Очистка пакетных кэшей пропущена": "⏭ Package cache cleanup skipped",
     "🧠 Неактивная память освобождена (purge)": "🧠 Inactive memory freed (purge)",
     "⏭ Освобождение памяти пропущено — нужны права root (purge)":
@@ -404,6 +412,27 @@ I18N = {
         "  no broken or empty files found.\n",
     "Пустые файлы (0 байт) и битые символические ссылки бесполезны. Уйдут в Корзину.":
         "Empty files (0 bytes) and broken symlinks are useless. They go to Trash.",
+    # --- 🔗 Битые ярлыки ---
+    "🔗 Битые ярлыки": "🔗 Broken shortcuts",
+    "🔗 Ищу битые ярлыки…": "🔗 Looking for broken shortcuts…",
+    "🔗  Битые ярлыки: {n}": "🔗  Broken shortcuts: {n}",
+    "  битых ярлыков не найдено.\n": "  no broken shortcuts found.\n",
+    "Ярлыки, чья цель удалена, бесполезны. Уйдут в Корзину.":
+        "Shortcuts whose target is gone are useless. They go to Trash.",
+    "🔗 Удалить битые ярлыки ({n})": "🔗 Delete broken shortcuts ({n})",
+    "Переместить {n} битых ярлыков в Корзину?":
+        "Move {n} broken shortcuts to Trash?",
+    # --- 📦🕒 Большие и старые ---
+    "📦🕒 Большие и старые": "📦🕒 Big & old",
+    "📦🕒 Ищу большие старые файлы…": "📦🕒 Looking for big old files…",
+    "📦🕒  Большие и старые файлы: {n} (≥{mb} МБ · не трогали ≥{days} дн.)":
+        "📦🕒  Big & old files: {n} (≥{mb} MB · untouched ≥{days} days)",
+    "  больших старых файлов не найдено.\n": "  no big old files found.\n",
+    "Крупные файлы, которые давно не открывали и не меняли. Уйдут в Корзину.":
+        "Large files untouched and unchanged for a long time. They go to Trash.",
+    "📦🕒 Удалить большие старые ({n})": "📦🕒 Delete big & old ({n})",
+    "Переместить {n} больших старых файлов в Корзину?":
+        "Move {n} big old files to Trash?",
     # --- диск (SMART) ---
     "🩺  Здоровье диска": "🩺  Disk health",
     "Статус: ": "Status: ",
@@ -1516,6 +1545,202 @@ def thumbnail_targets():
         return glob.glob(os.path.join(base, "thumbcache_*.db"))
     return []
 
+# ---------- journald vacuum (Linux): bounded, обратимо-безопасно ----------
+def parse_journal_disk_usage(text):
+    """Парсер вывода `journalctl --disk-usage` → размер в байтах (int) или None.
+
+    ЧИСТАЯ функция (тестируется на сэмплах). Типичный вывод:
+      "Archived and active journals take up 1.2G in the file system."
+      "Journals take up 512.0M in the file system."
+    Берём первое число с единицей (B/K/M/G/T, опционально с «B»/«iB»).
+    Десятичные множители (×1000) journalctl и так печатает в SI-стиле, но мы
+    используем двоичные множители (×1024) — для оценки этого достаточно.
+    """
+    import re
+    if not text:
+        return None
+    m = re.search(r"(\d+(?:[.,]\d+)?)\s*([KMGTP]?)i?B?\b", text)
+    if not m:
+        return None
+    try:
+        num = float(m.group(1).replace(",", "."))
+    except ValueError:
+        return None
+    mult = {"": 1, "K": 1024, "M": 1024**2, "G": 1024**3,
+            "T": 1024**4, "P": 1024**5}.get(m.group(2).upper(), 1)
+    return int(num * mult)
+
+
+def journald_vacuum(dry=False):
+    """Журналы systemd (Linux): показать размер и (не-dry) ужать до 100 МБ.
+
+    Bounded и безопасно: `journalctl --vacuum-size=100M` НЕ стирает журналы
+    целиком — оставляет последние 100 МБ. sudo НЕ запрашиваем: если нет root —
+    помечаем «нужны права», ничего не выполняя.
+
+    Returns:
+        (size|None, label, did)  где
+          size  — текущий размер журналов в байтах (или None, если не прочитан);
+          label — человекочитаемая подпись (что сделано / показано / пропущено);
+          did   — bool: True → ужатие реально выполнено; False → только показ/пропуск.
+
+    На не-Linux: (None, "", False) — шаг пропускается без записи.
+    """
+    if SYSTEM != "Linux":
+        return (None, "", False)
+    r = run(["journalctl", "--disk-usage"], timeout=20)
+    size = parse_journal_disk_usage(r.stdout or "") if r.returncode == 0 else None
+    size_h = human(size) if size is not None else "—"
+    if dry:
+        return (size, L("🗒 Журналы systemd будут ужаты до 100 МБ (сейчас {size})").format(size=size_h), False)
+    if not has_root():
+        # без root vacuum завершится ошибкой/без эффекта — честный пропуск, без sudo.
+        return (size, L("⏭ Ужатие журналов пропущено — нужны права root"), False)
+    rv = run(["journalctl", "--vacuum-size=100M"], timeout=120)
+    if rv.returncode == 0:
+        return (size, L("🗒 Журналы systemd ужаты до 100 МБ (было {size})").format(size=size_h), True)
+    return (size, L("⏭ Ужатие журналов пропущено — нужны права root"), False)
+
+
+# ---------- 🔗 битые ярлыки (broken shortcuts): report + Корзина по выбору ----------
+def _desktop_entry_target_ok(path):
+    """Существует ли цель .desktop-файла? True, если ярлык рабочий.
+
+    Разбираем поля Exec=/TryExec=/URL=. Логика (как у freedesktop):
+      • URL= (тип Link) → проверяем локальный путь (file:// или абсолютный);
+        не-локальные схемы (http/…) считаем рабочими.
+      • TryExec= → если задан, цель должна существовать/находиться в PATH.
+      • Exec=    → первый токен (бинарник) должен существовать/быть в PATH.
+    Пустой/нечитаемый/без полей → считаем рабочим (не трогаем из осторожности).
+    ЧИСТАЯ по контракту (только чтение файла), без побочных эффектов.
+    """
+    import shlex
+    exec_cmd = tryexec = url = None
+    try:
+        with open(path, "r", encoding="utf-8", errors="ignore") as f:
+            for raw in f:
+                line = raw.strip()
+                if line.startswith("Exec=") and exec_cmd is None:
+                    exec_cmd = line[len("Exec="):].strip()
+                elif line.startswith("TryExec=") and tryexec is None:
+                    tryexec = line[len("TryExec="):].strip()
+                elif line.startswith("URL=") and url is None:
+                    url = line[len("URL="):].strip()
+    except Exception:
+        return True  # нечитаемый — не наш кандидат на удаление
+
+    def _bin_exists(token):
+        if not token:
+            return True
+        # абсолютный путь — проверяем напрямую; иначе ищем в PATH
+        if os.path.isabs(token):
+            return os.path.exists(token)
+        import shutil as _sh
+        return _sh.which(token) is not None
+
+    # тип Link (URL=)
+    if url is not None and exec_cmd is None and tryexec is None:
+        if url.startswith("file://"):
+            from urllib.parse import urlparse, unquote
+            return os.path.exists(unquote(urlparse(url).path))
+        if os.path.isabs(url):
+            return os.path.exists(url)
+        return True  # http(s)/прочие схемы — рабочий ярлык
+    # TryExec имеет приоритет (явная проверка наличия)
+    if tryexec is not None:
+        return _bin_exists(tryexec)
+    if exec_cmd is not None:
+        try:
+            parts = shlex.split(exec_cmd)
+        except ValueError:
+            parts = exec_cmd.split()
+        first = parts[0] if parts else ""
+        return _bin_exists(first)
+    return True  # ни одного целевого поля — не трогаем
+
+
+def find_broken_shortcuts(bases=None):
+    """Битые ярлыки в пользовательских каталогах: [(kind, path)].
+
+    Linux/macOS: .desktop-файлы, чья цель (Exec/TryExec/URL) не существует.
+    Windows: .lnk-файлы нулевого размера (минимальная проверка без парсинга
+    бинарного формата) — kind="lnk-empty".
+    Не дублирует find_broken_files (там — 0-байтовые файлы и битые симлинки):
+    тут именно ярлыки с отсутствующей целью.
+
+    Пропускаем скрытые/системные каталоги. Без побочных эффектов (тестируемо).
+    """
+    bases = bases or [os.path.join(HOME, d) for d in ("Desktop", "Documents", "Downloads")] + [
+        os.path.join(HOME, ".local", "share", "applications")]
+    skip = {".git", "node_modules", ".Trash", "Library", "AppData", ".cache"}
+    found = []
+    for base in bases:
+        if not os.path.isdir(base):
+            continue
+        for root, dirs, files in os.walk(base):
+            dirs[:] = [d for d in dirs if not d.startswith(".") and d not in skip]
+            for fn in files:
+                fp = os.path.join(root, fn)
+                low = fn.lower()
+                try:
+                    if low.endswith(".desktop"):
+                        if os.path.islink(fp) and not os.path.exists(fp):
+                            continue  # битый симлинк — забота find_broken_files
+                        if not _desktop_entry_target_ok(fp):
+                            found.append(("desktop", fp))
+                    elif low.endswith(".lnk"):
+                        # без парсинга бинарного .lnk: пустой ярлык заведомо битый
+                        if not os.path.islink(fp) and os.path.isfile(fp) and os.path.getsize(fp) == 0:
+                            found.append(("lnk-empty", fp))
+                except OSError:
+                    pass
+    return found
+
+
+# ---------- 📦🕒 большие и старые файлы (size ≥ N МБ И возраст ≥ M дней) ----------
+def scan_big_old(base, min_mb=200, min_days=180, top=100, now=None):
+    """Файлы размером ≥ min_mb МБ И не открывавшиеся/менявшиеся ≥ min_days дней.
+
+    Возвращает отсортированный по размеру (убыв.) список [(size, path, age_days)].
+    Объединяет два фильтра (размер × возраст) — это НЕ дубль old_downloads
+    (только Загрузки, без порога размера) и не «крупные файлы» (без возраста).
+
+    Безопасно и тестируемо:
+      • симлинки пропускаем (os.path.islink) — не идём по чужим целям;
+      • is_protected() исключает защищённые пути (HOME/стандартные папки/корень);
+      • возраст = по max(mtime, atime) — «последнее касание» (открыли ИЛИ изменили);
+      • now передаётся в тестах для детерминизма (по умолчанию time.time()).
+    """
+    import time
+    if now is None:
+        now = time.time()
+    min_bytes = int(min_mb) * 1024 * 1024
+    cutoff_age = int(min_days) * 86400
+    out = []
+    if not os.path.isdir(base):
+        return out
+    for root, _dirs, files in os.walk(base):
+        for fn in files:
+            fp = os.path.join(root, fn)
+            try:
+                if os.path.islink(fp):
+                    continue
+                st = os.stat(fp)
+                if st.st_size < min_bytes:
+                    continue
+                last_touch = max(st.st_mtime, st.st_atime)
+                age = now - last_touch
+                if age < cutoff_age:
+                    continue
+                if is_protected(fp):
+                    continue
+                out.append((st.st_size, fp, int(age // 86400)))
+            except OSError:
+                pass
+    out.sort(reverse=True)
+    return out[:top] if top else out
+
+
 def optimize_all_plan(dry=False, browsers_running=None, emit=None):
     """Оркестратор «✨ Оптимизировать»: безопасные шаги БЕЗ подтверждений.
 
@@ -1683,13 +1908,25 @@ def optimize_all_plan(dry=False, browsers_running=None, emit=None):
             if has_root():
                 if not dry:
                     run(["apt-get", "clean"], timeout=120)
-                    run(["journalctl", "--vacuum-size=100M"], timeout=120)
                 _say(L("📦 Кэш apt и журналы systemd очищены"))
             else:
                 skipped.append(L("⏭ Кэш apt/журналы пропущены — нужны права root"))
         # Windows: безопасного userland пакетного кэша нет → молча пропускаем
     except Exception:
         skipped.append(L("⏭ Очистка пакетных кэшей пропущена"))
+
+    # 7b) journald vacuum (Linux): bounded — ужать журналы до 100 МБ (оставляет хвост)
+    try:
+        if SYSTEM == "Linux":
+            jsize, jlabel, jdid = journald_vacuum(dry=dry)
+            if jsize is not None:
+                details["journal"] = jsize
+            if jdid or dry:
+                _say(jlabel)
+            else:
+                skipped.append(jlabel)
+    except Exception:
+        skipped.append(L("⏭ Ужатие журналов пропущено — нужны права root"))
 
     # 8) освобождение неактивной памяти (безопасно, где есть)
     try:
@@ -1808,6 +2045,16 @@ def optimize_preview(system, media_type, has_root, browsers_running=None):
             will_do.append(L("📦 Кэш apt и журналы systemd будут очищены"))
         else:
             skipped.append(L("⏭ Кэш apt/журналы пропущены — нужны права root"))
+        # journald vacuum (read-only показ размера; реально ужмётся при наличии root)
+        if system == SYSTEM:   # размер читаем только на «своей» ОС, иначе бинарника нет
+            jsize, _lbl, _did = journald_vacuum(dry=True)
+            jh = human(jsize) if jsize is not None else "—"
+        else:
+            jh = "—"
+        if has_root:
+            will_do.append(L("🗒 Журналы systemd будут ужаты до 100 МБ (сейчас {size})").format(size=jh))
+        else:
+            skipped.append(L("⏭ Ужатие журналов пропущено — нужны права root"))
     # Windows: безопасного userland пакетного кэша нет → ничего не добавляем
 
     # 8) освобождение неактивной памяти
@@ -2451,6 +2698,7 @@ class Krylan(tk.Tk):
         for lbl, cmd in [("⚙️ Автозагрузка", self.t_startup), ("👯 Дубликаты", self.t_dupes), ("🖼 Похожие фото", self.t_similar), ("📦 Крупные файлы", self.t_large),
                          ("🗺 Карта диска", self.t_diskmap), ("🧳 Деинсталлятор", self.t_uninstall),
                          ("📂 Пустые папки", self.t_empty), ("🧩 Битые файлы", self.t_broken),
+                         ("🔗 Битые ярлыки", self.t_shortcuts), ("📦🕒 Большие и старые", self.t_bigold),
                          ("📈 Что выросло", self.t_growth),
                          ("🔒 Приватность", self.t_privacy), ("🧩 Расширения браузеров", self.t_extensions),
                          ("🩺 Диск", self.t_smart), ("🩺 Диск-доктор", self.t_diskdoctor),
@@ -2844,6 +3092,63 @@ class Krylan(tk.Tk):
             if safe_trash(p): ok += 1
         messagebox.showinfo("KRYLAN", L("В Корзину: {n} файлов.").format(n=ok)); self.t_broken()
 
+    def t_shortcuts(self):
+        self._out(L("🔗 Ищу битые ярлыки…")); threading.Thread(target=self._shortcuts_w, daemon=True).start()
+
+    def _shortcuts_w(self):
+        items = find_broken_shortcuts()
+        lines = [L("🔗  Битые ярлыки: {n}").format(n=len(items)) + "\n\n"]
+        for _k, p in items[:60]:
+            lines.append(f"  {p.replace(HOME,'~')}\n")
+        if len(items) > 60:
+            lines.append("  " + L("…и ещё {n}\n").format(n=len(items)-60))
+        if not items:
+            lines.append(L("  битых ярлыков не найдено.\n"))
+        lines.append("\n" + L("Ярлыки, чья цель удалена, бесполезны. Уйдут в Корзину.") + "\n")
+        files = [p for _, p in items]
+        self.q.put(("shortcuts", "".join(lines), files))
+
+    def _shortcuts_clean(self, files):
+        if not files or not messagebox.askyesno("KRYLAN", L("Переместить {n} битых ярлыков в Корзину?").format(n=len(files))): return
+        ok = 0
+        for p in files:
+            if safe_trash(p): ok += 1
+        messagebox.showinfo("KRYLAN", L("В Корзину: {n} файлов.").format(n=ok)); self.t_shortcuts()
+
+    # пороги «больших и старых» (МБ / дней); список → файлы для удаления по выбору
+    BIGOLD_MIN_MB = 200
+    BIGOLD_MIN_DAYS = 180
+
+    def t_bigold(self):
+        self._out(L("📦🕒 Ищу большие старые файлы…")); threading.Thread(target=self._bigold_w, daemon=True).start()
+
+    def _bigold_w(self):
+        bases = [os.path.join(HOME, d) for d in
+                 ("Downloads", "Desktop", "Documents", "Pictures", "Movies", "Music")]
+        items = []
+        for base in bases:
+            items.extend(scan_big_old(base, self.BIGOLD_MIN_MB, self.BIGOLD_MIN_DAYS, top=0))
+        items.sort(reverse=True)
+        items = items[:100]
+        lines = [L("📦🕒  Большие и старые файлы: {n} (≥{mb} МБ · не трогали ≥{days} дн.)").format(
+                 n=len(items), mb=self.BIGOLD_MIN_MB, days=self.BIGOLD_MIN_DAYS) + "\n\n"]
+        for size, p, age in items[:60]:
+            lines.append(f"  {human(size):>9}  ·{age:>4}д  {p.replace(HOME,'~')}\n")
+        if len(items) > 60:
+            lines.append("  " + L("…и ещё {n}\n").format(n=len(items)-60))
+        if not items:
+            lines.append(L("  больших старых файлов не найдено.\n"))
+        lines.append("\n" + L("Крупные файлы, которые давно не открывали и не меняли. Уйдут в Корзину.") + "\n")
+        files = [p for _s, p, _a in items]
+        self.q.put(("bigold", "".join(lines), files))
+
+    def _bigold_clean(self, files):
+        if not files or not messagebox.askyesno("KRYLAN", L("Переместить {n} больших старых файлов в Корзину?").format(n=len(files))): return
+        ok = 0
+        for p in files:
+            if safe_trash(p): ok += 1
+        messagebox.showinfo("KRYLAN", L("В Корзину: {n} файлов.").format(n=ok)); self.t_bigold()
+
     def t_shred(self):
         # НЕОБРАТИМАЯ операция: только по явному выбору файлов пользователем.
         # Шаг 1 — диалог выбора файлов; пустой выбор → выходим без действий.
@@ -3010,6 +3315,18 @@ class Krylan(tk.Tk):
                         if b:
                             self._btn(self.t_action, L("🧩 Удалить битые/пустые ({n})").format(n=len(b)), RED,
                                       lambda fs=b: self._broken_clean(fs)).pack(side="left", pady=4)
+                elif kind == "shortcuts":
+                    if self.page == "tools":
+                        self._out(a)
+                        if b:
+                            self._btn(self.t_action, L("🔗 Удалить битые ярлыки ({n})").format(n=len(b)), RED,
+                                      lambda fs=b: self._shortcuts_clean(fs)).pack(side="left", pady=4)
+                elif kind == "bigold":
+                    if self.page == "tools":
+                        self._out(a)
+                        if b:
+                            self._btn(self.t_action, L("📦🕒 Удалить большие старые ({n})").format(n=len(b)), RED,
+                                      lambda fs=b: self._bigold_clean(fs)).pack(side="left", pady=4)
                 elif kind == "shred":
                     if self.page == "tools":
                         self._out(a)
