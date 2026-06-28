@@ -1572,5 +1572,132 @@ class TestScanBigOld(unittest.TestCase):
         self.assertEqual(krylan.scan_big_old("/no/such/krylan/path", 1, 1), [])
 
 
+class TestFindDuplicatesBlake2b(unittest.TestCase):
+    """Двухфазный find_duplicates на blake2b: результат идентичен, отсев по
+    частичному хешу не даёт ложных групп для файлов с одинаковым началом."""
+
+    def test_same_prefix_different_tail_not_grouped(self):
+        # одинаковые первые 64 КБ (попадают в один partial-bucket),
+        # но разный хвост → НЕ дубликаты (полный хеш разводит их).
+        base = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, base, ignore_errors=True)
+        prefix = b"P" * (200 * 1024)           # > 64 КБ общего начала
+        with open(os.path.join(base, "a.bin"), "wb") as f:
+            f.write(prefix + b"A" * (2 * 1024 * 1024))
+        with open(os.path.join(base, "b.bin"), "wb") as f:
+            f.write(prefix + b"B" * (2 * 1024 * 1024))
+        groups, extras, wasted = krylan.find_duplicates([base])
+        self.assertEqual(groups, [])
+        self.assertEqual(extras, [])
+        self.assertEqual(wasted, 0)
+
+    def test_identical_files_grouped_via_full_hash(self):
+        base = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, base, ignore_errors=True)
+        payload = b"K" * (3 * 1024 * 1024)
+        for name in ("x.bin", "y.bin"):
+            with open(os.path.join(base, name), "wb") as f:
+                f.write(payload)
+        groups, extras, wasted = krylan.find_duplicates([base])
+        self.assertEqual(len(groups), 1)
+        self.assertEqual(len(extras), 1)
+        self.assertEqual(wasted, len(payload))
+
+    def test_file_hash_blake2b_matches_partial_and_full(self):
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        import hashlib
+        data = b"hello-krylan" * 10000
+        f = os.path.join(d, "f.bin")
+        with open(f, "wb") as fh:
+            fh.write(data)
+        # полный хеш совпадает с blake2b всего содержимого
+        self.assertEqual(krylan._file_hash(f), hashlib.blake2b(data).hexdigest())
+        # частичный — blake2b первых N байт
+        n = krylan._PARTIAL_HASH_BYTES
+        self.assertEqual(krylan._file_hash(f, n),
+                         hashlib.blake2b(data[:n]).hexdigest())
+
+    def test_file_hash_missing_returns_none(self):
+        self.assertIsNone(krylan._file_hash("/no/such/krylan/file.bin"))
+
+
+class TestParseDisabledSnaps(unittest.TestCase):
+    """parse_disabled_snaps: из `snap list --all` берём только disabled-ревизии."""
+
+    SAMPLE = (
+        "Name    Version   Rev    Tracking       Publisher   Notes\n"
+        "core20  20230622  1974   latest/stable  canonical*  base\n"
+        "core20  20230320  1852   latest/stable  canonical*  disabled\n"
+        "firefox 115.0     2800   latest/stable  mozilla*    -\n"
+        "firefox 114.0     2700   latest/stable  mozilla*    disabled\n"
+        "snapd   2.59       19457  latest/stable  canonical*  snapd\n"
+    )
+
+    def test_extracts_disabled_only(self):
+        res = krylan.parse_disabled_snaps(self.SAMPLE)
+        self.assertEqual(res, [("core20", "1852"), ("firefox", "2700")])
+
+    def test_skips_header_and_blanks(self):
+        txt = "Name  Version  Rev  Tracking  Publisher  Notes\n\n   \n"
+        self.assertEqual(krylan.parse_disabled_snaps(txt), [])
+
+    def test_empty_and_none(self):
+        self.assertEqual(krylan.parse_disabled_snaps(""), [])
+        self.assertEqual(krylan.parse_disabled_snaps(None), [])
+
+    def test_active_only_returns_empty(self):
+        txt = ("Name  Version  Rev  Tracking  Publisher  Notes\n"
+               "hello 2.10     38   latest/stable  canonical*  -\n")
+        self.assertEqual(krylan.parse_disabled_snaps(txt), [])
+
+
+class TestVacuumSqlite(unittest.TestCase):
+    """vacuum_sqlite: VACUUM перепаковывает БД без потери данных и
+    уменьшает размер после удаления строк."""
+
+    def _make_db(self, path):
+        import sqlite3
+        con = sqlite3.connect(path)
+        con.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, blob TEXT)")
+        con.executemany("INSERT INTO t (blob) VALUES (?)",
+                        [("x" * 2000,) for _ in range(4000)])
+        con.commit()
+        con.close()
+
+    def test_vacuum_shrinks_after_delete(self):
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        db = os.path.join(d, "history.sqlite")
+        self._make_db(db)
+        # удаляем большую часть строк → освобождается место внутри файла
+        import sqlite3
+        con = sqlite3.connect(db)
+        con.execute("DELETE FROM t WHERE id > 100")
+        con.commit()
+        con.close()
+        before, after = krylan.vacuum_sqlite(db)
+        self.assertLess(after, before, "VACUUM должен уменьшить размер файла")
+        # данные на месте (не потеряны)
+        con = sqlite3.connect(db)
+        cnt = con.execute("SELECT COUNT(*) FROM t").fetchone()[0]
+        con.close()
+        self.assertEqual(cnt, 100)
+
+    def test_non_sqlite_file_unchanged(self):
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        f = os.path.join(d, "notdb.bin")
+        with open(f, "wb") as fh:
+            fh.write(b"not a database" * 100)
+        before, after = krylan.vacuum_sqlite(f)
+        # не-БД: ошибка → (size, size), файл цел
+        self.assertEqual(before, after)
+        self.assertTrue(os.path.exists(f))
+
+    def test_missing_file_zero(self):
+        self.assertEqual(krylan.vacuum_sqlite("/no/such/krylan/db.sqlite"), (0, 0))
+
+
 if __name__ == "__main__":
     unittest.main()

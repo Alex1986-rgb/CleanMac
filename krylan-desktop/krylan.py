@@ -480,6 +480,50 @@ I18N = {
     "Отключить: Диспетчер задач → вкладка «Автозагрузка».":
         "“on/off” is the real status from the registry. "
         "Disable: Task Manager → Startup tab.",
+    # --- 📦 Snap/Flatpak (Linux): очистка неиспользуемого ---
+    "📦 Snap/Flatpak": "📦 Snap/Flatpak",
+    "📦 Ищу неиспользуемые snap/flatpak…": "📦 Looking for unused snap/flatpak…",
+    "📦  Snap / Flatpak — неиспользуемое (Linux)": "📦  Snap / Flatpak — unused (Linux)",
+    "Только Linux: эта функция доступна на Linux.":
+        "Linux only: this feature is available on Linux.",
+    "Flatpak не установлен — пропущено.": "Flatpak is not installed — skipped.",
+    "Snap не установлен — пропущено.": "Snap is not installed — skipped.",
+    "Flatpak: есть неиспользуемые среды выполнения для удаления.":
+        "Flatpak: there are unused runtimes to remove.",
+    "Flatpak: неиспользуемого не найдено.": "Flatpak: nothing unused found.",
+    "Snap: отключённых ревизий: {n}": "Snap: disabled revisions: {n}",
+    "Snap: отключённых ревизий не найдено.": "Snap: no disabled revisions found.",
+    "⚠️ Удаление ревизий snap требует прав root — пропущено (запустите с sudo).":
+        "⚠️ Removing snap revisions needs root — skipped (run with sudo).",
+    "Безопасно: удаляются только официально неиспользуемые среды (flatpak --unused) и отключённые ревизии snap. Установленные приложения не трогаются.":
+        "Safe: only officially unused runtimes (flatpak --unused) and disabled snap revisions are removed. Installed apps are untouched.",
+    "🧹 Очистить неиспользуемое": "🧹 Clean unused",
+    "Удалить неиспользуемые flatpak-среды и {n} отключённых ревизий snap?":
+        "Remove unused flatpak runtimes and {n} disabled snap revisions?",
+    "📦  Snap / Flatpak — очистка завершена": "📦  Snap / Flatpak — cleanup done",
+    "✅ Flatpak: неиспользуемое удалено (flatpak --unused).":
+        "✅ Flatpak: unused removed (flatpak --unused).",
+    "⏭ Flatpak: удаление пропущено.": "⏭ Flatpak: removal skipped.",
+    "✅ Snap: удалено отключённых ревизий: {n}": "✅ Snap: disabled revisions removed: {n}",
+    "⏭ Snap: ревизии пропущены (нет прав/ошибка): {n}":
+        "⏭ Snap: revisions skipped (no rights/error): {n}",
+    # --- 🗜 Сжать базы браузеров (VACUUM SQLite) ---
+    "🗜 Сжать базы браузеров": "🗜 Compact browser databases",
+    "🗜 Ищу базы браузеров…": "🗜 Looking for browser databases…",
+    "🗜  Сжатие баз браузеров (VACUUM)": "🗜  Compacting browser databases (VACUUM)",
+    "  баз для сжатия не найдено.\n": "  no databases to compact found.\n",
+    "⚠️ Сначала закройте: {browsers} — их базы заняты и будут пропущены.":
+        "⚠️ Close these first: {browsers} — their databases are locked and will be skipped.",
+    "Найдено баз: {n} (~{size}). VACUUM перепаковывает файл без потери данных.":
+        "Databases found: {n} (~{size}). VACUUM repacks the file without losing data.",
+    "🗜 Сжать базы ({n})": "🗜 Compact databases ({n})",
+    "Сжать {n} баз закрытых браузеров?\nДанные не удаляются — только перепаковка (VACUUM).":
+        "Compact {n} databases of closed browsers?\nNo data is deleted — repack only (VACUUM).",
+    "🗜  Сжатие завершено": "🗜  Compaction done",
+    "Сжато баз: {n}": "Databases compacted: {n}",
+    "Сэкономлено: {size}": "Saved: {size}",
+    "⏭ Пропущено (браузер запущен): {n}": "⏭ Skipped (browser running): {n}",
+    "Сжато: {n}, сэкономлено {size}.": "Compacted: {n}, saved {size}.",
     # --- 🔥 Шредер (безвозвратное затирание) ---
     "🔥 Шредер": "🔥 Shredder",
     "🔥  Шредер — безвозвратное затирание файлов":
@@ -728,9 +772,49 @@ def find_broken_files(bases=None):
                     pass
     return found
 
+# фрагмент для частичного хеша (первые N байт файла) — дешёвый отсев
+_PARTIAL_HASH_BYTES = 64 * 1024
+
+def _file_hash(fp, limit=None):
+    """blake2b-хеш файла. limit=None → весь файл, иначе первые limit байт.
+    Быстрый, из стандартной библиотеки (без внешних зависимостей). Читаем
+    кусками — большие файлы не держим в памяти целиком. None при ошибке I/O."""
+    h = hashlib.blake2b()
+    try:
+        with open(fp, "rb") as fh:
+            if limit is None:
+                for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+                    h.update(chunk)
+            else:
+                remaining = limit
+                while remaining > 0:
+                    chunk = fh.read(min(remaining, 1024 * 1024))
+                    if not chunk:
+                        break
+                    h.update(chunk)
+                    remaining -= len(chunk)
+        return h.hexdigest()
+    except Exception:
+        return None
+
+def _hash_buckets(paths, limit):
+    """Сгруппировать пути по хешу (полному или частичному). {hash: [paths]}."""
+    buckets = {}
+    for fp in paths:
+        h = _file_hash(fp, limit)
+        if h is not None:
+            buckets.setdefault(h, []).append(fp)
+    return buckets
+
 def find_duplicates(bases=None):
-    """Точные дубликаты (размер → md5) в пользовательских папках.
-    Возвращает (groups, extras, wasted)."""
+    """Точные дубликаты в пользовательских папках. Возвращает (groups, extras, wasted).
+
+    Двухфазно (в духе Czkawka), результат идентичен полному хешированию,
+    но быстрее за счёт раннего отсева:
+      1) группировка по размеру (size) — мгновенно;
+      2) частичный хеш первых ~64 КБ (blake2b) — дёшево отсеивает непохожие;
+      3) полный хеш blake2b ТОЛЬКО для файлов, совпавших по частичному.
+    blake2b из стандартной библиотеки — без внешних зависимостей."""
     bases = bases or [os.path.join(HOME, d) for d in ("Downloads", "Desktop", "Documents")]
     by_size = {}
     for base in bases:
@@ -745,19 +829,102 @@ def find_duplicates(bases=None):
     groups, extras = [], []
     for s, paths in by_size.items():
         if len(paths) < 2: continue
-        bh = {}
-        for fp in paths:
-            try:
-                with open(fp, "rb") as fh:
-                    h = hashlib.md5(fh.read()).hexdigest()
-                bh.setdefault(h, []).append(fp)
-            except Exception: pass
-        for same in bh.values():
-            if len(same) > 1:
-                groups.append((s, sorted(same))); extras.extend(sorted(same)[1:])
+        # фаза 2 — частичный хеш отсеивает кандидатов с разным началом
+        for partial_paths in _hash_buckets(paths, _PARTIAL_HASH_BYTES).values():
+            if len(partial_paths) < 2:
+                continue
+            # фаза 3 — полный хеш только для прошедших частичный отбор
+            for same in _hash_buckets(partial_paths, None).values():
+                if len(same) > 1:
+                    groups.append((s, sorted(same))); extras.extend(sorted(same)[1:])
     groups.sort(reverse=True)
     wasted = sum(s*(len(g)-1) for s, g in groups)
     return groups, extras, wasted
+
+# ---------- очистка неиспользуемых snap/flatpak (Linux) ----------
+def parse_disabled_snaps(text):
+    """Парсер вывода `snap list --all` → список (name, revision) для ревизий
+    со статусом "disabled" (старые ревизии, оставшиеся после обновлений).
+    ЧИСТАЯ функция (тестируется на сэмплах), без I/O.
+
+    Формат строки snap (колонки разделены пробелами):
+        Name  Version  Rev  Tracking  Publisher  Notes
+    Заголовок (начинается с "Name") и пустые строки пропускаем. Ревизия
+    считается отключённой, если в колонке Notes есть "disabled"."""
+    out = []
+    for raw in (text or "").splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        cols = line.split()
+        if len(cols) < 6:
+            continue
+        if cols[0].lower() == "name":   # заголовок таблицы
+            continue
+        name, rev, notes = cols[0], cols[2], cols[5]
+        if "disabled" in notes.lower():
+            out.append((name, rev))
+    return out
+
+# ---------- VACUUM баз SQLite браузеров ----------
+def vacuum_sqlite(path):
+    """Сжать одну базу SQLite на месте через VACUUM. Возвращает (before, after)
+    в байтах. ЧИСТАЯ по контракту: только sqlite3 из стандартной библиотеки,
+    данные НЕ удаляются (VACUUM лишь перепаковывает файл). Любая ошибка/не-БД →
+    (size, size) (изменений нет). Вызывать ТОЛЬКО при закрытом браузере —
+    иначе файл занят и VACUUM либо упадёт, либо повредит данные."""
+    import sqlite3
+    try:
+        before = os.path.getsize(path)
+    except OSError:
+        return (0, 0)
+    try:
+        con = sqlite3.connect(path)
+        try:
+            con.execute("VACUUM")
+            con.commit()
+        finally:
+            con.close()
+    except Exception:
+        return (before, before)
+    try:
+        after = os.path.getsize(path)
+    except OSError:
+        after = before
+    return (before, after)
+
+def browser_sqlite_dbs():
+    """Файлы баз SQLite браузеров (history/cookies/favicons), пригодные для
+    VACUUM. Возвращает [(браузер, путь)]. Только существующие файлы.
+
+    Chromium-семейство (Chrome/Edge/Brave) хранит БЕЗ расширения .sqlite —
+    это файлы History/Cookies/Favicons (формат SQLite). Firefox — *.sqlite."""
+    import glob
+    out = []
+    chromium_files = ("History", "Cookies", "Favicons", "Web Data", "Top Sites")
+    for browser, base in _chromium_ext_profiles():
+        if not os.path.isdir(base):
+            continue
+        # <UserData>/<Profile>/<file> — профили: Default, Profile 1, …
+        for prof in glob.glob(os.path.join(base, "*")):
+            if not os.path.isdir(prof):
+                continue
+            for fn in chromium_files:
+                fp = os.path.join(prof, fn)
+                if os.path.isfile(fp):
+                    out.append((browser, fp))
+    # Firefox: <profile>/*.sqlite (places.sqlite, cookies.sqlite, favicons.sqlite…)
+    if SYSTEM == "Darwin":
+        ff = os.path.join(HOME, "Library/Application Support/Firefox/Profiles")
+    elif SYSTEM == "Windows":
+        roam = os.environ.get("APPDATA", os.path.join(HOME, "AppData", "Roaming"))
+        ff = os.path.join(roam, "Mozilla", "Firefox", "Profiles")
+    else:
+        ff = os.path.join(HOME, ".mozilla/firefox")
+    for fp in glob.glob(os.path.join(ff, "*", "*.sqlite")):
+        if os.path.isfile(fp):
+            out.append(("Firefox", fp))
+    return out
 
 # ---------- похожие изображения (perceptual hash / dHash) ----------
 SIMILAR_EXTS = (".jpg", ".jpeg", ".png", ".heic", ".webp", ".bmp", ".gif")
@@ -2702,6 +2869,8 @@ class Krylan(tk.Tk):
                          ("📈 Что выросло", self.t_growth),
                          ("🔒 Приватность", self.t_privacy), ("🧩 Расширения браузеров", self.t_extensions),
                          ("🩺 Диск", self.t_smart), ("🩺 Диск-доктор", self.t_diskdoctor),
+                         ("🗜 Сжать базы браузеров", self.t_vacuum),
+                         ("📦 Snap/Flatpak", self.t_snapflatpak),
                          ("🔥 Шредер", self.t_shred),
                          ("🔄 Обновления", self.t_updates), ("📄 Отчёт", self.t_report)]:
             self._btn(bar, L(lbl), GLASS, cmd).pack(side="left", padx=4)
@@ -3194,6 +3363,134 @@ class Krylan(tk.Tk):
         self._out(L("🩺 Проверяю диск на ошибки (только чтение)…"))
         threading.Thread(target=lambda: self.q.put(("tout", disk_doctor_report(), None)), daemon=True).start()
 
+    # ---------- 🗜 Сжать базы браузеров (VACUUM SQLite) ----------
+    def t_vacuum(self):
+        self._out(L("🗜 Ищу базы браузеров…")); threading.Thread(target=self._vacuum_w, daemon=True).start()
+
+    def _vacuum_w(self):
+        dbs = browser_sqlite_dbs()
+        running = running_browsers()
+        # сопоставляем браузер → запущен ли (Brave не в running_browsers → считаем
+        # закрытым, как и было; основной критерий — Chrome/Edge/Firefox).
+        lines = [L("🗜  Сжатие баз браузеров (VACUUM)") + "\n\n"]
+        total = 0
+        candidates = []   # пути закрытых браузеров — можно сжимать
+        for browser, fp in dbs:
+            try: sz = os.path.getsize(fp)
+            except OSError: sz = 0
+            total += sz
+            busy = browser in running
+            lines.append(f"  {human(sz):>9}  {browser}: {os.path.basename(fp)}"
+                         + ("  ⏸" if busy else "") + "\n")
+            if not busy:
+                candidates.append(fp)
+        if not dbs:
+            lines.append(L("  баз для сжатия не найдено.\n"))
+        if running:
+            lines.append("\n" + L("⚠️ Сначала закройте: {browsers} — их базы заняты и будут пропущены.")
+                         .format(browsers=', '.join(sorted(running))) + "\n")
+        lines.append("\n" + L("Найдено баз: {n} (~{size}). VACUUM перепаковывает файл без потери данных.")
+                     .format(n=len(candidates), size=human(total)) + "\n")
+        self.q.put(("vacuum", "".join(lines), candidates))
+
+    def _vacuum_run(self, files):
+        if not files or not messagebox.askyesno("KRYLAN",
+                L("Сжать {n} баз закрытых браузеров?\nДанные не удаляются — только перепаковка (VACUUM).").format(n=len(files))):
+            return
+        self._out(L("🗜 Ищу базы браузеров…"))
+        threading.Thread(target=self._vacuum_do_w, args=(list(files),), daemon=True).start()
+
+    def _vacuum_do_w(self, files):
+        # повторно проверяем, что браузеры всё ещё закрыты (иначе пропускаем)
+        running = running_browsers()
+        busy_files = {fp for b, fp in browser_sqlite_dbs() if b in running}
+        done = saved = skipped = 0
+        for fp in files:
+            if fp in busy_files:
+                skipped += 1
+                continue
+            before, after = vacuum_sqlite(fp)
+            if after < before:
+                saved += (before - after)
+            done += 1
+        lines = [L("🗜  Сжатие завершено") + "\n\n",
+                 "  " + L("Сжато баз: {n}").format(n=done) + "\n",
+                 "  " + L("Сэкономлено: {size}").format(size=human(saved)) + "\n"]
+        if skipped:
+            lines.append("  " + L("⏭ Пропущено (браузер запущен): {n}").format(n=skipped) + "\n")
+        self.q.put(("vacuumdone", "".join(lines), (done, saved)))
+
+    # ---------- 📦 Snap/Flatpak (Linux): очистка неиспользуемого ----------
+    def t_snapflatpak(self):
+        self._out(L("📦 Ищу неиспользуемые snap/flatpak…")); threading.Thread(target=self._snapflatpak_w, daemon=True).start()
+
+    def _snapflatpak_w(self):
+        lines = [L("📦  Snap / Flatpak — неиспользуемое (Linux)") + "\n\n"]
+        if SYSTEM != "Linux":
+            lines.append("  " + L("Только Linux: эта функция доступна на Linux.") + "\n")
+            self.q.put(("tout", "".join(lines), None)); return
+        import shutil as _sh
+        has_flatpak = _sh.which("flatpak") is not None
+        has_snap = _sh.which("snap") is not None
+        # flatpak: «есть ли неиспользуемое» — dry-run через `flatpak uninstall --unused`
+        flatpak_unused = False
+        if has_flatpak:
+            r = run(["flatpak", "uninstall", "--unused", "--dry-run"], timeout=30)
+            # непустой stdout с упоминанием runtime → есть что чистить
+            flatpak_unused = bool((r.stdout or "").strip())
+            lines.append("  " + (L("Flatpak: есть неиспользуемые среды выполнения для удаления.")
+                                 if flatpak_unused else L("Flatpak: неиспользуемого не найдено.")) + "\n")
+        else:
+            lines.append("  " + L("Flatpak не установлен — пропущено.") + "\n")
+        # snap: отключённые ревизии из `snap list --all`
+        disabled = []
+        if has_snap:
+            r = run(["snap", "list", "--all"], timeout=30)
+            disabled = parse_disabled_snaps(r.stdout or "")
+            if disabled:
+                lines.append("  " + L("Snap: отключённых ревизий: {n}").format(n=len(disabled)) + "\n")
+                for name, rev in disabled[:30]:
+                    lines.append(f"      {name}  rev {rev}\n")
+                if not has_root():
+                    lines.append("  " + L("⚠️ Удаление ревизий snap требует прав root — пропущено (запустите с sudo).") + "\n")
+            else:
+                lines.append("  " + L("Snap: отключённых ревизий не найдено.") + "\n")
+        else:
+            lines.append("  " + L("Snap не установлен — пропущено.") + "\n")
+        lines.append("\n" + L("Безопасно: удаляются только официально неиспользуемые среды (flatpak --unused) и отключённые ревизии snap. Установленные приложения не трогаются.") + "\n")
+        # действие предлагаем, только если есть что чистить (snap-ревизии — лишь при root)
+        snap_to_remove = disabled if (disabled and has_root()) else []
+        payload = {"flatpak": has_flatpak and flatpak_unused, "snaps": snap_to_remove}
+        has_action = payload["flatpak"] or bool(snap_to_remove)
+        self.q.put(("snapflatpak", "".join(lines), payload if has_action else None))
+
+    def _snapflatpak_clean(self, payload):
+        snaps = payload.get("snaps", [])
+        if not messagebox.askyesno("KRYLAN",
+                L("Удалить неиспользуемые flatpak-среды и {n} отключённых ревизий snap?").format(n=len(snaps))):
+            return
+        self._out(L("📦 Ищу неиспользуемые snap/flatpak…"))
+        threading.Thread(target=self._snapflatpak_do_w, args=(payload,), daemon=True).start()
+
+    def _snapflatpak_do_w(self, payload):
+        lines = [L("📦  Snap / Flatpak — очистка завершена") + "\n\n"]
+        if payload.get("flatpak"):
+            r = run(["flatpak", "uninstall", "--unused", "-y"], timeout=300)
+            lines.append("  " + (L("✅ Flatpak: неиспользуемое удалено (flatpak --unused).")
+                                 if r.returncode == 0 else L("⏭ Flatpak: удаление пропущено.")) + "\n")
+        ok = skip = 0
+        for name, rev in payload.get("snaps", []):
+            r = run(["snap", "remove", name, "--revision=" + str(rev)], timeout=120)
+            if r.returncode == 0:
+                ok += 1
+            else:
+                skip += 1
+        if ok:
+            lines.append("  " + L("✅ Snap: удалено отключённых ревизий: {n}").format(n=ok) + "\n")
+        if skip:
+            lines.append("  " + L("⏭ Snap: ревизии пропущены (нет прав/ошибка): {n}").format(n=skip) + "\n")
+        self.q.put(("tout", "".join(lines), None))
+
     # ---------- о программе ----------
     def show_about(self):
         tk.Label(self.main, text="🪽 KRYLAN", bg=BG0, fg=TEXT, font=("Segoe UI", 24, "bold")).pack(anchor="w", padx=24, pady=(26,0))
@@ -3327,6 +3624,24 @@ class Krylan(tk.Tk):
                         if b:
                             self._btn(self.t_action, L("📦🕒 Удалить большие старые ({n})").format(n=len(b)), RED,
                                       lambda fs=b: self._bigold_clean(fs)).pack(side="left", pady=4)
+                elif kind == "vacuum":
+                    if self.page == "tools":
+                        self._out(a)
+                        if b:
+                            self._btn(self.t_action, L("🗜 Сжать базы ({n})").format(n=len(b)), BLUE,
+                                      lambda fs=b: self._vacuum_run(fs)).pack(side="left", pady=4)
+                elif kind == "vacuumdone":
+                    if self.page == "tools":
+                        self._out(a)
+                        if b:  # b — (done, saved)
+                            messagebox.showinfo("KRYLAN", L("Сжато: {n}, сэкономлено {size}.")
+                                                .format(n=b[0], size=human(b[1])))
+                elif kind == "snapflatpak":
+                    if self.page == "tools":
+                        self._out(a)
+                        if b:
+                            self._btn(self.t_action, L("🧹 Очистить неиспользуемое"), RED,
+                                      lambda pl=b: self._snapflatpak_clean(pl)).pack(side="left", pady=4)
                 elif kind == "shred":
                     if self.page == "tools":
                         self._out(a)
