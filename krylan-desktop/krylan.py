@@ -19,7 +19,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import krylan_core
 
-VERSION = "1.16.0"
+VERSION = "1.17.0"
 SYSTEM = platform.system()           # Windows / Darwin / Linux
 HOME = os.path.expanduser("~")
 
@@ -61,6 +61,18 @@ I18N = {
     "Дай устройству крылья": "Give your device wings",
     "Дашборд": "Dashboard", "Сканер": "Scanner", "Процессы": "Processes",
     "Очистка": "Cleanup", "Инструменты": "Tools", "О программе": "About",
+    "Автопилот": "Autopilot",
+    "🟢 Автопилот работает": "🟢 Autopilot running",
+    "🔴 Автопилот остановлен": "🔴 Autopilot stopped",
+    "Включить": "Enable", "Выключить": "Disable",
+    "⚡ Оптимизировать сейчас": "⚡ Optimize now",
+    "Порог памяти, %": "Memory threshold, %",
+    "Интервал проверки, с": "Check interval, s",
+    "  Разрешить закрывать фоновые браузеры при пике памяти":
+        "  Allow closing background browsers on memory spikes",
+    "  Запускать страж автоматически при входе в систему":
+        "  Start the guardian automatically at login",
+    "Журнал автопилота:": "Autopilot log:",
     "🚀 Ускорить — очистить и разгрузить": "🚀 Boost — clean & free up", "🔍 Сканировать": "🔍 Scan",
     "🚀 Сканировать всё": "🚀 Scan everything", "Анализ": "Analyze", "Очистить": "Clean",
     "Система: {os} · в реальном времени": "System: {os} · real-time",
@@ -2440,6 +2452,409 @@ def optimize_preview(system, media_type, has_root, browsers_running=None):
     return {"will_do": will_do, "skipped": skipped,
             "freed_est": freed_est, "details": details}
 
+# ====================================================================
+# ===================  АВТОПИЛОТ (кросс-платформенно)  ===============
+# ====================================================================
+# Фоновый страж следит за памятью и при пике сам безопасно чистит кэши
+# (всё в Корзину через safe_trash). НИКОГДА: реестр, дефраг SSD, остановка
+# служб, фейк-бустеры. Логика «решения» вынесена в чистую функцию ради
+# тестируемости; UI и поток лишь её используют.
+
+AUTOPILOT_DEFAULTS = {
+    "enabled": False,        # страж активен
+    "threshold": 85,         # порог ОЗУ, % (пик)
+    "interval": 30,          # период проверки, сек
+    "streak": 3,             # сколько проверок подряд выше порога → действие
+    "close_browsers": False, # закрывать фоновые браузеры при пике (по умолч. ВЫКЛ)
+    "autostart": False,      # запуск стража при входе в систему
+}
+
+def config_dir():
+    """Каталог конфигурации per-OS (без внешних зависимостей):
+      • Windows → %APPDATA%\\KRYLAN
+      • macOS   → ~/Library/Application Support/KRYLAN
+      • Linux   → $XDG_CONFIG_HOME или ~/.config → /KRYLAN
+    """
+    if SYSTEM == "Windows":
+        base = os.environ.get("APPDATA") or os.path.join(HOME, "AppData", "Roaming")
+    elif SYSTEM == "Darwin":
+        base = os.path.join(HOME, "Library", "Application Support")
+    else:
+        base = os.environ.get("XDG_CONFIG_HOME") or os.path.join(HOME, ".config")
+    return os.path.join(base, "KRYLAN")
+
+def config_path():
+    return os.path.join(config_dir(), "autopilot.json")
+
+def autopilot_log_path():
+    return os.path.join(config_dir(), "autopilot.log")
+
+def load_autopilot_config():
+    """Читает настройки автопилота из JSON, дополняя значениями по умолчанию.
+    Никогда не бросает — при любой ошибке возвращает копию дефолтов."""
+    cfg = dict(AUTOPILOT_DEFAULTS)
+    try:
+        with open(config_path(), "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if isinstance(data, dict):
+            for k in AUTOPILOT_DEFAULTS:
+                if k in data:
+                    cfg[k] = data[k]
+    except Exception:
+        pass
+    # нормализация типов/границ
+    try: cfg["threshold"] = max(50, min(99, int(cfg["threshold"])))
+    except Exception: cfg["threshold"] = AUTOPILOT_DEFAULTS["threshold"]
+    try: cfg["interval"] = max(5, min(3600, int(cfg["interval"])))
+    except Exception: cfg["interval"] = AUTOPILOT_DEFAULTS["interval"]
+    try: cfg["streak"] = max(1, min(10, int(cfg["streak"])))
+    except Exception: cfg["streak"] = AUTOPILOT_DEFAULTS["streak"]
+    for k in ("enabled", "close_browsers", "autostart"):
+        cfg[k] = bool(cfg[k])
+    return cfg
+
+def save_autopilot_config(cfg):
+    """Сохраняет настройки в JSON. Возвращает True при успехе, иначе False
+    (не бросает — чтобы не ронять UI)."""
+    try:
+        os.makedirs(config_dir(), exist_ok=True)
+        clean = {k: cfg.get(k, AUTOPILOT_DEFAULTS[k]) for k in AUTOPILOT_DEFAULTS}
+        with open(config_path(), "w", encoding="utf-8") as f:
+            json.dump(clean, f, ensure_ascii=False, indent=2)
+        return True
+    except Exception:
+        return False
+
+def autopilot_should_optimize(samples, threshold, streak):
+    """Чистое решение стража: нужно ли запускать оптимизацию.
+
+    samples — последовательность последних замеров RAM% (новые в конце).
+    Возвращает True, если ПОСЛЕДНИЕ `streak` замеров ВСЕ строго выше threshold.
+    Это «пик подряд N раз», как на Mac-флагмане. Без побочных эффектов —
+    идеально для юнит-тестов.
+    """
+    try:
+        streak = int(streak)
+    except Exception:
+        return False
+    if streak < 1 or len(samples) < streak:
+        return False
+    tail = list(samples)[-streak:]
+    return all(s > threshold for s in tail)
+
+def close_background_browsers(active_name=None, self_pid=None):
+    """Мягко завершает ФОНОВЫЕ браузеры (terminate(), не kill) кросс-платформенно.
+
+    • Трогает только chrome/msedge/firefox/yandex (по имени процесса).
+    • НЕ трогает активное окно (active_name) и собственный процесс.
+    • НИКОГДА не убивает системные службы и не использует kill().
+    Возвращает список завершённых имён (для журнала). Не бросает.
+    """
+    keys = ("chrome", "msedge", "firefox", "yandex")
+    if self_pid is None:
+        self_pid = os.getpid()
+    active = (active_name or "").lower()
+    closed = []
+    for p in psutil.process_iter(["name", "pid"]):
+        try:
+            nm = (p.info.get("name") or "")
+            low = nm.lower()
+            if p.info.get("pid") == self_pid:
+                continue
+            if not any(k in low for k in keys):
+                continue
+            if active and low in active:        # не закрываем активный браузер
+                continue
+            p.terminate()                        # мягко — НЕ kill
+            closed.append(nm)
+        except Exception:
+            continue
+    return closed
+
+def _foreground_app_name():
+    """Имя активного (переднего) приложения — best-effort, кросс-платформенно.
+    Нужно только чтобы НЕ закрыть браузер, с которым работает пользователь.
+    При любой ошибке/недоступности возвращает '' (тогда закрываем все фоновые
+    одинаково — безопасно, т.к. это включается лишь явным переключателем)."""
+    try:
+        if SYSTEM == "Darwin":
+            r = run(["osascript", "-e",
+                     'tell application "System Events" to name of first process whose frontmost is true'], 5)
+            return (r.stdout or "").strip()
+        if SYSTEM == "Windows":
+            import ctypes
+            user32 = ctypes.windll.user32
+            hwnd = user32.GetForegroundWindow()
+            pid = ctypes.c_ulong()
+            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+            try: return psutil.Process(pid.value).name()
+            except Exception: return ""
+        # Linux: надёжного безголового способа нет → пусто (безопасно)
+        return ""
+    except Exception:
+        return ""
+
+# ---------- автозапуск при входе в систему (кросс-платформенно) ----------
+AUTOSTART_LABEL = "com.krylan.desktop.autopilot"
+AUTOSTART_NAME = "KRYLAN Autopilot"
+
+def _autostart_cmd():
+    """Команда запуска стража при входе: тот же интерпретатор + этот файл
+    с флагом --autopilot (фоновый страж без окна управления — см. main)."""
+    return [sys.executable, os.path.abspath(__file__), "--autopilot"]
+
+def autostart_target_path():
+    """Путь к артефакту автозапуска per-OS (для статуса/тестов).
+      • macOS → ~/Library/LaunchAgents/<label>.plist
+      • Linux → ~/.config/autostart/krylan-autopilot.desktop
+      • Windows → реестр HKCU\\...\\Run (файла нет) → возвращаем None
+    """
+    if SYSTEM == "Darwin":
+        return os.path.join(HOME, "Library", "LaunchAgents", AUTOSTART_LABEL + ".plist")
+    if SYSTEM == "Linux":
+        base = os.environ.get("XDG_CONFIG_HOME") or os.path.join(HOME, ".config")
+        return os.path.join(base, "autostart", "krylan-autopilot.desktop")
+    return None  # Windows: реестр, не файл
+
+def autostart_status():
+    """True, если автозапуск стража настроен. Не бросает."""
+    try:
+        if SYSTEM == "Windows":
+            import winreg
+            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER,
+                                 r"Software\Microsoft\Windows\CurrentVersion\Run")
+            try:
+                winreg.QueryValueEx(key, AUTOSTART_NAME)
+                return True
+            except FileNotFoundError:
+                return False
+            finally:
+                winreg.CloseKey(key)
+        path = autostart_target_path()
+        return bool(path) and os.path.isfile(path)
+    except Exception:
+        return False
+
+def autostart_enable():
+    """Включает автозапуск стража при входе в систему. Обратимо, без sudo.
+    Возвращает True при успехе, False при ошибке (НЕ бросает — честный статус)."""
+    try:
+        return _autostart_enable_impl()
+    except Exception:
+        return False
+
+def _autostart_enable_impl():
+    cmd = _autostart_cmd()
+    if SYSTEM == "Darwin":
+        args = "".join(f"<string>{c}</string>" for c in cmd)
+        plist = ('<?xml version="1.0" encoding="UTF-8"?>\n'
+                 '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
+                 '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n'
+                 '<plist version="1.0"><dict>'
+                 f'<key>Label</key><string>{AUTOSTART_LABEL}</string>'
+                 f'<key>ProgramArguments</key><array>{args}</array>'
+                 '<key>RunAtLoad</key><true/>'
+                 '</dict></plist>')
+        path = autostart_target_path()
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(plist)
+        run(["launchctl", "load", path], 10)
+        return True
+    if SYSTEM == "Linux":
+        path = autostart_target_path()
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        exec_line = " ".join(cmd)
+        desktop = ("[Desktop Entry]\n"
+                   "Type=Application\n"
+                   "Name=KRYLAN Autopilot\n"
+                   "Comment=Фоновый страж памяти KRYLAN\n"
+                   f"Exec={exec_line}\n"
+                   "X-GNOME-Autostart-enabled=true\n"
+                   "Terminal=false\n")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(desktop)
+        return True
+    # Windows: HKCU\...\Run
+    import winreg
+    value = " ".join(f'"{c}"' if " " in c else c for c in cmd)
+    key = winreg.CreateKey(winreg.HKEY_CURRENT_USER,
+                           r"Software\Microsoft\Windows\CurrentVersion\Run")
+    try:
+        winreg.SetValueEx(key, AUTOSTART_NAME, 0, winreg.REG_SZ, value)
+    finally:
+        winreg.CloseKey(key)
+    return True
+
+def autostart_disable():
+    """Выключает автозапуск стража. Обратимо. Возвращает True при успехе."""
+    try:
+        return _autostart_disable_impl()
+    except Exception:
+        return False
+
+def _autostart_disable_impl():
+    if SYSTEM == "Darwin":
+        path = autostart_target_path()
+        run(["launchctl", "unload", path], 10)
+        try: os.remove(path)
+        except OSError: pass
+        return True
+    if SYSTEM == "Linux":
+        path = autostart_target_path()
+        try: os.remove(path)
+        except OSError: pass
+        return True
+    import winreg
+    key = winreg.OpenKey(winreg.HKEY_CURRENT_USER,
+                         r"Software\Microsoft\Windows\CurrentVersion\Run", 0,
+                         winreg.KEY_SET_VALUE)
+    try:
+        winreg.DeleteValue(key, AUTOSTART_NAME)
+    except FileNotFoundError:
+        pass
+    finally:
+        winreg.CloseKey(key)
+    return True
+
+# ---------- фоновый страж (guardian) ----------
+def autopilot_log(message):
+    """Дописывает строку в журнал автопилота (дата-время + сообщение).
+    Не бросает. Создаёт каталог при необходимости."""
+    try:
+        os.makedirs(config_dir(), exist_ok=True)
+        ts = time.strftime("%Y-%m-%d %H:%M:%S")
+        with open(autopilot_log_path(), "a", encoding="utf-8") as f:
+            f.write(f"[{ts}] {message}\n")
+    except Exception:
+        pass
+
+def read_autopilot_log(limit=2500):
+    """Последние ~limit символов журнала (для UI). Не бросает."""
+    try:
+        with open(autopilot_log_path(), "r", encoding="utf-8") as f:
+            return f.read()[-limit:]
+    except Exception:
+        return ""
+
+def autopilot_optimize_once(close_browsers=False, on_log=None):
+    """Один безопасный проход оптимизации, как делает страж на пике.
+
+    Выполняет план optimize_all_plan (кэши/пустые/битые → Корзина), при
+    разрешении мягко закрывает фоновые браузеры. Пишет результат в журнал.
+    Возвращает dict плана (с ключом 'freed'). Не бросает.
+    """
+    def _log(msg):
+        autopilot_log(msg)
+        if on_log:
+            try: on_log(msg)
+            except Exception: pass
+    try:
+        plan = optimize_all_plan()
+        _log(L("⚡ Оптимизация: освобождено ~{size} → Корзина").format(size=human(plan.get("freed", 0))))
+    except Exception as e:
+        plan = {"freed": 0, "steps": [], "skipped": [], "details": {}}
+        _log(L("⚠ Оптимизация прервана: {why}").format(why=e))
+    if close_browsers:
+        try:
+            closed = close_background_browsers(active_name=_foreground_app_name())
+            if closed:
+                _log(L("🌐 Закрыты фоновые браузеры: {names}").format(names=", ".join(sorted(set(closed)))))
+        except Exception:
+            pass
+    return plan
+
+
+class Guardian:
+    """Поток-демон: раз в interval сек читает RAM% (psutil); если порог
+    превышен подряд `streak` раз — запускает безопасную оптимизацию.
+
+    Потокобезопасен (Event для останова, Lock для настроек). НЕ блокирует UI.
+    Сам ничего не рисует — общается через колбэк on_event(kind, payload).
+    """
+    def __init__(self, cfg=None, on_event=None, sampler=None):
+        self.cfg = dict(AUTOPILOT_DEFAULTS)
+        if cfg: self.cfg.update(cfg)
+        self.on_event = on_event
+        # sampler() → текущий RAM% (внедряемо для тестов); по умолчанию psutil
+        self._sampler = sampler or (lambda: psutil.virtual_memory().percent)
+        self._stop = threading.Event()
+        self._thread = None
+        self._lock = threading.Lock()
+        self._samples = []
+
+    def is_running(self):
+        return self._thread is not None and self._thread.is_alive()
+
+    def update_config(self, cfg):
+        with self._lock:
+            self.cfg.update(cfg)
+
+    def _emit(self, kind, payload=None):
+        if self.on_event:
+            try: self.on_event(kind, payload)
+            except Exception: pass
+
+    def start(self):
+        if self.is_running():
+            return
+        self._stop.clear()
+        self._samples = []
+        self._thread = threading.Thread(target=self._loop, daemon=True)
+        self._thread.start()
+        autopilot_log(L("🟢 Автопилот включён (порог {t}%, проверка каждые {i} с)")
+                      .format(t=self.cfg["threshold"], i=self.cfg["interval"]))
+        self._emit("started")
+
+    def stop(self):
+        if not self.is_running():
+            return
+        self._stop.set()
+        autopilot_log(L("🔴 Автопилот остановлен"))
+        self._emit("stopped")
+
+    def _loop(self):
+        while not self._stop.is_set():
+            with self._lock:
+                threshold = self.cfg["threshold"]
+                streak = self.cfg["streak"]
+                interval = self.cfg["interval"]
+                close_b = self.cfg["close_browsers"]
+            try:
+                ram = self._sampler()
+                self._samples.append(ram)
+                if len(self._samples) > 50:
+                    self._samples = self._samples[-50:]
+                if autopilot_should_optimize(self._samples, threshold, streak):
+                    autopilot_log(L("📈 Пик памяти: ОЗУ {r:.0f}% ≥ {t}% подряд {n} раз — оптимизирую")
+                                  .format(r=ram, t=threshold, n=streak))
+                    self._emit("optimizing", ram)
+                    plan = autopilot_optimize_once(close_browsers=close_b)
+                    self._samples = []   # сброс серии после действия
+                    self._emit("optimized", plan)
+            except Exception:
+                pass
+            # дробный сон, чтобы быстро реагировать на stop()
+            self._stop.wait(max(1, int(interval)))
+
+    def join(self, timeout=None):
+        if self._thread:
+            self._thread.join(timeout)
+
+
+def run_autopilot_headless():
+    """Безоконный режим стража для автозапуска при входе (--autopilot).
+    Читает сохранённый конфиг и крутит цикл, пока процесс жив."""
+    cfg = load_autopilot_config()
+    g = Guardian(cfg=cfg)
+    g.start()
+    autopilot_log(L("🛡 Фоновый страж запущен при входе в систему"))
+    try:
+        while g.is_running():
+            g.join(timeout=3600)
+    except KeyboardInterrupt:
+        g.stop()
+
 # ---------- планировщик обслуживания ----------
 SCHED_LABEL = "com.krylan.desktop.clean"
 
@@ -2542,7 +2957,15 @@ class Krylan(tk.Tk):
         self.info = {}
         self.found = {}
         self._paused = set()           # PID приостановленных (Режим фокуса)
+        # ----- Автопилот: конфиг + фоновый страж -----
+        self.ap_cfg = load_autopilot_config()
+        self.guardian = Guardian(cfg=self.ap_cfg,
+                                 on_event=lambda kind, payload=None: self.q.put(("apevent", kind, payload)))
         self._build(); self.nav("dash")
+        # если в прошлый раз автопилот был включён — поднимаем страж сразу
+        if self.ap_cfg.get("enabled"):
+            try: self.guardian.start()
+            except Exception: pass
         threading.Thread(target=self._sampler, daemon=True).start()
         self.after(80, self._poll); self.after(33, self._animate)
         # при закрытии окна никого не оставляем «замороженным»
@@ -2554,7 +2977,7 @@ class Krylan(tk.Tk):
         tk.Label(side, text="  "+L("Дай устройству крылья"), bg=SIDEBAR, fg=GREEN, font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=12)
         tk.Label(side, text=f"  {os_label()} · v{VERSION}", bg=SIDEBAR, fg=MUTED, font=("Segoe UI", 9)).pack(anchor="w", padx=12, pady=(0,16))
         self.nav_btns = {}
-        for key, base in [("dash","📊  Дашборд"),("scan","🚀  Сканер"),("procs","🧠  Процессы"),("clean","🧽  Очистка"),("tools","🛠  Инструменты"),("about","ℹ️  О программе")]:
+        for key, base in [("dash","📊  Дашборд"),("scan","🚀  Сканер"),("procs","🧠  Процессы"),("clean","🧽  Очистка"),("autopilot","🤖  Автопилот"),("tools","🛠  Инструменты"),("about","ℹ️  О программе")]:
             icon, name = base.split("  ", 1)
             b = tk.Label(side, text=f"   {icon}  "+L(name), bg=SIDEBAR, fg=TEXT, font=("Segoe UI", 12), anchor="w", padx=10, pady=11, cursor="hand2")
             b.pack(fill="x"); b.bind("<Button-1>", lambda e,k=key: self.nav(k)); self.nav_btns[key] = b
@@ -2577,7 +3000,7 @@ class Krylan(tk.Tk):
         self.page = key
         for k,b in self.nav_btns.items(): b.configure(bg=GLASS if k==key else SIDEBAR)
         for w in self.main.winfo_children(): w.destroy()
-        {"dash":self.show_dash, "scan":self.show_scan, "procs":self.show_procs, "clean":self.show_clean, "tools":self.show_tools, "about":self.show_about}[key]()
+        {"dash":self.show_dash, "scan":self.show_scan, "procs":self.show_procs, "clean":self.show_clean, "autopilot":self.show_autopilot, "tools":self.show_tools, "about":self.show_about}[key]()
 
     # ---------- HUD-фон: радиальное свечение + звёздное небо ----------
     def _grad(self, c, w, h):
@@ -4113,6 +4536,133 @@ class Krylan(tk.Tk):
             tk.Label(self.main, text=line, bg=BG0, fg=(TEXT if line == creator else MUTED),
                      font=("Segoe UI", 11)).pack(anchor="w", padx=24)
 
+    # ====================  СТРАНИЦА «АВТОПИЛОТ»  ====================
+    def show_autopilot(self):
+        tk.Label(self.main, text=L("Автопилот"), bg=BG0, fg=TEXT,
+                 font=("Segoe UI", 20, "bold")).pack(anchor="w", padx=24, pady=(18, 0))
+        tk.Label(self.main, text=L("Фоновый страж следит за памятью и при пике сам безопасно чистит и разгружает."),
+                 bg=BG0, fg=MUTED, font=("Segoe UI", 10)).pack(anchor="w", padx=24, pady=(0, 12))
+
+        # --- карта состояния + Включить/Выключить ---
+        card = tk.Frame(self.main, bg=GLASS); card.pack(fill="x", padx=24, pady=6)
+        self.ap_state = tk.Label(card, text="…", bg=GLASS, fg=TEXT, font=("Segoe UI", 15, "bold"))
+        self.ap_state.pack(side="left", padx=18, pady=16)
+        self._btn(card, L("Включить"), GREEN, lambda: self._ap_toggle(True)).pack(side="right", padx=(8, 18), pady=12)
+        self._btn(card, L("Выключить"), RED, lambda: self._ap_toggle(False)).pack(side="right", pady=12)
+
+        # --- действия ---
+        row = tk.Frame(self.main, bg=BG0); row.pack(fill="x", padx=24, pady=8)
+        self._btn(row, L("⚡ Оптимизировать сейчас"), BLUE, self._ap_optimize_now).pack(side="left")
+
+        # --- настройки порога/интервала ---
+        opt = tk.Frame(self.main, bg=GLASS); opt.pack(fill="x", padx=24, pady=6)
+        tk.Label(opt, text=L("Порог памяти, %"), bg=GLASS, fg=MUTED,
+                 font=("Segoe UI", 10)).grid(row=0, column=0, sticky="w", padx=(16, 8), pady=(12, 4))
+        self.ap_thr_var = tk.IntVar(value=self.ap_cfg["threshold"])
+        self.ap_thr_lbl = tk.Label(opt, text=f"{self.ap_cfg['threshold']}%", bg=GLASS, fg=TEXT,
+                                   font=("Segoe UI", 10, "bold"))
+        self.ap_thr_lbl.grid(row=0, column=2, sticky="w", padx=8)
+        tk.Scale(opt, from_=50, to=99, orient="horizontal", variable=self.ap_thr_var,
+                 showvalue=False, length=240, bg=GLASS, fg=TEXT, troughcolor=TRACK,
+                 highlightthickness=0, command=self._ap_thr_changed).grid(row=0, column=1, sticky="w", pady=(8, 0))
+        tk.Label(opt, text=L("Интервал проверки, с"), bg=GLASS, fg=MUTED,
+                 font=("Segoe UI", 10)).grid(row=1, column=0, sticky="w", padx=(16, 8), pady=(4, 12))
+        self.ap_int_var = tk.IntVar(value=self.ap_cfg["interval"])
+        self.ap_int_lbl = tk.Label(opt, text=f"{self.ap_cfg['interval']} с", bg=GLASS, fg=TEXT,
+                                   font=("Segoe UI", 10, "bold"))
+        self.ap_int_lbl.grid(row=1, column=2, sticky="w", padx=8)
+        tk.Scale(opt, from_=5, to=300, orient="horizontal", variable=self.ap_int_var,
+                 showvalue=False, length=240, bg=GLASS, fg=TEXT, troughcolor=TRACK,
+                 highlightthickness=0, command=self._ap_int_changed).grid(row=1, column=1, sticky="w")
+
+        # --- переключатель закрытия браузеров (по умолчанию ВЫКЛ) ---
+        self.ap_close_var = tk.BooleanVar(value=self.ap_cfg["close_browsers"])
+        tk.Checkbutton(self.main, variable=self.ap_close_var, command=self._ap_close_changed,
+                       text=L("  Разрешить закрывать фоновые браузеры при пике памяти"),
+                       bg=BG0, fg=TEXT, selectcolor=GLASS, activebackground=BG0, activeforeground=TEXT,
+                       font=("Segoe UI", 10), anchor="w").pack(anchor="w", padx=22, pady=(8, 0))
+
+        # --- автозапуск при входе ---
+        self.ap_auto_var = tk.BooleanVar(value=autostart_status())
+        tk.Checkbutton(self.main, variable=self.ap_auto_var, command=self._ap_autostart_changed,
+                       text=L("  Запускать страж автоматически при входе в систему"),
+                       bg=BG0, fg=TEXT, selectcolor=GLASS, activebackground=BG0, activeforeground=TEXT,
+                       font=("Segoe UI", 10), anchor="w").pack(anchor="w", padx=22, pady=(2, 0))
+        self.ap_auto_hint = tk.Label(self.main, text="", bg=BG0, fg=MUTED, font=("Segoe UI", 9))
+        self.ap_auto_hint.pack(anchor="w", padx=44)
+
+        tk.Label(self.main, text=L("Автопилот чистит кэши и разгружает память, не трогая ваши данные. "
+                 "Дефрагментация SSD не нужна и вредна — её здесь нет."),
+                 bg=BG0, fg=MUTED, font=("Segoe UI", 9), wraplength=560, justify="left"
+                 ).pack(anchor="w", padx=24, pady=(8, 6))
+
+        tk.Label(self.main, text=L("Журнал автопилота:"), bg=BG0, fg=MUTED,
+                 font=("Segoe UI", 10)).pack(anchor="w", padx=24, pady=(4, 2))
+        self.ap_log = tk.Text(self.main, bg="#0f1218", fg=TEXT, font=("Consolas", 10), relief="flat",
+                              padx=12, pady=10, height=8)
+        self.ap_log.pack(fill="both", expand=True, padx=24, pady=(0, 16))
+        self._ap_refresh()
+
+    def _ap_refresh(self):
+        if not (hasattr(self, "ap_state") and self.ap_state.winfo_exists()):
+            return
+        running = self.guardian.is_running()
+        self.ap_state.configure(text=(L("🟢 Автопилот работает") if running else L("🔴 Автопилот остановлен")),
+                                fg=(GREEN if running else RED))
+        log = read_autopilot_log(2500) or L("(журнал пуст — пиков памяти ещё не было)")
+        self.ap_log.configure(state="normal"); self.ap_log.delete("1.0", "end")
+        self.ap_log.insert("end", log); self.ap_log.see("end")
+        self.ap_log.configure(state="disabled")
+
+    def _ap_save(self):
+        save_autopilot_config(self.ap_cfg)
+        self.guardian.update_config(self.ap_cfg)
+
+    def _ap_toggle(self, enable):
+        self.ap_cfg["enabled"] = bool(enable)
+        self._ap_save()
+        if enable: self.guardian.start()
+        else: self.guardian.stop()
+        self._ap_refresh()
+
+    def _ap_optimize_now(self):
+        autopilot_log(L("⚡ Запрошена оптимизация вручную"))
+        self._ap_refresh()
+        close_b = self.ap_cfg["close_browsers"]
+        threading.Thread(target=lambda: (autopilot_optimize_once(close_browsers=close_b),
+                                         self.q.put(("apevent", "optimized", None))),
+                         daemon=True).start()
+
+    def _ap_thr_changed(self, _v=None):
+        self.ap_cfg["threshold"] = int(self.ap_thr_var.get())
+        self.ap_thr_lbl.configure(text=f"{self.ap_cfg['threshold']}%")
+        self._ap_save()
+
+    def _ap_int_changed(self, _v=None):
+        self.ap_cfg["interval"] = int(self.ap_int_var.get())
+        self.ap_int_lbl.configure(text=f"{self.ap_cfg['interval']} с")
+        self._ap_save()
+
+    def _ap_close_changed(self):
+        self.ap_cfg["close_browsers"] = bool(self.ap_close_var.get())
+        self._ap_save()
+
+    def _ap_autostart_changed(self):
+        want = bool(self.ap_auto_var.get())
+        ok = autostart_enable() if want else autostart_disable()
+        # отражаем фактический результат (если не получилось — честно вернём чекбокс)
+        actual = autostart_status()
+        self.ap_auto_var.set(actual)
+        self.ap_cfg["autostart"] = actual
+        save_autopilot_config(self.ap_cfg)
+        if hasattr(self, "ap_auto_hint") and self.ap_auto_hint.winfo_exists():
+            if want and not actual:
+                self.ap_auto_hint.configure(text=L("Не удалось настроить автозапуск в этой системе."), fg=YELLOW)
+            elif actual:
+                self.ap_auto_hint.configure(text=L("Автозапуск настроен."), fg=GREEN)
+            else:
+                self.ap_auto_hint.configure(text=L("Автозапуск выключен."), fg=MUTED)
+
     # ---------- метрики ----------
     def _sampler(self):
         import time
@@ -4290,6 +4840,11 @@ class Krylan(tk.Tk):
                         self._out(a)
                         if a:  # a — текст отчёта; b — число затёртых файлов
                             messagebox.showinfo("KRYLAN", L("Безвозвратно затёрто: {n} файл(ов).").format(n=b))
+                elif kind == "apevent":
+                    # события стража: started/stopped/optimizing/optimized — обновляем
+                    # страницу автопилота, если она открыта (a=kind стража, b=payload)
+                    if self.page == "autopilot":
+                        self._ap_refresh()
         except queue.Empty: pass
         except Exception: pass
         self.after(120, self._poll)
@@ -4303,5 +4858,9 @@ if __name__ == "__main__":
         print(("[dry-run] " if dry else "") + f"KRYLAN: кэшей ~{human(freed)}" +
               (" (ничего не удалено)" if dry else " → Корзина"))
         print("\n".join(lines))
+        sys.exit(0)
+    if "--autopilot" in sys.argv:
+        # безоконный фоновый страж (автозапуск при входе в систему)
+        run_autopilot_headless()
         sys.exit(0)
     Krylan().mainloop()

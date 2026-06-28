@@ -1815,5 +1815,277 @@ class TestTrashLocations(unittest.TestCase):
         self.assertIn(expected, krylan.trash_locations())
 
 
+class TestAutopilotDecision(unittest.TestCase):
+    """autopilot_should_optimize: чистое решение стража по серии замеров RAM%."""
+
+    def test_streak_exceeded_triggers(self):
+        # последние 3 замера строго выше порога 85 → действие
+        self.assertTrue(krylan.autopilot_should_optimize([10, 90, 91, 92], 85, 3))
+
+    def test_not_enough_samples(self):
+        self.assertFalse(krylan.autopilot_should_optimize([90, 91], 85, 3))
+
+    def test_one_below_breaks_streak(self):
+        # внутри последних 3 один ниже порога → не действуем
+        self.assertFalse(krylan.autopilot_should_optimize([90, 80, 92], 85, 3))
+
+    def test_equal_threshold_not_enough(self):
+        # ровно на пороге (не строго выше) → не действуем
+        self.assertFalse(krylan.autopilot_should_optimize([85, 85, 85], 85, 3))
+
+    def test_only_last_streak_matters(self):
+        # ранние пики ниже порога не мешают, важны последние streak
+        self.assertTrue(krylan.autopilot_should_optimize([99, 10, 88, 89, 90], 85, 3))
+
+    def test_streak_one(self):
+        self.assertTrue(krylan.autopilot_should_optimize([90], 85, 1))
+        self.assertFalse(krylan.autopilot_should_optimize([80], 85, 1))
+
+    def test_bad_streak_value(self):
+        self.assertFalse(krylan.autopilot_should_optimize([90, 90, 90], 85, "x"))
+        self.assertFalse(krylan.autopilot_should_optimize([90, 90, 90], 85, 0))
+
+
+class TestAutopilotConfigPaths(unittest.TestCase):
+    """config_dir / config_path / autopilot_log_path / autostart_target_path —
+    построение путей per-OS через подмену SYSTEM (monkeypatch)."""
+
+    def setUp(self):
+        self._sys = krylan.SYSTEM
+        self._home = krylan.HOME
+        self._env = os.environ.copy()
+        krylan.HOME = "/home/tester"
+
+    def tearDown(self):
+        krylan.SYSTEM = self._sys
+        krylan.HOME = self._home
+        os.environ.clear(); os.environ.update(self._env)
+
+    def test_config_dir_macos(self):
+        krylan.SYSTEM = "Darwin"
+        self.assertEqual(krylan.config_dir(),
+                         "/home/tester/Library/Application Support/KRYLAN")
+
+    def test_config_dir_linux_xdg(self):
+        krylan.SYSTEM = "Linux"
+        os.environ.pop("XDG_CONFIG_HOME", None)
+        self.assertEqual(krylan.config_dir(), "/home/tester/.config/KRYLAN")
+        os.environ["XDG_CONFIG_HOME"] = "/home/tester/.cfg"
+        self.assertEqual(krylan.config_dir(), "/home/tester/.cfg/KRYLAN")
+
+    def test_config_dir_windows_appdata(self):
+        krylan.SYSTEM = "Windows"
+        os.environ["APPDATA"] = r"C:\Users\T\AppData\Roaming"
+        self.assertEqual(krylan.config_dir(), os.path.join(r"C:\Users\T\AppData\Roaming", "KRYLAN"))
+
+    def test_config_and_log_paths(self):
+        krylan.SYSTEM = "Linux"
+        os.environ.pop("XDG_CONFIG_HOME", None)
+        self.assertEqual(krylan.config_path(), "/home/tester/.config/KRYLAN/autopilot.json")
+        self.assertEqual(krylan.autopilot_log_path(), "/home/tester/.config/KRYLAN/autopilot.log")
+
+    def test_autostart_target_path_per_os(self):
+        krylan.SYSTEM = "Darwin"
+        self.assertEqual(krylan.autostart_target_path(),
+                         "/home/tester/Library/LaunchAgents/com.krylan.desktop.autopilot.plist")
+        krylan.SYSTEM = "Linux"
+        os.environ.pop("XDG_CONFIG_HOME", None)
+        self.assertEqual(krylan.autostart_target_path(),
+                         "/home/tester/.config/autostart/krylan-autopilot.desktop")
+        krylan.SYSTEM = "Windows"
+        self.assertIsNone(krylan.autostart_target_path())   # реестр, не файл
+
+
+class TestAutopilotConfigIO(unittest.TestCase):
+    """load/save autopilot config: round-trip, дефолты, нормализация границ."""
+
+    def setUp(self):
+        self._sys = krylan.SYSTEM
+        self._home = krylan.HOME
+        self._env = os.environ.copy()
+        self._home_dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self._home_dir, ignore_errors=True)
+        krylan.SYSTEM = "Linux"
+        krylan.HOME = self._home_dir
+        os.environ["XDG_CONFIG_HOME"] = os.path.join(self._home_dir, ".config")
+
+    def tearDown(self):
+        krylan.SYSTEM = self._sys
+        krylan.HOME = self._home
+        os.environ.clear(); os.environ.update(self._env)
+
+    def test_defaults_when_missing(self):
+        cfg = krylan.load_autopilot_config()
+        self.assertEqual(cfg["threshold"], 85)
+        self.assertFalse(cfg["enabled"])
+        self.assertFalse(cfg["close_browsers"])
+        self.assertFalse(cfg["autostart"])
+
+    def test_round_trip(self):
+        cfg = krylan.load_autopilot_config()
+        cfg["enabled"] = True
+        cfg["threshold"] = 70
+        cfg["interval"] = 45
+        cfg["close_browsers"] = True
+        self.assertTrue(krylan.save_autopilot_config(cfg))
+        self.assertTrue(os.path.isfile(krylan.config_path()))
+        loaded = krylan.load_autopilot_config()
+        self.assertTrue(loaded["enabled"])
+        self.assertEqual(loaded["threshold"], 70)
+        self.assertEqual(loaded["interval"], 45)
+        self.assertTrue(loaded["close_browsers"])
+
+    def test_clamps_out_of_range(self):
+        krylan.save_autopilot_config({"threshold": 999, "interval": 1, "streak": 99})
+        loaded = krylan.load_autopilot_config()
+        self.assertLessEqual(loaded["threshold"], 99)
+        self.assertGreaterEqual(loaded["interval"], 5)
+        self.assertLessEqual(loaded["streak"], 10)
+
+    def test_corrupt_file_falls_back(self):
+        os.makedirs(krylan.config_dir(), exist_ok=True)
+        with open(krylan.config_path(), "w") as f:
+            f.write("{ not json ]")
+        cfg = krylan.load_autopilot_config()   # не бросает → дефолты
+        self.assertEqual(cfg["threshold"], 85)
+
+
+class TestGuardianThread(unittest.TestCase):
+    """Guardian: фоновый страж с внедряемым sampler (без реального psutil/sleep)."""
+
+    def setUp(self):
+        self._sys = krylan.SYSTEM
+        self._home = krylan.HOME
+        self._env = os.environ.copy()
+        self._home_dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self._home_dir, ignore_errors=True)
+        krylan.SYSTEM = "Linux"
+        krylan.HOME = self._home_dir
+        os.environ["XDG_CONFIG_HOME"] = os.path.join(self._home_dir, ".config")
+
+    def tearDown(self):
+        krylan.SYSTEM = self._sys
+        krylan.HOME = self._home
+        os.environ.clear(); os.environ.update(self._env)
+
+    def test_triggers_optimize_on_streak(self):
+        # sampler всегда выше порога → после streak проверок зовётся оптимизация.
+        # Подменяем autopilot_optimize_once, чтобы ничего не удалять.
+        calls = {"n": 0}
+        orig = krylan.autopilot_optimize_once
+        krylan.autopilot_optimize_once = lambda **k: calls.__setitem__("n", calls["n"] + 1) or {"freed": 0}
+        events = []
+        g = krylan.Guardian(cfg={"threshold": 80, "streak": 3, "interval": 1, "close_browsers": False},
+                            on_event=lambda kind, payload=None: events.append(kind),
+                            sampler=lambda: 95.0)
+        try:
+            g.start()
+            deadline = time.time() + 5
+            while calls["n"] < 1 and time.time() < deadline:
+                time.sleep(0.05)
+            g.stop()
+        finally:
+            krylan.autopilot_optimize_once = orig
+        self.assertGreaterEqual(calls["n"], 1, "страж должен был оптимизировать на устойчивом пике")
+        self.assertIn("started", events)
+
+    def test_no_optimize_when_below_threshold(self):
+        calls = {"n": 0}
+        orig = krylan.autopilot_optimize_once
+        krylan.autopilot_optimize_once = lambda **k: calls.__setitem__("n", calls["n"] + 1) or {"freed": 0}
+        g = krylan.Guardian(cfg={"threshold": 90, "streak": 2, "interval": 1, "close_browsers": False},
+                            sampler=lambda: 20.0)
+        try:
+            g.start()
+            time.sleep(0.5)
+            g.stop()
+        finally:
+            krylan.autopilot_optimize_once = orig
+        self.assertEqual(calls["n"], 0, "ниже порога — оптимизация не запускается")
+
+    def test_start_stop_state(self):
+        g = krylan.Guardian(cfg={"interval": 1}, sampler=lambda: 0.0)
+        self.assertFalse(g.is_running())
+        g.start()
+        self.assertTrue(g.is_running())
+        g.stop()
+        g.join(timeout=3)
+        self.assertFalse(g.is_running())
+
+
+class TestCloseBackgroundBrowsers(unittest.TestCase):
+    """close_background_browsers: terminate() только фоновых браузеров,
+    НЕ активного окна, НЕ собственного процесса, НЕ kill(). Без psutil."""
+
+    class FakeProc:
+        def __init__(self, name, pid):
+            self.info = {"name": name, "pid": pid}
+            self.terminated = False
+            self.killed = False
+        def terminate(self):
+            self.terminated = True
+        def kill(self):
+            self.killed = True
+
+    def _patch(self, procs):
+        orig = krylan.psutil.process_iter
+        krylan.psutil.process_iter = lambda attrs=None: iter(procs)
+        self.addCleanup(lambda: setattr(krylan.psutil, "process_iter", orig))
+
+    def test_closes_background_browsers_only(self):
+        procs = [self.FakeProc("Google Chrome", 10),
+                 self.FakeProc("firefox", 11),
+                 self.FakeProc("Finder", 12),          # не браузер
+                 self.FakeProc("systemd", 13)]         # системная служба
+        self._patch(procs)
+        closed = krylan.close_background_browsers(active_name="", self_pid=999)
+        self.assertIn("Google Chrome", closed)
+        self.assertIn("firefox", closed)
+        self.assertTrue(procs[0].terminated and procs[1].terminated)
+        # не-браузеры не тронуты и НИКТО не убит через kill()
+        self.assertFalse(procs[2].terminated)
+        self.assertFalse(procs[3].terminated)
+        for p in procs:
+            self.assertFalse(p.killed, "kill() недопустим — только terminate()")
+
+    def test_skips_active_browser(self):
+        procs = [self.FakeProc("Google Chrome", 10)]
+        self._patch(procs)
+        closed = krylan.close_background_browsers(active_name="Google Chrome", self_pid=999)
+        self.assertEqual(closed, [])
+        self.assertFalse(procs[0].terminated)
+
+    def test_skips_self_pid(self):
+        procs = [self.FakeProc("chrome", 555)]
+        self._patch(procs)
+        closed = krylan.close_background_browsers(active_name="", self_pid=555)
+        self.assertEqual(closed, [])
+        self.assertFalse(procs[0].terminated)
+
+
+class TestAutopilotLog(unittest.TestCase):
+    """autopilot_log / read_autopilot_log: пишет с меткой времени, читает хвост."""
+
+    def setUp(self):
+        self._sys, self._home, self._env = krylan.SYSTEM, krylan.HOME, os.environ.copy()
+        self._d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self._d, ignore_errors=True)
+        krylan.SYSTEM = "Linux"; krylan.HOME = self._d
+        os.environ["XDG_CONFIG_HOME"] = os.path.join(self._d, ".config")
+
+    def tearDown(self):
+        krylan.SYSTEM, krylan.HOME = self._sys, self._home
+        os.environ.clear(); os.environ.update(self._env)
+
+    def test_write_and_read(self):
+        krylan.autopilot_log("привет")
+        out = krylan.read_autopilot_log()
+        self.assertIn("привет", out)
+        self.assertRegex(out, r"\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\]")
+
+    def test_read_missing_is_empty(self):
+        self.assertEqual(krylan.read_autopilot_log(), "")
+
+
 if __name__ == "__main__":
     unittest.main()
