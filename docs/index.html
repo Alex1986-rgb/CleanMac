@@ -206,6 +206,62 @@
     </div>
   </section>
 
+  <section id="install" style="padding:24px 0 0">
+    <h2 style="text-align:center;font-size:26px;margin-bottom:6px">📖 Установка и использование</h2>
+    <p style="text-align:center;color:var(--muted);margin-bottom:18px">Пошагово для каждого устройства. Версия 2.44.0.</p>
+
+    <div class="card" style="margin-bottom:16px">
+      <h3>🍏 macOS — CleanMac</h3>
+      <ol style="margin:8px 0 0 18px;line-height:1.8">
+        <li>Скачайте <b>CleanMac.dmg</b> со страницы <a href="https://github.com/Alex1986-rgb/CleanMac/releases/latest">Releases</a>.</li>
+        <li>Откройте .dmg и перетащите <b>CleanMac</b> в «Программы».</li>
+        <li>Первый запуск: <b>ПКМ по иконке → «Открыть» → «Открыть»</b> (приложение вне App Store, без подписи — это разовое действие).</li>
+        <li>Альтернатива — Homebrew:</li>
+      </ol>
+      <div class="install" style="margin-top:8px">brew install --cask https://raw.githubusercontent.com/Alex1986-rgb/CleanMac/main/Casks/cleanmac.rb</div>
+      <p style="margin-top:8px;font-size:13px;opacity:.75">Требования: macOS 11+, Apple Silicon или Intel (universal).</p>
+    </div>
+
+    <div class="card" style="margin-bottom:16px">
+      <h3>🪟 Windows — KRYLAN Desktop</h3>
+      <ol style="margin:8px 0 0 18px;line-height:1.8">
+        <li>Скачайте <b>KRYLAN-Windows.exe</b> со страницы <a href="https://github.com/Alex1986-rgb/CleanMac/releases/latest">Releases</a>.</li>
+        <li>Если SmartScreen предупреждает: <b>«Подробнее» → «Выполнить в любом случае»</b> (сборка без платной подписи).</li>
+        <li>Запустите — Python уже внутри, ничего ставить не нужно.</li>
+      </ol>
+    </div>
+
+    <div class="card" style="margin-bottom:16px">
+      <h3>🐧 Linux — KRYLAN Desktop</h3>
+      <ol style="margin:8px 0 0 18px;line-height:1.8">
+        <li>Скачайте <b>KRYLAN-linux-x86_64</b> со страницы <a href="https://github.com/Alex1986-rgb/CleanMac/releases/latest">Releases</a>.</li>
+        <li>Дайте права и запустите:</li>
+      </ol>
+      <div class="install" style="margin-top:8px">chmod +x KRYLAN-linux-x86_64<br>./KRYLAN-linux-x86_64</div>
+      <p style="margin-top:8px;font-size:13px;opacity:.75">tcl/tk включены в сборку. Если в системе нет tkinter: <code>sudo apt install python3-tk</code>.</p>
+    </div>
+
+    <div class="card" style="margin-bottom:16px">
+      <h3>📱 iPhone / iPad — KRYLAN (beta)</h3>
+      <ol style="margin:8px 0 0 18px;line-height:1.8">
+        <li>Скачайте <b>.ipa</b> со страницы <a href="https://github.com/Alex1986-rgb/CleanMac/releases/latest">Releases</a>.</li>
+        <li>Установите через бесплатный <a href="https://altstore.io" style="color:#37d39a">AltStore</a> или <a href="https://sideloadly.io" style="color:#37d39a">Sideloadly</a> с вашим Apple ID.</li>
+        <li>Подпись бесплатного Apple ID живёт 7 дней — потом переустановить. App Store / TestFlight — позже.</li>
+      </ol>
+    </div>
+
+    <div class="card" style="margin-bottom:16px">
+      <h3>🤖 Android — KRYLAN</h3>
+      <ol style="margin:8px 0 0 18px;line-height:1.8">
+        <li>Скачайте <b>.apk</b> со страницы <a href="https://github.com/Alex1986-rgb/CleanMac/releases/latest">Releases</a>.</li>
+        <li>Разрешите «Установка из этого источника».</li>
+        <li>Откройте файл → «Установить». (Для Google Play в релизе есть и <b>.aab</b>.)</li>
+      </ol>
+    </div>
+
+    <div class="note"><b>Как пользоваться:</b> нажмите ✨ <b>«Оптимизировать»</b> — один клик делает всё безопасное именно для вашего устройства (кэши и временные файлы, на SSD — TRIM, на HDD — дефрагментация и т.д.); приложение само показывает <b>«Выполнено / Пропущено»</b>. Всё удаление обратимо (Корзина / «Недавно удалённые»). Пользовательские данные (дубли, крупные и старые файлы) приложение <b>только показывает</b> — разбираете вы вручную. Отдельные <b>Инструменты</b> — для точечной очистки.</div>
+  </section>
+
   <section style="padding:24px 0 0">
     <h2 style="text-align:center;font-size:26px;margin-bottom:18px">Вопросы и ответы</h2>
     <div class="note"><b>Это безопасно?</b> Да. Всё удаление — в Корзину (обратимо). Системные и корневые папки защищены. Кэш браузера чистится только когда браузер закрыт.</div>
