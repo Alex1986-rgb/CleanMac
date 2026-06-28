@@ -1699,5 +1699,106 @@ class TestVacuumSqlite(unittest.TestCase):
         self.assertEqual(krylan.vacuum_sqlite("/no/such/krylan/db.sqlite"), (0, 0))
 
 
+class TestFindingsToCsv(unittest.TestCase):
+    """Чистый CSV-экспортёр находок (RFC 4180)."""
+
+    def test_basic_no_escaping(self):
+        out = krylan.findings_to_csv([["a", "b"], ["c", "d"]], ["H1", "H2"])
+        self.assertEqual(out, "H1,H2\r\na,b\r\nc,d")
+
+    def test_escapes_comma_quote_newline(self):
+        rows = [["a,b", 'say "hi"', "line1\nline2"]]
+        out = krylan.findings_to_csv(rows, ["x", "y", "z"])
+        # запятая → поле в кавычках; кавычки удвоены; перевод строки → кавычки
+        self.assertIn('"a,b"', out)
+        self.assertIn('"say ""hi"""', out)
+        self.assertIn('"line1\nline2"', out)
+        # заголовок без спецсимволов не оборачивается
+        self.assertTrue(out.startswith("x,y,z\r\n"))
+
+    def test_cr_triggers_quoting(self):
+        out = krylan.findings_to_csv([["a\rb"]], ["h"])
+        self.assertIn('"a\rb"', out)
+
+    def test_none_becomes_empty(self):
+        out = krylan.findings_to_csv([[None, "x"]], ["a", "b"])
+        self.assertEqual(out, "a,b\r\n,x")
+
+    def test_numbers_stringified(self):
+        out = krylan.findings_to_csv([[1, 2048]], ["n", "bytes"])
+        self.assertEqual(out, "n,bytes\r\n1,2048")
+
+    def test_no_headers(self):
+        out = krylan.findings_to_csv([["a"]], [])
+        self.assertEqual(out, "a")
+
+
+class TestIsBloatware(unittest.TestCase):
+    """Чистый классификатор предустановленного bloat (Windows UWP)."""
+
+    def test_known_bloat_on(self):
+        for name in (
+            "king.com.CandyCrushSaga",
+            "Microsoft.XboxGamingOverlay",
+            "Microsoft.3DViewer",
+            "Microsoft.MixedReality.Portal",
+            "Microsoft.BingNews",
+            "Microsoft.BingWeather",
+            "Microsoft.ZuneMusic",
+            "Microsoft.ZuneVideo",
+            "Microsoft.SkypeApp",
+            "Microsoft.GetHelp",
+            "Microsoft.People",
+        ):
+            self.assertTrue(krylan.is_bloatware(name), name)
+
+    def test_case_insensitive(self):
+        self.assertTrue(krylan.is_bloatware("MICROSOFT.BINGNEWS"))
+        self.assertTrue(krylan.is_bloatware("microsoft.bingnews"))
+
+    def test_substring_match(self):
+        self.assertTrue(krylan.is_bloatware("Microsoft.XboxApp_8wekyb3d8bbwe"))
+
+    def test_legit_off(self):
+        for name in (
+            "Microsoft.WindowsCalculator",
+            "Microsoft.WindowsTerminal",
+            "Microsoft.VCLibs.140.00",
+            "Microsoft.NET.Native.Runtime",
+        ):
+            self.assertFalse(krylan.is_bloatware(name), name)
+
+    def test_empty_and_none(self):
+        self.assertFalse(krylan.is_bloatware(""))
+        self.assertFalse(krylan.is_bloatware(None))
+
+
+class TestTrashLocations(unittest.TestCase):
+    """Чистый сборщик путей корзин на всех томах — не падает и включает домашнюю."""
+
+    def test_no_crash_returns_list(self):
+        locs = krylan.trash_locations()
+        self.assertIsInstance(locs, list)
+        for p in locs:
+            self.assertTrue(os.path.isdir(p), p)
+
+    def test_includes_home_trash_if_present(self):
+        # на macOS/Linux при наличии создаётся домашняя корзина — проверяем,
+        # что функция её находит, временно создав ожидаемую папку.
+        if krylan.SYSTEM == "Darwin":
+            expected = os.path.join(krylan.HOME, ".Trash")
+        elif krylan.SYSTEM == "Linux":
+            expected = os.path.join(krylan.HOME, ".local/share/Trash")
+        else:
+            self.skipTest("home trash path is Windows-agnostic here")
+            return
+        created = False
+        if not os.path.isdir(expected):
+            os.makedirs(expected, exist_ok=True)
+            created = True
+            self.addCleanup(lambda: shutil.rmtree(expected, ignore_errors=True) if created else None)
+        self.assertIn(expected, krylan.trash_locations())
+
+
 if __name__ == "__main__":
     unittest.main()

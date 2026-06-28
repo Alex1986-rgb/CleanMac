@@ -538,6 +538,45 @@ I18N = {
     "Затёрто и удалено безвозвратно: {n}": "Wiped and permanently deleted: {n}",
     "Пропущено (защищено/недоступно): {n}": "Skipped (protected/unavailable): {n}",
     "Безвозвратно затёрто: {n} файл(ов).": "Permanently wiped: {n} file(s).",
+    # --- экспорт находок (CSV/HTML) ---
+    "💾 Экспорт CSV": "💾 Export CSV",
+    "💾 Экспорт HTML": "💾 Export HTML",
+    "Нечего экспортировать — сначала выполните скан.": "Nothing to export — run a scan first.",
+    "💾 Экспортировано:\n{path}": "💾 Exported:\n{path}",
+    "Не удалось экспортировать: {e}": "Export failed: {e}",
+    "KRYLAN — экспорт находок: {what}": "KRYLAN — findings export: {what}",
+    "Размер": "Size", "Байты": "Bytes", "Путь": "Path", "Группа": "Group",
+    "Возраст, дн.": "Age, days", "Тип": "Type", "Пакет": "Package",
+    # --- bloatware-листер (Windows) ---
+    "🧹 Предустановленное": "🧹 Preinstalled",
+    "🧹 Собираю список предустановленных приложений…": "🧹 Collecting preinstalled apps…",
+    "🧹  Предустановленное (bloatware)": "🧹  Preinstalled (bloatware)",
+    "Только Windows. На этой ОС инструмент недоступен.": "Windows only. Not available on this OS.",
+    "🧹  Предустановленное (bloatware) — только показ, ничего не удаляется":
+        "🧹  Preinstalled (bloatware) — view only, nothing is removed",
+    "Всего UWP-пакетов: {n}, из них помечено как bloat: {b}":
+        "Total UWP packages: {n}, flagged as bloat: {b}",
+    "Как удалить безопасно: Параметры → Приложения → найдите пакет → Удалить.":
+        "Safe removal: Settings → Apps → find the package → Uninstall.",
+    "Либо в PowerShell: Get-AppxPackage <имя> | Remove-AppxPackage (на свой риск).":
+        "Or in PowerShell: Get-AppxPackage <name> | Remove-AppxPackage (at your own risk).",
+    "  Известного предустановленного bloat не найдено.":
+        "  No known preinstalled bloat found.",
+    # --- многотомная корзина ---
+    "♻️ Корзины томов": "♻️ Volume trash bins",
+    "♻️ Считаю размер корзин на всех томах…": "♻️ Measuring trash bins on all volumes…",
+    "♻️  Корзины томов": "♻️  Volume trash bins",
+    "Суммарно в корзинах: {size}": "Total in trash bins: {size}",
+    "⚠️ Очистка корзины НЕОБРАТИМА (как Шредер). Только по явной кнопке.":
+        "⚠️ Emptying trash is IRREVERSIBLE (like the Shredder). Explicit button only.",
+    "  Корзин на томах не найдено (или они пусты).":
+        "  No volume trash bins found (or they are empty).",
+    "♻️ Очистить корзины (НЕОБРАТИМО)": "♻️ Empty trash bins (IRREVERSIBLE)",
+    "⚠️ БЕЗВОЗВРАТНО очистить корзины на всех томах ({n})?\n\nЭто НЕЛЬЗЯ отменить — содержимое корзин будет удалено навсегда.":
+        "⚠️ Permanently empty trash bins on all volumes ({n})?\n\nThis CANNOT be undone — trash contents will be deleted forever.",
+    "♻️ Очищаю корзины томов…": "♻️ Emptying volume trash bins…",
+    "♻️  Корзины томов — очищено": "♻️  Volume trash bins — emptied",
+    "Удалено элементов (необратимо): {n}": "Items deleted (irreversible): {n}",
 }
 def L(s):
     if LANG == "en":
@@ -581,6 +620,114 @@ def trash_dir():
     if SYSTEM == "Darwin": return os.path.join(HOME, ".Trash")
     if SYSTEM == "Linux":  return os.path.join(HOME, ".local/share/Trash/files")
     return None   # Windows: корзина доступна только через WinAPI
+
+# ---------- экспорт находок: чистый CSV по RFC 4180 ----------
+def findings_to_csv(rows, headers):
+    """Чистая функция: (строки, заголовки) → CSV-текст по RFC 4180.
+
+    • Поле берётся в кавычки, если содержит запятую, кавычку, CR или LF;
+      внутренние кавычки удваиваются ("" вместо ").
+    • Перевод строки между записями — CRLF (\\r\\n), как требует RFC 4180.
+    • None → пустое поле; всё остальное приводится через str().
+    Без побочных эффектов — удобно тестировать."""
+    def field(v):
+        s = "" if v is None else str(v)
+        if any(c in s for c in (',', '"', '\n', '\r')):
+            return '"' + s.replace('"', '""') + '"'
+        return s
+    out = []
+    if headers:
+        out.append(",".join(field(h) for h in headers))
+    for row in rows:
+        out.append(",".join(field(c) for c in row))
+    return "\r\n".join(out)
+
+# ---------- bloatware-листер (Windows UWP): чистый классификатор ----------
+# Известный предустановленный bloat по подстрокам имён пакетов (регистронезависимо).
+_BLOATWARE_PATTERNS = (
+    "king.com", "candycrush",            # Candy Crush King.*
+    "microsoft.xbox", "xboxgaming", "xboxapp",  # Xbox-обвес
+    "microsoft.3dviewer", "microsoft.3dbuilder", "microsoft.print3d",
+    "microsoft.mixedreality.portal",
+    "microsoft.bingnews", "microsoft.bingweather", "microsoft.bingfinance",
+    "microsoft.bingsports",
+    "microsoft.zunemusic", "microsoft.zunevideo",  # Groove / Movies & TV
+    "microsoft.skypeapp",
+    "microsoft.gethelp", "microsoft.getstarted",
+    "microsoft.people",
+    "microsoft.windowsfeedbackhub",
+    "microsoft.solitairecollection",
+    "microsoft.windowsmaps",
+    "microsoft.wallet", "microsoft.todos",
+    "microsoft.officehub", "microsoft.microsoftofficehub",
+    "microsoft.yourphone",  # Phone Link / Связь с телефоном
+    "disney", "spotify", "netflix", "tiktok", "facebook", "instagram",
+)
+
+def is_bloatware(package_name):
+    """Чистая функция: имя UWP-пакета → True, если это известный предустановленный
+    bloat (по белому списку подстрок, регистронезависимо). Без побочных эффектов."""
+    if not package_name:
+        return False
+    low = str(package_name).lower()
+    return any(p in low for p in _BLOATWARE_PATTERNS)
+
+# ---------- многотомная корзина: чистый сборщик путей ----------
+def trash_locations():
+    """Чистая функция: список существующих директорий корзин на ВСЕХ томах.
+
+    • macOS:  ~/.Trash + /Volumes/*/.Trashes/<uid>
+    • Linux:  ~/.local/share/Trash + /media|/run/media|/mnt/*/.Trash-<uid>
+    • Windows: $Recycle.Bin на каждом доступном диске
+    Никогда не падает: отсутствующие/недоступные пути просто пропускаются."""
+    found = []
+    def add(p):
+        try:
+            if p and os.path.isdir(p):
+                found.append(p)
+        except Exception:
+            pass
+    try:
+        uid = os.getuid()
+    except Exception:
+        uid = None
+    if SYSTEM == "Darwin":
+        add(os.path.join(HOME, ".Trash"))
+        try:
+            for vol in os.listdir("/Volumes"):
+                base = os.path.join("/Volumes", vol, ".Trashes")
+                if uid is not None:
+                    add(os.path.join(base, str(uid)))
+                add(base)
+        except Exception:
+            pass
+    elif SYSTEM == "Linux":
+        add(os.path.join(HOME, ".local/share/Trash"))
+        suffix = ".Trash-%s" % uid if uid is not None else None
+        for mroot in ("/media", "/run/media", "/mnt"):
+            try:
+                for entry in os.listdir(mroot):
+                    mp = os.path.join(mroot, entry)
+                    # /run/media/<user>/<vol> — на уровень глубже
+                    candidates = [mp]
+                    try:
+                        if os.path.isdir(mp):
+                            candidates += [os.path.join(mp, sub) for sub in os.listdir(mp)]
+                    except Exception:
+                        pass
+                    for c in candidates:
+                        if suffix:
+                            add(os.path.join(c, suffix))
+            except Exception:
+                pass
+    elif SYSTEM == "Windows":
+        try:
+            import string
+            for letter in string.ascii_uppercase:
+                add(os.path.join("%s:\\" % letter, "$Recycle.Bin"))
+        except Exception:
+            pass
+    return found
 
 # ---------- защита путей при удалении (в Корзину) ----------
 def _protected_roots():
@@ -2871,6 +3018,8 @@ class Krylan(tk.Tk):
                          ("🩺 Диск", self.t_smart), ("🩺 Диск-доктор", self.t_diskdoctor),
                          ("🗜 Сжать базы браузеров", self.t_vacuum),
                          ("📦 Snap/Flatpak", self.t_snapflatpak),
+                         ("🧹 Предустановленное", self.t_bloatware),
+                         ("♻️ Корзины томов", self.t_voltrash),
                          ("🔥 Шредер", self.t_shred),
                          ("🔄 Обновления", self.t_updates), ("📄 Отчёт", self.t_report)]:
             self._btn(bar, L(lbl), GLASS, cmd).pack(side="left", padx=4)
@@ -2883,6 +3032,60 @@ class Krylan(tk.Tk):
     def _out(self, t):
         self.tout.configure(state="normal"); self.tout.delete("1.0","end"); self.tout.insert("end", t); self.tout.configure(state="disabled")
         for w in self.t_action.winfo_children(): w.destroy()
+        # новый инструмент запущен — прежние находки больше не актуальны для экспорта
+        self._last_findings = None
+
+    # ---------- экспорт находок (CSV/HTML) ----------
+    def _set_findings(self, name, headers, rows):
+        """Сохранить последний структурированный результат скана для экспорта.
+        Вызывается из рабочих потоков перед q.put — присваивание атрибута атомарно,
+        а читается он в главном потоке (кнопка «Экспорт»)."""
+        self._last_findings = {"name": name, "headers": list(headers), "rows": list(rows)}
+
+    def _export_findings(self, fmt):
+        """Сохранить последний результат скана в ~/KRYLAN-<что>.<csv|html> и открыть.
+        fmt: 'csv' | 'html'. Read-only по отношению к находкам."""
+        import webbrowser
+        f = getattr(self, "_last_findings", None)
+        if not f or not f.get("rows"):
+            messagebox.showinfo("KRYLAN", L("Нечего экспортировать — сначала выполните скан.")); return
+        name, headers, rows = f["name"], f["headers"], f["rows"]
+        path = os.path.join(HOME, "KRYLAN-%s.%s" % (name, fmt))
+        try:
+            if fmt == "csv":
+                data = findings_to_csv(rows, headers)
+                with open(path, "w", encoding="utf-8-sig", newline="") as fh:
+                    fh.write(data)
+            else:  # html — переиспользуем общий генератор отчёта
+                import datetime
+                # каждую строку рендерим как (первый столбец → остальные через ·)
+                sec_rows = []
+                for r in rows:
+                    label = str(r[0]) if r else ""
+                    value = "  ·  ".join(str(c) for c in r[1:]) if len(r) > 1 else ""
+                    sec_rows.append((label, value))
+                title = L("KRYLAN — экспорт находок: {what}").format(what=name)
+                html = build_html_report(
+                    title,
+                    [(" / ".join(str(h) for h in headers), sec_rows)],
+                    generated=datetime.datetime.now().strftime("%Y-%m-%d %H:%M"))
+                with open(path, "w", encoding="utf-8") as fh:
+                    fh.write(html)
+            webbrowser.open("file://" + path)
+            messagebox.showinfo("KRYLAN", L("💾 Экспортировано:\n{path}").format(path=path))
+        except Exception as e:
+            messagebox.showerror("KRYLAN", L("Не удалось экспортировать: {e}").format(e=e))
+
+    def _add_export_buttons(self):
+        """Добавить кнопки «💾 Экспорт CSV/HTML» в панель действий инструмента,
+        если есть сохранённый результат скана."""
+        f = getattr(self, "_last_findings", None)
+        if not f or not f.get("rows"):
+            return
+        self._btn(self.t_action, L("💾 Экспорт CSV"), BLUE,
+                  lambda: self._export_findings("csv")).pack(side="left", padx=(8,4), pady=4)
+        self._btn(self.t_action, L("💾 Экспорт HTML"), BLUE,
+                  lambda: self._export_findings("html")).pack(side="left", padx=4, pady=4)
 
     def t_startup(self):
         self._out(L("⚙️ Сканирую автозагрузку…")); threading.Thread(target=self._startup_w, daemon=True).start()
@@ -3010,7 +3213,9 @@ class Krylan(tk.Tk):
                 except Exception: pass
         big.sort(reverse=True)
         t = L("📦  Крупные файлы (топ-25):") + "\n\n" + "".join(f"  {human(s):>9}  {fp.replace(HOME,'~')}\n" for s, fp in big[:25])
-        self.q.put(("tout", t or L("  ничего\n"), None))
+        self._set_findings("large", [L("Размер"), L("Байты"), L("Путь")],
+                           [[human(s), s, fp] for s, fp in big])
+        self.q.put(("toutx", t or L("  ничего\n"), None))
 
     def t_dupes(self):
         self._out(L("👯 Ищу дубликаты…")); threading.Thread(target=self._dupes_w, daemon=True).start()
@@ -3020,6 +3225,11 @@ class Krylan(tk.Tk):
         t = L("👯  Дубликаты: групп {n}, освободить ~{size}").format(n=len(groups), size=human(wasted)) + "\n\n"
         for s, same in groups[:20]:
             t += f"  {human(s)} ×{len(same)}:\n" + "".join(f"      {p.replace(HOME,'~')}\n" for p in same) + "\n"
+        rows = []
+        for gi, (s, same) in enumerate(groups, 1):
+            for p in same:
+                rows.append([gi, human(s), s, p])
+        self._set_findings("dupes", [L("Группа"), L("Размер"), L("Байты"), L("Путь")], rows)
         self.q.put(("dupes", t if groups else L("  дубликатов нет.\n"), extras))
 
     def _trash_dupes(self, extras):
@@ -3225,6 +3435,7 @@ class Krylan(tk.Tk):
         if not empties:
             lines.append(L("  пустых папок не найдено.\n"))
         lines.append("\n" + L("Пустые папки остаются после удаления программ и распаковки архивов. Уйдут в Корзину.") + "\n")
+        self._set_findings("empty", [L("Путь")], [[p] for p in empties])
         self.q.put(("empty", "".join(lines), empties))
 
     def _empty_clean(self, dirs):
@@ -3252,6 +3463,8 @@ class Krylan(tk.Tk):
             lines.append(L("  битых и пустых файлов не найдено.\n"))
         lines.append("\n" + L("Пустые файлы (0 байт) и битые символические ссылки бесполезны. Уйдут в Корзину.") + "\n")
         files = [p for _, p in items]
+        self._set_findings("broken", [L("Тип"), L("Путь")],
+                           [[label.get(k, k).strip(), p] for k, p in items])
         self.q.put(("broken", "".join(lines), files))
 
     def _broken_clean(self, files):
@@ -3309,6 +3522,8 @@ class Krylan(tk.Tk):
             lines.append(L("  больших старых файлов не найдено.\n"))
         lines.append("\n" + L("Крупные файлы, которые давно не открывали и не меняли. Уйдут в Корзину.") + "\n")
         files = [p for _s, p, _a in items]
+        self._set_findings("bigold", [L("Размер"), L("Байты"), L("Возраст, дн."), L("Путь")],
+                           [[human(size), size, age, p] for size, p, age in items])
         self.q.put(("bigold", "".join(lines), files))
 
     def _bigold_clean(self, files):
@@ -3353,6 +3568,88 @@ class Krylan(tk.Tk):
         if skipped:
             lines.append("  " + L("Пропущено (защищено/недоступно): {n}").format(n=skipped) + "\n")
         self.q.put(("shred", "".join(lines), ok))
+
+    # ---------- 🧹 Предустановленное (Windows bloatware-листер, read-only) ----------
+    def t_bloatware(self):
+        self._out(L("🧹 Собираю список предустановленных приложений…"))
+        threading.Thread(target=self._bloatware_w, daemon=True).start()
+
+    def _bloatware_w(self):
+        if SYSTEM != "Windows":
+            self.q.put(("tout", L("🧹  Предустановленное (bloatware)") + "\n\n  " +
+                        L("Только Windows. На этой ОС инструмент недоступен.") + "\n", None))
+            return
+        r = run(["powershell", "-NoProfile", "-NonInteractive", "-Command",
+                 "Get-AppxPackage | Select-Object -ExpandProperty Name"], timeout=60)
+        names = [ln.strip() for ln in (r.stdout or "").splitlines() if ln.strip()]
+        bloat = [n for n in names if is_bloatware(n)]
+        lines = [L("🧹  Предустановленное (bloatware) — только показ, ничего не удаляется") + "\n\n"]
+        lines.append(L("Всего UWP-пакетов: {n}, из них помечено как bloat: {b}").format(n=len(names), b=len(bloat)) + "\n\n")
+        if bloat:
+            for n in sorted(bloat):
+                lines.append(f"  • {n}\n")
+            lines.append("\n" + L("Как удалить безопасно: Параметры → Приложения → найдите пакет → Удалить.") + "\n")
+            lines.append(L("Либо в PowerShell: Get-AppxPackage <имя> | Remove-AppxPackage (на свой риск).") + "\n")
+        else:
+            lines.append(L("  Известного предустановленного bloat не найдено.") + "\n")
+        # экспортируемый результат
+        self._set_findings("bloatware", [L("Пакет")], [[n] for n in sorted(bloat)])
+        self.q.put(("toutx", "".join(lines), None))
+
+    # ---------- ♻️ Корзины томов (многотомная корзина) ----------
+    def t_voltrash(self):
+        self._out(L("♻️ Считаю размер корзин на всех томах…"))
+        threading.Thread(target=self._voltrash_w, daemon=True).start()
+
+    def _voltrash_w(self):
+        locs = trash_locations()
+        sized = [(dir_size(p), p) for p in locs]
+        sized.sort(reverse=True)
+        total = sum(s for s, _ in sized)
+        lines = [L("♻️  Корзины томов") + "\n\n"]
+        if sized:
+            for s, p in sized:
+                lines.append(f"  {human(s):>9}  {p.replace(HOME,'~')}\n")
+            lines.append("\n" + L("Суммарно в корзинах: {size}").format(size=human(total)) + "\n")
+            lines.append("\n" + L("⚠️ Очистка корзины НЕОБРАТИМА (как Шредер). Только по явной кнопке.") + "\n")
+        else:
+            lines.append(L("  Корзин на томах не найдено (или они пусты).") + "\n")
+        self._set_findings("trash-volumes", [L("Размер"), L("Байты"), L("Путь")],
+                           [[human(s), s, p] for s, p in sized])
+        # b — список путей для очистки (только если есть что чистить)
+        self.q.put(("voltrash", "".join(lines), [p for _s, p in sized] if total > 0 else None))
+
+    def _voltrash_empty(self, paths):
+        """НЕОБРАТИМО очистить содержимое корзин на всех томах. Только по явной кнопке."""
+        if not paths:
+            return
+        if not messagebox.askyesno(
+                "KRYLAN",
+                L("⚠️ БЕЗВОЗВРАТНО очистить корзины на всех томах ({n})?\n\nЭто НЕЛЬЗЯ отменить — содержимое корзин будет удалено навсегда.").format(n=len(paths)),
+                icon="warning", default="no"):
+            return
+        self._out(L("♻️ Очищаю корзины томов…"))
+        threading.Thread(target=self._voltrash_empty_w, args=(list(paths),), daemon=True).start()
+
+    def _voltrash_empty_w(self, paths):
+        import shutil
+        removed = 0
+        for base in paths:
+            try:
+                for name in os.listdir(base):
+                    target = os.path.join(base, name)
+                    try:
+                        if os.path.islink(target) or os.path.isfile(target):
+                            os.remove(target); removed += 1
+                        elif os.path.isdir(target):
+                            shutil.rmtree(target, ignore_errors=True); removed += 1
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+        lines = [L("♻️  Корзины томов — очищено") + "\n\n",
+                 "  " + L("Удалено элементов (необратимо): {n}").format(n=removed) + "\n"]
+        self.q.put(("shred", "".join(lines), removed))
 
     def t_smart(self):
         self._out(L("🩺 Читаю состояние диска…"))
@@ -3578,6 +3875,10 @@ class Krylan(tk.Tk):
                                       lambda: self.nav("tools")).pack(side="left", pady=6)
                 elif kind == "tout":
                     if self.page == "tools": self._out(a)
+                elif kind == "toutx":
+                    # как tout, но результат экспортируемый (большие файлы и т.п.)
+                    if self.page == "tools":
+                        self._out(a); self._add_export_buttons()
                 elif kind == "scanout":
                     if self.page == "scan":
                         self._sout(a)
@@ -3588,6 +3889,7 @@ class Krylan(tk.Tk):
                         if b:
                             self._btn(self.t_action, L("🗑 Удалить {n} лишних копий").format(n=len(b)), RED,
                                       lambda ex=b: self._trash_dupes(ex)).pack(side="left", pady=4)
+                        self._add_export_buttons()
                 elif kind == "similar":
                     if self.page == "tools":
                         self._out(a)
@@ -3606,12 +3908,14 @@ class Krylan(tk.Tk):
                         if b:
                             self._btn(self.t_action, L("📂 Удалить пустые папки ({n})").format(n=len(b)), RED,
                                       lambda ds=b: self._empty_clean(ds)).pack(side="left", pady=4)
+                        self._add_export_buttons()
                 elif kind == "broken":
                     if self.page == "tools":
                         self._out(a)
                         if b:
                             self._btn(self.t_action, L("🧩 Удалить битые/пустые ({n})").format(n=len(b)), RED,
                                       lambda fs=b: self._broken_clean(fs)).pack(side="left", pady=4)
+                        self._add_export_buttons()
                 elif kind == "shortcuts":
                     if self.page == "tools":
                         self._out(a)
@@ -3624,6 +3928,14 @@ class Krylan(tk.Tk):
                         if b:
                             self._btn(self.t_action, L("📦🕒 Удалить большие старые ({n})").format(n=len(b)), RED,
                                       lambda fs=b: self._bigold_clean(fs)).pack(side="left", pady=4)
+                        self._add_export_buttons()
+                elif kind == "voltrash":
+                    if self.page == "tools":
+                        self._out(a)
+                        if b:
+                            self._btn(self.t_action, L("♻️ Очистить корзины (НЕОБРАТИМО)"), RED,
+                                      lambda ps=b: self._voltrash_empty(ps)).pack(side="left", pady=4)
+                        self._add_export_buttons()
                 elif kind == "vacuum":
                     if self.page == "tools":
                         self._out(a)
