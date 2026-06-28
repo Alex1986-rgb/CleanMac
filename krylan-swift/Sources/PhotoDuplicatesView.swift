@@ -32,11 +32,29 @@ final class PhotoScanner: ObservableObject {
     @Published var scanning = false
     @Published var mode: PhotoScanMode = .exact
     @Published var bannerMoved = 0              // >0 — показать баннер «Недавно удалённые»
+    @Published var didScan = false             // уже сканировали хотя бы раз (для авто-скана)
 
     var extraCount: Int { groups.reduce(0) { $0 + $1.assets.count - 1 } }
 
     /// Плоский список снимков (по 1 кадру на группу) для режимов с мультивыбором.
     var flatAssets: [PHAsset] { groups.compactMap { $0.assets.first } }
+
+    /// Суммарная оценка размера выбранных снимков (для .blurry/.live, приблизительно).
+    var selectedSizeEstimate: Double {
+        MediaEstimate.totalBytes(flatAssets.filter { selected.contains($0.localIdentifier) })
+    }
+
+    /// Авто-скан при открытии: только если доступ уже выдан и ещё не сканировали.
+    func autoScanIfPossible() {
+        guard !didScan, !scanning, PhotoAccess.isAuthorized else { return }
+        selected.removeAll()
+        switch mode {
+        case .exact:  runExact()
+        case .series: runSeries()
+        case .blurry: runBlurry()
+        case .live:   runLive()
+        }
+    }
 
     func toggle(_ a: PHAsset) {
         if selected.contains(a.localIdentifier) { selected.remove(a.localIdentifier) }
@@ -62,6 +80,7 @@ final class PhotoScanner: ObservableObject {
                 }
                 self.selected.removeAll()
                 self.bannerMoved = count
+                Haptics.success()
                 self.status = "Перенесено в «Недавно удалённые»: \(count)"
             }
         }
@@ -104,6 +123,7 @@ final class PhotoScanner: ObservableObject {
             await MainActor.run {
                 self.groups = groups
                 self.scanning = false
+                self.didScan = true
                 self.status = groups.isEmpty ? "Дубликатов не найдено"
                     : "Похожих групп: \(groups.count), лишних снимков: \(self.extraCount)"
             }
@@ -139,6 +159,7 @@ final class PhotoScanner: ObservableObject {
             await MainActor.run {
                 self.groups = groups
                 self.scanning = false
+                self.didScan = true
                 self.status = groups.isEmpty ? "Серий не найдено"
                     : "Серий: \(groups.count), лишних кадров: \(self.extraCount)"
             }
@@ -187,6 +208,7 @@ final class PhotoScanner: ObservableObject {
             await MainActor.run {
                 self.groups = Array(top)
                 self.scanning = false
+                self.didScan = true
                 self.status = top.isEmpty ? "Размытых не найдено"
                                           : "Размытых кадров: \(top.count) (проверьте перед удалением)"
             }
@@ -212,6 +234,7 @@ final class PhotoScanner: ObservableObject {
             await MainActor.run {
                 self.groups = Array(groups)
                 self.scanning = false
+                self.didScan = true
                 self.status = groups.isEmpty ? "Live Photos не найдено"
                     : "Live Photos: \(groups.count) (занимают ~2× места)"
             }
@@ -314,6 +337,53 @@ final class PhotoScanner: ObservableObject {
         }
     }
 
+    /// Все ассеты всех групп (для пакетного удаления выбранного в режимах групп).
+    var allGroupAssets: [PHAsset] { groups.flatMap { $0.assets } }
+
+    /// Суммарная оценка размера выбранного во всех группах (.exact/.series).
+    var selectedGroupSizeEstimate: Double {
+        MediaEstimate.totalBytes(allGroupAssets.filter { selected.contains($0.localIdentifier) })
+    }
+
+    /// «Выбрать все, кроме лучшего»: в каждой группе оставляем один кадр
+    /// (по bestIndex, иначе — наибольшего разрешения), остальные помечаем к удалению.
+    func selectAllButBest() {
+        var ids = Set<String>()
+        for g in groups {
+            guard g.assets.count > 1 else { continue }
+            let best = g.bestIndex ?? Self.bestAssetIndex(in: g.assets, sharpness: []) ?? 0
+            for (i, a) in g.assets.enumerated() where i != best {
+                ids.insert(a.localIdentifier)
+            }
+        }
+        selected = ids
+    }
+
+    /// Удаляет ВСЕ выбранные кадры из групп одним системным подтверждением (.exact/.series).
+    func deleteSelectedInGroups() {
+        let del = allGroupAssets.filter { selected.contains($0.localIdentifier) }
+        guard !del.isEmpty else { return }
+        let count = del.count
+        let ids = selected
+        PHPhotoLibrary.shared().performChanges({
+            PHAssetChangeRequest.deleteAssets(del as NSArray)
+        }) { [weak self] ok, _ in
+            Task { @MainActor in
+                guard let self, ok else { return }
+                // Удаляем выбранные кадры из групп; группы, где остался ≤1 кадр, убираем.
+                for i in self.groups.indices {
+                    self.groups[i].assets.removeAll { ids.contains($0.localIdentifier) }
+                    self.groups[i].bestIndex = nil
+                }
+                self.groups.removeAll { $0.assets.count < 2 }
+                self.selected.removeAll()
+                self.bannerMoved = count
+                Haptics.success()
+                self.status = "Перенесено в «Недавно удалённые»: \(count)"
+            }
+        }
+    }
+
     /// Оставляет «лучший» кадр, удаляет ВСЕ остальные — через системное подтверждение.
     func keepBest(in group: DupGroup) {
         let best = group.bestIndex ?? Self.bestAssetIndex(in: group.assets, sharpness: []) ?? 0
@@ -330,6 +400,7 @@ final class PhotoScanner: ObservableObject {
                 if ok {
                     self.groups.removeAll { $0.id == group.id }
                     self.bannerMoved = count
+                    Haptics.success()
                     self.status = "Оставлен лучший кадр, остальные — в «Недавно удалённые»: \(count)"
                 }
             }
@@ -340,7 +411,9 @@ final class PhotoScanner: ObservableObject {
 struct PhotoDuplicatesView: View {
     @StateObject private var scanner = PhotoScanner()
     @State private var confirmDeleteSelected = false
+    @State private var confirmDeleteGroupSelected = false
     @State private var confirmGroup: DupGroup?
+    @State private var previewAsset: PHAsset?
 
     /// Режимы с плоским мультивыбором (по 1 кадру на «группу»).
     private var isFlatSelectMode: Bool { scanner.mode == .blurry || scanner.mode == .live }
@@ -375,9 +448,13 @@ struct PhotoDuplicatesView: View {
 
                 if scanner.groups.isEmpty {
                     if !scanner.scanning {
-                        EmptyStateView(icon: "photo.on.rectangle.angled",
-                                       title: "Пусто",
-                                       subtitle: "Нажмите «Сканировать» для выбранного режима.")
+                        if PhotoAccess.isAuthorized {
+                            EmptyStateView(icon: "photo.on.rectangle.angled",
+                                           title: "Пусто",
+                                           subtitle: "Нажмите «Сканировать» для выбранного режима.")
+                        } else {
+                            PhotoPermissionGate { scanner.scan() }
+                        }
                     }
                 } else if isFlatSelectMode {
                     flatSelectGrid
@@ -389,6 +466,17 @@ struct PhotoDuplicatesView: View {
             .frame(maxWidth: .infinity)
         }
         .background(StarfieldView())
+        .task { scanner.autoScanIfPossible() }
+        .fullScreenCoverCompat(item: $previewAsset) { asset in
+            FullScreenAssetPreview(asset: asset)
+        }
+        .confirmationDialog("Удалить выбранные кадры?",
+                            isPresented: $confirmDeleteGroupSelected, titleVisibility: .visible) {
+            Button("Удалить (\(scanner.selected.count))", role: .destructive) { scanner.deleteSelectedInGroups() }
+            Button("Отмена", role: .cancel) {}
+        } message: {
+            Text("В каждой группе останется один кадр. Остальные перенесутся в «Недавно удалённые»; место освободится после очистки этого альбома.")
+        }
         .confirmationDialog(scanner.mode == .live ? "Удалить выбранные Live Photos?" : "Удалить выбранные снимки?",
                             isPresented: $confirmDeleteSelected, titleVisibility: .visible) {
             Button("Удалить (\(scanner.selected.count))", role: .destructive) { scanner.deleteSelected() }
@@ -425,6 +513,7 @@ struct PhotoDuplicatesView: View {
         SelectionActionBar(
             selectedCount: scanner.selected.count,
             totalCount: scanner.flatAssets.count,
+            subtitle: scanner.selected.isEmpty ? "" : "освободит ≈ \(MediaEstimate.fmtBytes(scanner.selectedSizeEstimate))",
             onSelectAll: { scanner.selectAll() },
             onClear: { scanner.clearSelection() },
             onDelete: { confirmDeleteSelected = true }
@@ -434,7 +523,11 @@ struct PhotoDuplicatesView: View {
                 AssetThumb(asset: asset,
                            selected: scanner.selected.contains(asset.localIdentifier))
                     .contentShape(Rectangle())
-                    .onTapGesture { scanner.toggle(asset) }
+                    .onTapGesture {
+                        Haptics.selection()
+                        scanner.toggle(asset)
+                    }
+                    .onLongPressGesture { previewAsset = asset }
             }
         }
         .padding(14)
@@ -444,12 +537,48 @@ struct PhotoDuplicatesView: View {
     // MARK: .exact / .series — группы «оставить лучший»
 
     @ViewBuilder private var groupList: some View {
+        // Умный пакетный выбор: один кадр в группе остаётся, остальные — к удалению.
+        VStack(spacing: 10) {
+            HStack {
+                Button("Выбрать все, кроме лучшего") { scanner.selectAllButBest() }
+                    .font(.caption.bold()).foregroundStyle(Brand.blue).buttonStyle(.plain)
+                Spacer()
+                if !scanner.selected.isEmpty {
+                    Button("Снять") { scanner.clearSelection() }
+                        .font(.caption.bold()).foregroundStyle(Brand.muted).buttonStyle(.plain)
+                }
+            }
+            if !scanner.selected.isEmpty {
+                Button { confirmDeleteGroupSelected = true } label: {
+                    HStack {
+                        Text("Удалить выбранные (\(scanner.selected.count))").bold()
+                        Spacer()
+                        Text("≈ \(MediaEstimate.fmtBytes(scanner.selectedGroupSizeEstimate))").bold()
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12).padding(.horizontal, 14)
+                    .background(Brand.red).foregroundStyle(.white).clipShape(Capsule())
+                }.buttonStyle(.plain)
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity)
+        .background(RoundedRectangle(cornerRadius: 16).fill(Brand.glass))
+
         ForEach(scanner.groups) { group in
             VStack(alignment: .leading, spacing: 10) {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         ForEach(Array(group.assets.prefix(8).enumerated()), id: \.offset) { idx, asset in
-                            AssetThumb(asset: asset, isBest: group.bestIndex == idx)
+                            AssetThumb(asset: asset,
+                                       isBest: group.bestIndex == idx,
+                                       selected: scanner.selected.contains(asset.localIdentifier) ? true : nil)
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    Haptics.selection()
+                                    scanner.toggle(asset)
+                                }
+                                .onLongPressGesture { previewAsset = asset }
                         }
                     }
                 }

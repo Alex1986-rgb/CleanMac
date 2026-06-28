@@ -9,6 +9,18 @@ final class ScreenshotScanner: ObservableObject {
     @Published var status = "Готово к сканированию"
     @Published var scanning = false
     @Published var bannerMoved = 0              // >0 — показать баннер «Недавно удалённые»
+    @Published var didScan = false             // уже сканировали хотя бы раз (для авто-скана)
+
+    /// Суммарная оценка размера выбранных скриншотов (приблизительно).
+    var selectedSizeEstimate: Double {
+        MediaEstimate.totalBytes(assets.filter { selected.contains($0.localIdentifier) })
+    }
+
+    /// Авто-скан при открытии: только если доступ уже выдан и ещё не сканировали.
+    func autoScanIfPossible() {
+        guard !didScan, !scanning, PhotoAccess.isAuthorized else { return }
+        run()
+    }
 
     func scan() {
         status = "Запрос доступа к фото…"
@@ -39,6 +51,7 @@ final class ScreenshotScanner: ObservableObject {
                 self.assets = arr
                 self.selected = []
                 self.scanning = false
+                self.didScan = true
                 self.status = arr.isEmpty ? "Скриншотов не найдено" : "Скриншотов: \(arr.count)"
             }
         }
@@ -64,6 +77,7 @@ final class ScreenshotScanner: ObservableObject {
                 self.assets.removeAll { self.selected.contains($0.localIdentifier) }
                 self.selected = []
                 self.bannerMoved = count
+                Haptics.success()
                 self.status = "Перенесено в «Недавно удалённые»: \(count)"
             }
         }
@@ -73,6 +87,7 @@ final class ScreenshotScanner: ObservableObject {
 struct ScreenshotsView: View {
     @StateObject private var scanner = ScreenshotScanner()
     @State private var confirmDelete = false
+    @State private var previewAsset: PHAsset?
     private let cols = [GridItem(.adaptive(minimum: 76), spacing: 8)]
 
     var body: some View {
@@ -99,14 +114,19 @@ struct ScreenshotsView: View {
 
                 if scanner.assets.isEmpty {
                     if !scanner.scanning {
-                        EmptyStateView(icon: "camera.viewfinder",
-                                       title: "Скриншотов нет",
-                                       subtitle: "Нажмите «Сканировать», чтобы собрать все скриншоты из медиатеки.")
+                        if PhotoAccess.isAuthorized {
+                            EmptyStateView(icon: "camera.viewfinder",
+                                           title: "Скриншотов нет",
+                                           subtitle: "Нажмите «Сканировать», чтобы собрать все скриншоты из медиатеки.")
+                        } else {
+                            PhotoPermissionGate { scanner.scan() }
+                        }
                     }
                 } else {
                     SelectionActionBar(
                         selectedCount: scanner.selected.count,
                         totalCount: scanner.assets.count,
+                        subtitle: scanner.selected.isEmpty ? "" : "освободит ≈ \(MediaEstimate.fmtBytes(scanner.selectedSizeEstimate))",
                         onSelectAll: { scanner.selectAll() },
                         onClear: { scanner.clearSelection() },
                         onDelete: { confirmDelete = true }
@@ -117,7 +137,11 @@ struct ScreenshotsView: View {
                             AssetThumb(asset: asset,
                                        selected: scanner.selected.contains(asset.localIdentifier))
                                 .contentShape(Rectangle())
-                                .onTapGesture { scanner.toggle(asset) }
+                                .onTapGesture {
+                                    Haptics.selection()
+                                    scanner.toggle(asset)
+                                }
+                                .onLongPressGesture { previewAsset = asset }
                         }
                     }
                     .padding(14)
@@ -128,6 +152,10 @@ struct ScreenshotsView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .background(StarfieldView())
+        .task { scanner.autoScanIfPossible() }
+        .fullScreenCoverCompat(item: $previewAsset) { asset in
+            FullScreenAssetPreview(asset: asset)
+        }
         .confirmationDialog("Удалить выбранные скриншоты?",
                             isPresented: $confirmDelete, titleVisibility: .visible) {
             Button("Удалить (\(scanner.selected.count))", role: .destructive) { scanner.deleteSelected() }

@@ -28,6 +28,16 @@ final class VideoScanner: ObservableObject {
     @Published var scanning = false
     @Published var mode: VideoScanMode = .large
     @Published var bannerMoved = 0              // >0 — показать баннер «Недавно удалённые»
+    @Published var didScan = false             // уже сканировали хотя бы раз (для авто-скана)
+
+    /// Авто-скан при открытии: только если доступ уже выдан и ещё не сканировали.
+    func autoScanIfPossible() {
+        guard !didScan, !scanning, PhotoAccess.isAuthorized else { return }
+        switch mode {
+        case .large:   runLarge()
+        case .similar: runSimilar()
+        }
+    }
 
     /// Сколько роликов можно убрать (по одному лишнему в каждой группе).
     var extraCount: Int { groups.reduce(0) { $0 + $1.assets.count - 1 } }
@@ -59,6 +69,7 @@ final class VideoScanner: ObservableObject {
                 self.videos.removeAll { self.selected.contains($0.localIdentifier) }
                 self.selected.removeAll()
                 self.bannerMoved = count
+                Haptics.success()
                 self.status = "Перенесено в «Недавно удалённые»: \(count)"
             }
         }
@@ -96,6 +107,7 @@ final class VideoScanner: ObservableObject {
             await MainActor.run {
                 self.videos = arr
                 self.scanning = false
+                self.didScan = true
                 self.status = arr.isEmpty ? "Видео не найдено" : "Самых длинных видео: \(arr.count)"
             }
         }
@@ -121,6 +133,7 @@ final class VideoScanner: ObservableObject {
             await MainActor.run {
                 self.groups = found
                 self.scanning = false
+                self.didScan = true
                 self.status = found.isEmpty ? "Похожих видео не найдено"
                     : "Похожих групп: \(found.count), лишних роликов: \(self.extraCount)"
             }
@@ -170,6 +183,7 @@ final class VideoScanner: ObservableObject {
                 if ok {
                     self.groups.removeAll { $0.id == group.id }
                     self.bannerMoved = count
+                    Haptics.success()
                     self.status = "Перенесено в «Недавно удалённые»: \(count)"
                 }
             }
@@ -181,6 +195,7 @@ struct LargeVideosView: View {
     @StateObject private var scanner = VideoScanner()
     @State private var confirmDeleteSelected = false
     @State private var confirmGroup: VideoGroup?
+    @State private var previewAsset: PHAsset?
 
     var body: some View {
         ScrollView {
@@ -221,6 +236,10 @@ struct LargeVideosView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .background(StarfieldView())
+        .task { scanner.autoScanIfPossible() }
+        .fullScreenCoverCompat(item: $previewAsset) { asset in
+            FullScreenAssetPreview(asset: asset)
+        }
         .confirmationDialog("Удалить выбранные видео?",
                             isPresented: $confirmDeleteSelected, titleVisibility: .visible) {
             Button("Удалить (\(scanner.selected.count))", role: .destructive) { scanner.deleteSelected() }
@@ -247,15 +266,19 @@ struct LargeVideosView: View {
     @ViewBuilder private var largeMode: some View {
         if scanner.videos.isEmpty {
             if !scanner.scanning {
-                EmptyStateView(icon: "film.stack",
-                               title: "Список пуст",
-                               subtitle: "Нажмите «Сканировать», чтобы найти самые длинные видео.")
+                if PhotoAccess.isAuthorized {
+                    EmptyStateView(icon: "film.stack",
+                                   title: "Список пуст",
+                                   subtitle: "Нажмите «Сканировать», чтобы найти самые длинные видео.")
+                } else {
+                    PhotoPermissionGate { scanner.scan() }
+                }
             }
         } else {
             SelectionActionBar(
                 selectedCount: scanner.selected.count,
                 totalCount: scanner.videos.count,
-                subtitle: scanner.selected.isEmpty ? "" : "≈ \(Self.fmtSize(scanner.selectedSizeEstimate))",
+                subtitle: scanner.selected.isEmpty ? "" : "освободит ≈ \(Self.fmtSize(scanner.selectedSizeEstimate))",
                 onSelectAll: { scanner.selectAll() },
                 onClear: { scanner.clearSelection() },
                 onDelete: { confirmDeleteSelected = true }
@@ -291,7 +314,11 @@ struct LargeVideosView: View {
         .overlay(RoundedRectangle(cornerRadius: 16)
             .strokeBorder(isSel ? Brand.green.opacity(0.5) : .clear, lineWidth: 1))
         .contentShape(Rectangle())
-        .onTapGesture { scanner.toggle(v) }
+        .onTapGesture {
+            Haptics.selection()
+            scanner.toggle(v)
+        }
+        .onLongPressGesture { previewAsset = v }
     }
 
     // MARK: режим «Похожие» — групповое удаление лишних
@@ -299,9 +326,13 @@ struct LargeVideosView: View {
     @ViewBuilder private var similarMode: some View {
         if scanner.groups.isEmpty {
             if !scanner.scanning {
-                EmptyStateView(icon: "square.stack.3d.up",
-                               title: "Похожих не найдено",
-                               subtitle: "Запустите сканирование — соберём группы роликов близкой длины и размера.")
+                if PhotoAccess.isAuthorized {
+                    EmptyStateView(icon: "square.stack.3d.up",
+                                   title: "Похожих не найдено",
+                                   subtitle: "Запустите сканирование — соберём группы роликов близкой длины и размера.")
+                } else {
+                    PhotoPermissionGate { scanner.scan() }
+                }
             }
         } else {
             ForEach(scanner.groups) { group in
@@ -311,6 +342,7 @@ struct LargeVideosView: View {
                             ForEach(Array(group.assets.prefix(8).enumerated()), id: \.offset) { _, asset in
                                 VStack(spacing: 4) {
                                     AssetThumb(asset: asset)
+                                        .onLongPressGesture { previewAsset = asset }
                                     Text(Self.fmtDuration(asset.duration))
                                         .font(.caption2.bold()).foregroundStyle(Brand.muted)
                                 }

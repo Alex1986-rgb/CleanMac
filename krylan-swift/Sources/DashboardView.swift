@@ -312,6 +312,7 @@ struct DiskSheet: View {
     @ObservedObject var monitor: SystemMonitor
     let coord: AppCoordinator
     @StateObject private var cleaner = CacheCleaner()
+    @StateObject private var breakdown = StorageBreakdownScanner()
     @Environment(\.dismiss) private var dismiss
     @State private var cleaned = false
 
@@ -324,6 +325,12 @@ struct DiskSheet: View {
             MetricRow(label: "Занято", value: "\(usedGB) ГБ", tint: Brand.blue)
             MetricRow(label: "Свободно", value: "\(monitor.diskFreeGB) ГБ", tint: Brand.green)
             MetricRow(label: "Всего", value: "\(monitor.diskTotalGB) ГБ")
+
+            // Постоянная подсказка про «Недавно удалённые».
+            RecentlyDeletedHint()
+
+            // Оценка разбивки медиатеки по категориям (приблизительно).
+            mediaBreakdown
 
             Text("Освобождает место — покажем, что удалить.")
                 .font(.subheadline).foregroundStyle(Brand.text)
@@ -353,7 +360,64 @@ struct DiskSheet: View {
             Text("Медиа KRYLAN не удаляет автоматически — только с вашим подтверждением в системном диалоге.")
                 .font(.caption2).foregroundStyle(Brand.muted)
         }
-        .onAppear { cleaner.refresh() }
+        .onAppear { cleaner.refresh(); breakdown.loadIfNeeded() }
+    }
+
+    // MARK: разбивка медиатеки по категориям (оценка)
+
+    @ViewBuilder private var mediaBreakdown: some View {
+        Divider().overlay(Brand.track)
+        HStack {
+            Text("ЗАНИМАЮТ В МЕДИАТЕКЕ (оценка)")
+                .font(.caption.bold()).foregroundStyle(Brand.muted)
+            Spacer()
+            if breakdown.running {
+                ProgressView().controlSize(.mini).tint(Brand.muted)
+            }
+        }
+
+        if !PhotoAccess.isAuthorized {
+            Text("Нет доступа к Фото — оценка недоступна. Разрешите доступ на экранах разбора медиа.")
+                .font(.caption).foregroundStyle(Brand.yellow)
+        } else if !breakdown.ready {
+            Text("Считаю оценку размеров…")
+                .font(.caption).foregroundStyle(Brand.muted)
+        } else {
+            breakdownRow("film", "Видео", breakdown.videoCount,
+                         breakdown.videoBytes, Brand.cyan, .videos)
+            breakdownRow("photo.on.rectangle.angled", "Фото", breakdown.photoCount,
+                         breakdown.photoBytes, Brand.purple, .photos)
+            breakdownRow("camera.viewfinder", "Скриншоты", breakdown.screenshotCount,
+                         breakdown.screenshotBytes, Brand.blue, .shots)
+            Text("Размеры — приблизительная оценка по метаданным (пиксели, длительность), а не точные байты.")
+                .font(.caption2).foregroundStyle(Brand.muted)
+        }
+    }
+
+    private func breakdownRow(_ icon: String, _ title: String, _ count: Int,
+                              _ bytes: Double, _ tint: Color, _ section: Section) -> some View {
+        Button {
+            dismiss()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { coord.go(to: section) }
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: icon).foregroundStyle(tint).frame(width: 26)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).font(.subheadline.bold()).foregroundStyle(Brand.text)
+                    Text("\(count) шт.").font(.caption).foregroundStyle(Brand.muted)
+                }
+                Spacer(minLength: 8)
+                Text("≈ \(MediaEstimate.fmtBytes(bytes))")
+                    .font(.subheadline.bold().monospacedDigit()).foregroundStyle(tint)
+                Image(systemName: "chevron.right").font(.caption.bold()).foregroundStyle(Brand.muted)
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 14).fill(Brand.glass))
+            .overlay(RoundedRectangle(cornerRadius: 14).stroke(tint.opacity(0.25), lineWidth: 1))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     private func reviewLink(_ icon: String, _ title: String, _ sub: String,
