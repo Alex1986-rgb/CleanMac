@@ -247,6 +247,11 @@ struct LargeVideosView: View {
         }
         .background(StarfieldView())
         .task { scanner.autoScanIfPossible() }
+        // Смена режима в Picker должна пересканировать (didScan один на все режимы).
+        .onChange(of: scanner.mode) { _, _ in
+            scanner.didScan = false
+            scanner.autoScanIfPossible()
+        }
         .fullScreenCoverCompat(item: $previewAsset) { asset in
             FullScreenAssetPreview(asset: asset)
         }

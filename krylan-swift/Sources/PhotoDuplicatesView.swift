@@ -384,24 +384,44 @@ final class PhotoScanner: ObservableObject {
         }
     }
 
-    /// Оставляет «лучший» кадр, удаляет ВСЕ остальные — через системное подтверждение.
+    /// Оставляет «лучший» кадр, удаляет остальные — через системное подтверждение.
+    /// Если в группе есть кадры, отмеченные вручную (`selected`), удаляем ИМЕННО их
+    /// (уважаем ручной выбор пользователя). Иначе — старое поведение: всё, кроме лучшего.
     func keepBest(in group: DupGroup) {
-        let best = group.bestIndex ?? Self.bestAssetIndex(in: group.assets, sharpness: []) ?? 0
-        let toDelete = group.assets.enumerated()
-            .filter { $0.offset != best }
-            .map { $0.element }
+        let manual = group.assets.filter { selected.contains($0.localIdentifier) }
+        let toDelete: [PHAsset]
+        if manual.isEmpty {
+            let best = group.bestIndex ?? Self.bestAssetIndex(in: group.assets, sharpness: []) ?? 0
+            toDelete = group.assets.enumerated()
+                .filter { $0.offset != best }
+                .map { $0.element }
+        } else {
+            toDelete = manual
+        }
         guard !toDelete.isEmpty else { return }
         let count = toDelete.count
+        let delIds = Set(toDelete.map { $0.localIdentifier })
         PHPhotoLibrary.shared().performChanges({
             PHAssetChangeRequest.deleteAssets(toDelete as NSArray)
         }) { [weak self] ok, _ in
             Task { @MainActor in
                 guard let self else { return }
                 if ok {
-                    self.groups.removeAll { $0.id == group.id }
+                    // Убираем удалённые кадры из группы и из ручного выбора.
+                    if let gi = self.groups.firstIndex(where: { $0.id == group.id }) {
+                        self.groups[gi].assets.removeAll { delIds.contains($0.localIdentifier) }
+                        self.groups[gi].bestIndex = nil
+                        // Группа без смысла (≤1 кадра) — убираем целиком.
+                        if self.groups[gi].assets.count < 2 {
+                            self.groups.remove(at: gi)
+                        }
+                    }
+                    self.selected.subtract(delIds)
                     self.bannerMoved = count
                     Haptics.success()
-                    self.status = "Оставлен лучший кадр, остальные — в «Недавно удалённые»: \(count)"
+                    self.status = manual.isEmpty
+                        ? "Оставлен лучший кадр, остальные — в «Недавно удалённые»: \(count)"
+                        : "Удалены отмеченные кадры — в «Недавно удалённые»: \(count)"
                 }
             }
         }
@@ -467,6 +487,11 @@ struct PhotoDuplicatesView: View {
         }
         .background(StarfieldView())
         .task { scanner.autoScanIfPossible() }
+        // Смена режима в Picker должна пересканировать (didScan один на все режимы).
+        .onChange(of: scanner.mode) { _, _ in
+            scanner.didScan = false
+            scanner.autoScanIfPossible()
+        }
         .fullScreenCoverCompat(item: $previewAsset) { asset in
             FullScreenAssetPreview(asset: asset)
         }
@@ -570,8 +595,10 @@ struct PhotoDuplicatesView: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         ForEach(Array(group.assets.prefix(8).enumerated()), id: \.offset) { idx, asset in
+                            // «★ лучший» по РЕАЛЬНОМУ индексу ассета в полном массиве group.assets,
+                            // а не по позиции в срезе prefix(8) (иначе при bestIndex≥8 метка съезжала).
                             AssetThumb(asset: asset,
-                                       isBest: group.bestIndex == idx,
+                                       isBest: group.bestIndex == group.assets.firstIndex(where: { $0.localIdentifier == asset.localIdentifier }),
                                        selected: scanner.selected.contains(asset.localIdentifier) ? true : nil)
                                 .contentShape(Rectangle())
                                 .onTapGesture {

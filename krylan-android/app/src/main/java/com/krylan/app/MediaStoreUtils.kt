@@ -8,7 +8,21 @@ import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
 
-data class MediaFile(val id: Long, val name: String, val size: Long, val uri: Uri)
+/**
+ * Файл из MediaStore.
+ * [uri] построен под тип контента: для изображений/видео/аудио — типизированная
+ * media-коллекция (нужна для createTrashRequest/createDeleteRequest), для не-медиа
+ * (APK/документы/архивы) — Files-URI.
+ * [isMedia] = true, если uri указывает на медиа-коллекцию; для не-медиа системная
+ * корзина/delete-request недоступны — удаляем через contentResolver.delete напрямую.
+ */
+data class MediaFile(
+    val id: Long,
+    val name: String,
+    val size: Long,
+    val uri: Uri,
+    val isMedia: Boolean = true,
+)
 
 /** Разбивка занятого медиа-хранилища по типам (байты). */
 data class StorageBreakdown(
@@ -66,6 +80,22 @@ object MediaStoreUtils {
             "createTrashRequest требует Android 11 (API 30)"
         }
         return MediaStore.createTrashRequest(ctx.contentResolver, uris, trash)
+    }
+
+    /**
+     * Прямое удаление не-медиа файлов (APK/документы/архивы), для которых системная
+     * корзина и createDeleteRequest неприменимы (требуют media-uri).
+     * Каждое удаление в try-catch (нет прав/файла нет — пропускаем). Возвращает кол-во удалённых.
+     * Подтверждение пользователя обеспечивается на уровне UI ДО вызова.
+     */
+    fun deleteDirect(ctx: Context, uris: List<Uri>): Int {
+        var deleted = 0
+        for (uri in uris) {
+            try {
+                if (ctx.contentResolver.delete(uri, null, null) > 0) deleted++
+            } catch (_: Exception) { /* нет прав/файла — пропускаем */ }
+        }
+        return deleted
     }
 
     /** Топ крупных медиа-файлов, по убыванию размера. */
@@ -129,31 +159,75 @@ object MediaStoreUtils {
             .values.filter { it.size > 1 }
             .sortedByDescending { it.first().size * it.size }
 
+    /** Известные типизированные media-коллекции — для них id-URI уже годится для trash/delete. */
+    private val typedMediaCollections: Set<String> = buildSet {
+        add(MediaStore.Images.Media.EXTERNAL_CONTENT_URI.toString())
+        add(MediaStore.Video.Media.EXTERNAL_CONTENT_URI.toString())
+        add(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI.toString())
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            add(MediaStore.Downloads.EXTERNAL_CONTENT_URI.toString())
+        }
+    }
+
     private fun query(
         ctx: Context, sort: String, limit: Int,
         collection: Uri = MediaStore.Files.getContentUri("external"),
         selection: String? = null, selectionArgs: Array<String>? = null,
     ): List<MediaFile> {
+        // Запрашивается общая коллекция Files? Тогда определяем тип каждой строки по MEDIA_TYPE
+        // и строим ТИПИЗИРОВАННЫЙ uri (Images/Video/Audio), иначе trash/deleteRequest падает.
+        val isFilesCollection = collection.toString() !in typedMediaCollections
         val proj = arrayOf(
             MediaStore.Files.FileColumns._ID,
             MediaStore.Files.FileColumns.DISPLAY_NAME,
             MediaStore.Files.FileColumns.SIZE,
+            MediaStore.Files.FileColumns.MEDIA_TYPE,
         )
         val out = mutableListOf<MediaFile>()
         ctx.contentResolver.query(collection, proj, selection, selectionArgs, sort)?.use { c ->
             val idIdx = c.getColumnIndexOrThrow(MediaStore.Files.FileColumns._ID)
             val nameIdx = c.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DISPLAY_NAME)
             val sizeIdx = c.getColumnIndexOrThrow(MediaStore.Files.FileColumns.SIZE)
+            val mediaTypeIdx = c.getColumnIndex(MediaStore.Files.FileColumns.MEDIA_TYPE)
             while (c.moveToNext() && out.size < limit) {
                 val id = c.getLong(idIdx)
+                val mediaType = if (mediaTypeIdx >= 0) c.getInt(mediaTypeIdx) else -1
+                val (uri, isMedia) = resolveUri(collection, isFilesCollection, id, mediaType)
                 out += MediaFile(
                     id = id,
                     name = c.getString(nameIdx) ?: "—",
                     size = c.getLong(sizeIdx),
-                    uri = ContentUris.withAppendedId(collection, id),
+                    uri = uri,
+                    isMedia = isMedia,
                 )
             }
         }
         return out
+    }
+
+    /**
+     * Строит uri под тип строки.
+     * Для типизированной media-коллекции — id-URI этой коллекции (всегда медиа).
+     * Для общей Files-коллекции — по MEDIA_TYPE: image/video/audio → типизированная
+     * media-коллекция (isMedia=true); прочее (документ/архив/APK) → Files-URI (isMedia=false).
+     */
+    private fun resolveUri(
+        collection: Uri, isFilesCollection: Boolean, id: Long, mediaType: Int,
+    ): Pair<Uri, Boolean> {
+        if (!isFilesCollection) {
+            return ContentUris.withAppendedId(collection, id) to true
+        }
+        val mediaCollection: Uri? = when (mediaType) {
+            MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE -> MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+            MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO -> MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+            MediaStore.Files.FileColumns.MEDIA_TYPE_AUDIO -> MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
+            else -> null
+        }
+        return if (mediaCollection != null) {
+            ContentUris.withAppendedId(mediaCollection, id) to true
+        } else {
+            // Не-медиа (APK/документ/архив): trash/deleteRequest неприменимы — Files-URI + delete напрямую.
+            ContentUris.withAppendedId(collection, id) to false
+        }
     }
 }

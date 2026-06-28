@@ -206,7 +206,10 @@ struct FullScreenAssetPreview: View {
         .onAppear(perform: load)
         .onDisappear {
             #if canImport(AVKit)
+            // Останавливаем и полностью отпускаем плеер, иначе AVPlayer + item утекают.
             player?.pause()
+            player?.replaceCurrentItem(with: nil)
+            player = nil
             #endif
         }
     }

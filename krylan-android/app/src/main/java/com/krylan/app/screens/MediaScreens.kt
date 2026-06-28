@@ -91,8 +91,12 @@ private fun MediaPermissionGate(ctx: Context, content: @Composable () -> Unit) {
 private class MediaActions(
     /** Запуск системного запроса корзины: trashTo=true — в корзину, false — восстановить. */
     private val launchTrash: (uris: List<Uri>, trashTo: Boolean) -> Unit,
-    /** Необратимое удаление (fallback на API < 30 либо явный выбор). */
+    /** Необратимое удаление media-uri через createDeleteRequest (fallback / API < 30). */
     private val launchDelete: (List<MediaFile>) -> Unit,
+    /** Прямое удаление не-медиа (APK/документы): возвращает кол-во удалённых. */
+    private val deleteNonMedia: (List<MediaFile>) -> Int,
+    /** Перезагрузка списка после операции без системного диалога. */
+    private val reload: () -> Unit,
     val supportsTrash: Boolean,
 ) {
     var statusText by mutableStateOf<String?>(null)
@@ -102,29 +106,65 @@ private class MediaActions(
     // Последняя партия uri, перемещённая в корзину — для «Отменить».
     private var lastTrashed: List<Uri> = emptyList()
 
-    /** Основное действие кнопки «Удалить»: в корзину (если поддерживается) либо удалить. */
+    /**
+     * Основное действие кнопки «Удалить».
+     * Делим файлы на медиа и не-медиа: для медиа — системная корзина/delete-request
+     * (валидный media-uri); для не-медиа (APK/документы/архивы) — прямой contentResolver.delete,
+     * т.к. trash/deleteRequest требуют media-uri и иначе падают.
+     */
     fun remove(files: List<MediaFile>) {
         if (files.isEmpty()) return
-        if (supportsTrash) {
-            lastTrashed = files.map { it.uri }
-            launchTrash(lastTrashed, true)
+        val media = files.filter { it.isMedia }
+        val nonMedia = files.filter { !it.isMedia }
+
+        // Не-медиа удаляем напрямую (подтверждение пользователь уже дал в UI).
+        var directDeleted = 0
+        if (nonMedia.isNotEmpty()) {
+            directDeleted = deleteNonMedia(nonMedia)
+        }
+
+        if (media.isNotEmpty()) {
+            // Системный диалог; баннер для не-медиа дополним после возврата, если он был.
+            pendingDirectDeleted = directDeleted
+            if (supportsTrash) {
+                lastTrashed = media.map { it.uri }
+                launchTrash(lastTrashed, true)
+            } else {
+                launchDelete(media)
+            }
         } else {
-            launchDelete(files)
+            // Только не-медиа — системного диалога не будет: показываем итог и перечитываем список.
+            pendingDirectDeleted = 0
+            statusText = "Удалено файлов: $directDeleted"
+            canUndo = false
+            reload()
         }
     }
+
+    /** Кол-во не-медиа, удалённых напрямую в текущей операции (для честного баннера). */
+    private var pendingDirectDeleted: Int = 0
 
     /** Отмена последнего перемещения в корзину — восстановление тех же uri. */
     fun undo() {
         if (canUndo && lastTrashed.isNotEmpty()) launchTrash(lastTrashed, false)
     }
 
-    /** Вызывается после успешного системного запроса «в корзину». */
+    /**
+     * Вызывается после успешного системного запроса.
+     * [count] — число медиа-uri в запросе (фактический исход системе известен лишь как
+     * RESULT_OK; список перечитывается через reload, поэтому формулируем честно — без обещаний
+     * освобождённого места: оно освобождается только после очистки корзины).
+     */
     fun onTrashed(count: Int) {
+        val extra = pendingDirectDeleted
+        pendingDirectDeleted = 0
         statusText = if (supportsTrash) {
-            "Перенесено в корзину: $count. Освободится через 30 дней или очисти " +
-                "вручную в Google Фото / Файлах."
+            val base = "Запрошено в корзину: $count. Место освободится после очистки корзины " +
+                "(через 30 дней автоматически либо вручную в Google Фото / Файлах)."
+            if (extra > 0) "$base Удалено других файлов: $extra." else base
         } else {
-            "Удалено: $count"
+            val base = "Запрошено удаление: $count."
+            if (extra > 0) "$base Удалено других файлов: $extra." else base
         }
         canUndo = supportsTrash
     }
@@ -163,15 +203,26 @@ private fun rememberMediaActions(ctx: Context, onDone: () -> Unit): MediaActions
         if (result.resultCode == Activity.RESULT_OK) {
             when (op) {
                 is PendingOp.Trash -> actionsRef.value?.onTrashed(op.count)
+                is PendingOp.Delete -> actionsRef.value?.onTrashed(op.count)
                 PendingOp.Restore -> actionsRef.value?.onRestored()
-                PendingOp.Delete, PendingOp.None -> { /* удаление: баннер не нужен */ }
+                PendingOp.None -> { /* баннер не нужен */ }
             }
             onDone()
         }
     }
 
+    // A7: запуск системного диалога может бросить SendIntentException/ActivityNotFoundException.
+    // Оборачиваем — иначе краш; при ошибке честно сообщаем, что часть файлов не удалена.
     fun launchSender(sender: IntentSender) {
-        launcher.launch(IntentSenderRequest.Builder(sender).build())
+        try {
+            launcher.launch(IntentSenderRequest.Builder(sender).build())
+        } catch (e: IntentSender.SendIntentException) {
+            pendingOp = PendingOp.None
+            actionsRef.value?.statusText = "Не удалось удалить часть файлов"
+        } catch (e: android.content.ActivityNotFoundException) {
+            pendingOp = PendingOp.None
+            actionsRef.value?.statusText = "Не удалось удалить часть файлов"
+        }
     }
 
     val launchTrash: (List<Uri>, Boolean) -> Unit = trash@{ uris, trashTo ->
@@ -185,15 +236,28 @@ private fun rememberMediaActions(ctx: Context, onDone: () -> Unit): MediaActions
         if (files.isEmpty()) return@del
         if (supportsTrash) {
             val pi = MediaStore.createDeleteRequest(ctx.contentResolver, files.map { it.uri })
-            pendingOp = PendingOp.Delete
+            pendingOp = PendingOp.Delete(files.size)
             launchSender(pi.intentSender)
         } else {
-            files.forEach { runCatching { ctx.contentResolver.delete(it.uri, null, null) } }
+            // API < 30: системной корзины нет — удаляем напрямую (необратимо).
+            var n = 0
+            files.forEach {
+                runCatching { if (ctx.contentResolver.delete(it.uri, null, null) > 0) n++ }
+            }
+            actionsRef.value?.statusText = "Удалено: $n"
             onDone()
         }
     }
 
-    val actions = remember { MediaActions(launchTrash, launchDelete, supportsTrash) }
+    // Прямое удаление не-медиа (APK/документы/архивы) — без системного диалога корзины.
+    val deleteNonMedia: (List<MediaFile>) -> Int = nm@{ files ->
+        if (files.isEmpty()) return@nm 0
+        MediaStoreUtils.deleteDirect(ctx, files.map { it.uri })
+    }
+
+    val actions = remember {
+        MediaActions(launchTrash, launchDelete, deleteNonMedia, onDone, supportsTrash)
+    }
     actionsRef.value = actions
     return actions
 }
@@ -211,7 +275,7 @@ private enum class SortMode(val label: String) {
 /** Какую операцию пользователь подтверждает в системном диалоге. */
 private sealed interface PendingOp {
     data object None : PendingOp
-    data object Delete : PendingOp
+    data class Delete(val count: Int) : PendingOp
     data class Trash(val count: Int) : PendingOp
     data object Restore : PendingOp
 }
