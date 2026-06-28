@@ -826,5 +826,158 @@ class TestListBrowserExtensions(unittest.TestCase):
         self.assertEqual(rows, [("Chrome", "Good", "good")])
 
 
+class TestVacuumSqlite(unittest.TestCase):
+    """vacuum_sqlite: VACUUM перепаковывает БД (≤ исходного размера) без потери
+    строк; не-БД и битый путь безопасны."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _make_db(self):
+        import sqlite3
+        path = os.path.join(self.tmp, "test.db")
+        con = sqlite3.connect(path)
+        con.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, v BLOB)")
+        # надуваем файл: вставляем и удаляем много строк, чтобы остались
+        # неиспользуемые страницы (свободное место), которые соберёт VACUUM
+        con.executemany("INSERT INTO t (v) VALUES (?)",
+                        [(b"x" * 4096,) for _ in range(2000)])
+        con.commit()
+        con.execute("DELETE FROM t WHERE id > 200")   # оставляем 200 строк
+        con.commit()
+        con.close()
+        return path
+
+    def test_shrinks_without_data_loss(self):
+        import sqlite3
+        path = self._make_db()
+        def rows():
+            con = sqlite3.connect(path)
+            try:
+                return con.execute("SELECT count(*) FROM t").fetchone()[0]
+            finally:
+                con.close()
+        before_rows = rows()
+        self.assertEqual(before_rows, 200)
+        before, after = cm.vacuum_sqlite(path)
+        self.assertGreater(before, 0)
+        self.assertEqual(after, os.path.getsize(path))    # «after» = реальный размер
+        self.assertLess(after, before, "VACUUM должен уменьшить файл с дырами")
+        self.assertEqual(rows(), 200, "данные не должны потеряться")
+
+    def test_non_db_unchanged(self):
+        path = os.path.join(self.tmp, "plain.txt")
+        with open(path, "wb") as f:
+            f.write(b"not a database" * 100)
+        size = os.path.getsize(path)
+        before, after = cm.vacuum_sqlite(path)
+        self.assertEqual((before, after), (size, size))   # без изменений
+        self.assertEqual(os.path.getsize(path), size)
+
+    def test_missing_path_safe(self):
+        self.assertEqual(cm.vacuum_sqlite(os.path.join(self.tmp, "nope.db")), (0, 0))
+
+
+class TestScanBigOld(unittest.TestCase):
+    """scan_big_old: одновременный фильтр размер × возраст; симлинки и
+    защищённые пути пропускаются; возраст по max(mtime, atime)."""
+
+    MB = 1024 * 1024
+    DAY = 86400
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.now = 1_700_000_000.0
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _mkfile(self, rel, nbytes, age_days):
+        p = os.path.join(self.tmp, rel)
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, "wb") as f:
+            f.write(b"\0" * nbytes)
+        t = self.now - age_days * self.DAY
+        os.utime(p, (t, t))   # atime и mtime одинаковые
+        return p
+
+    def test_size_and_age_both_required(self):
+        big_old   = self._mkfile("big_old.bin",   3 * self.MB, age_days=300)
+        big_fresh = self._mkfile("big_fresh.bin", 3 * self.MB, age_days=10)   # свежий
+        small_old = self._mkfile("small_old.bin", 1 * self.MB, age_days=300)  # мал
+        res = cm.scan_big_old(self.tmp, min_mb=2, min_days=180, now=self.now)
+        paths = [p for _, p, _ in res]
+        self.assertIn(big_old, paths)
+        self.assertNotIn(big_fresh, paths)   # не прошёл по возрасту
+        self.assertNotIn(small_old, paths)   # не прошёл по размеру
+        size, path, age = res[0]
+        self.assertEqual(path, big_old)
+        self.assertEqual(size, 3 * self.MB)
+        self.assertGreaterEqual(age, 299)
+
+    def test_sorted_by_size_desc(self):
+        self._mkfile("a.bin", 2 * self.MB, age_days=200)
+        self._mkfile("b.bin", 5 * self.MB, age_days=200)
+        self._mkfile("c.bin", 3 * self.MB, age_days=200)
+        res = cm.scan_big_old(self.tmp, min_mb=1, min_days=180, now=self.now)
+        sizes = [s for s, _, _ in res]
+        self.assertEqual(sizes, sorted(sizes, reverse=True))
+        self.assertEqual(sizes, [5 * self.MB, 3 * self.MB, 2 * self.MB])
+
+    def test_recent_atime_keeps_file(self):
+        # большой и старый по mtime, но недавно ОТКРЫТ (atime свежий) →
+        # «последнее касание» свежее → файл не попадает
+        p = self._mkfile("touched.bin", 4 * self.MB, age_days=300)
+        recent = self.now - 5 * self.DAY
+        old = self.now - 300 * self.DAY
+        os.utime(p, (recent, old))   # atime свежий, mtime старый
+        res = cm.scan_big_old(self.tmp, min_mb=2, min_days=180, now=self.now)
+        self.assertNotIn(p, [pp for _, pp, _ in res])
+
+    def test_symlink_skipped(self):
+        target = self._mkfile("real.bin", 4 * self.MB, age_days=300)
+        link = os.path.join(self.tmp, "link.bin")
+        try:
+            os.symlink(target, link)
+        except (OSError, NotImplementedError):
+            self.skipTest("симлинки недоступны")
+        os.utime(link, (self.now - 300 * self.DAY, self.now - 300 * self.DAY),
+                 follow_symlinks=False)
+        res = cm.scan_big_old(self.tmp, min_mb=2, min_days=180, now=self.now)
+        paths = [p for _, p, _ in res]
+        self.assertIn(target, paths)
+        self.assertNotIn(link, paths)
+
+    def test_top_limit(self):
+        for i in range(5):
+            self._mkfile(f"f{i}.bin", (2 + i) * self.MB, age_days=200)
+        res = cm.scan_big_old(self.tmp, min_mb=1, min_days=180, top=2, now=self.now)
+        self.assertEqual(len(res), 2)
+        self.assertEqual([s for s, _, _ in res], [6 * self.MB, 5 * self.MB])
+
+    def test_missing_and_empty_base(self):
+        self.assertEqual(cm.scan_big_old(os.path.join(self.tmp, "nope"), now=self.now), [])
+        self.assertEqual(cm.scan_big_old("", now=self.now), [])
+
+
+class TestBrowserSqliteDbs(unittest.TestCase):
+    """browser_sqlite_dbs: только существующие файлы, без падений."""
+
+    def test_returns_list_of_pairs(self):
+        dbs = cm.browser_sqlite_dbs()
+        self.assertIsInstance(dbs, list)
+        for item in dbs:
+            self.assertEqual(len(item), 2)
+            browser, path = item
+            self.assertIsInstance(browser, str)
+            self.assertTrue(os.path.isfile(path))
+            self.assertFalse(os.path.islink(path))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

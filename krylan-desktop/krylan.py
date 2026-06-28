@@ -85,6 +85,34 @@ I18N = {
     # --- инструменты (кнопки) ---
     "🖼 Похожие фото": "🖼 Similar photos", "🧩 Битые файлы": "🧩 Broken files",
     "🔄 Обновления": "🔄 Updates", "📄 Отчёт": "📄 Report",
+    # --- контекстное меню Проводника (Windows) ---
+    "🖱 Контекстное меню": "🖱 Context menu",
+    "🖱 Читаю контекстное меню Проводника…": "🖱 Reading Explorer context menu…",
+    "🖱  Контекстное меню Проводника": "🖱  Explorer context menu",
+    "Только Windows.": "Windows only.",
+    "Этот инструмент читает пункты меню Проводника из реестра "
+    "Windows (HKCR) и обратимо показывает/скрывает их флагом "
+    "LegacyDisable. На macOS/Linux он недоступен.":
+        "This tool reads Explorer menu items from the Windows registry (HKCR) "
+        "and reversibly shows/hides them with the LegacyDisable flag. "
+        "It is unavailable on macOS/Linux.",
+    "(нет пунктов)": "(no items)",
+    "включён": "enabled", "выключен": "disabled",
+    "только просмотр": "read-only",
+    "«выключить» добавляет обратимый флаг LegacyDisable "
+    "(ключ реестра НЕ удаляется); «включить» снимает его. "
+    "Хендлеры (shellex) показаны только для просмотра.":
+        "“disable” adds a reversible LegacyDisable flag "
+        "(the registry key is NOT deleted); “enable” removes it. "
+        "Handlers (shellex) are shown for viewing only.",
+    "🚫 {verb}": "🚫 {verb}", "✓ {verb}": "✓ {verb}",
+    "Скрыть пункт «{verb}» из контекстного меню?\n(обратимо: флаг LegacyDisable)":
+        "Hide item “{verb}” from the context menu?\n(reversible: LegacyDisable flag)",
+    "Показать пункт «{verb}» в контекстном меню?\n(снять флаг LegacyDisable)":
+        "Show item “{verb}” in the context menu?\n(remove the LegacyDisable flag)",
+    "Нужны права администратора для изменения этого пункта.":
+        "Administrator rights are required to change this item.",
+    "Не удалось изменить пункт: {e}": "Could not change the item: {e}",
     # --- сканер ---
     "Нажмите «Сканировать всё».": "Press “Scan everything”.",
     "⏰ Выключить авто-очистку": "⏰ Disable auto-clean",
@@ -1504,6 +1532,23 @@ def parse_startup_approved(blob):
         return (int(first) % 2) == 0
     except (TypeError, ValueError):
         return None
+
+def ctxmenu_status(values):
+    """Статус verb-пункта контекстного меню Проводника по списку ИМЁН его значений.
+
+    ЧИСТАЯ функция (тестируется без winreg). Соглашение Windows: пункт
+    `HKCR\\...\\shell\\<verb>` СКРЫТ из меню, если у него есть строковое
+    значение `LegacyDisable` (само значение пустое; важно лишь наличие).
+    Добавление/удаление этого флага скрывает/показывает пункт ОБРАТИМО,
+    без удаления ключа.
+
+    Принимает любой итерируемый список имён значений (регистр игнорируется).
+    Возвращает "выключен", если LegacyDisable присутствует, иначе "включён"."""
+    try:
+        names = {str(n).lower() for n in (values or [])}
+    except TypeError:
+        names = set()
+    return "выключен" if "legacydisable" in names else "включён"
 
 # ---------- Software Updater: устаревшие приложения через нативный менеджер ----------
 # Только ЧТЕНИЕ списка. Обновление пользователь запускает сам (команда-подсказка).
@@ -3011,6 +3056,7 @@ class Krylan(tk.Tk):
         bar = tk.Frame(self.main, bg=BG0); bar.pack(fill="x", padx=22)
         for lbl, cmd in [("⚙️ Автозагрузка", self.t_startup), ("👯 Дубликаты", self.t_dupes), ("🖼 Похожие фото", self.t_similar), ("📦 Крупные файлы", self.t_large),
                          ("🗺 Карта диска", self.t_diskmap), ("🧳 Деинсталлятор", self.t_uninstall),
+                         ("🖱 Контекстное меню", self.t_ctxmenu),
                          ("📂 Пустые папки", self.t_empty), ("🧩 Битые файлы", self.t_broken),
                          ("🔗 Битые ярлыки", self.t_shortcuts), ("📦🕒 Большие и старые", self.t_bigold),
                          ("📈 Что выросло", self.t_growth),
@@ -3346,6 +3392,150 @@ class Krylan(tk.Tk):
             except Exception:
                 lines.append(L("  dpkg не найден — посмотрите менеджер пакетов вашего дистрибутива.\n"))
         self.q.put(("tout", "".join(lines), None))
+
+    # ---------- 🖱 Менеджер контекстного меню Проводника (Windows) ----------
+    # Управление ВИДИМОСТЬЮ пунктов меню — НЕ «чистка реестра».
+    # Verb-пункты (shell\<verb>) скрываются/показываются ОБРАТИМО строковым
+    # флагом LegacyDisable (ключ НИКОГДА не удаляется). Shellex-хендлеры —
+    # только просмотр (их отключение рискованнее).
+    CTXMENU_VERB_ROOTS = [
+        (r"*\shell",                  "Файлы (*)"),
+        (r"Directory\shell",          "Папки"),
+        (r"Directory\Background\shell", "Фон папки"),
+    ]
+    CTXMENU_HANDLER_ROOTS = [
+        (r"*\shellex\ContextMenuHandlers",                  "Файлы (*) · хендлеры"),
+        (r"Directory\shellex\ContextMenuHandlers",          "Папки · хендлеры"),
+        (r"Directory\Background\shellex\ContextMenuHandlers", "Фон папки · хендлеры"),
+    ]
+
+    def t_ctxmenu(self):
+        self._out(L("🖱 Читаю контекстное меню Проводника…"))
+        threading.Thread(target=self._ctxmenu_w, daemon=True).start()
+
+    def _ctxmenu_w(self):
+        lines = [L("🖱  Контекстное меню Проводника") + "\n\n"]
+        toggles = []  # [(root, verb, "включён"/"выключен")] — для кнопок
+        if SYSTEM != "Windows":
+            lines.append("  " + L("Только Windows.") + "\n\n")
+            lines.append("  " + L("Этот инструмент читает пункты меню Проводника из реестра "
+                                  "Windows (HKCR) и обратимо показывает/скрывает их флагом "
+                                  "LegacyDisable. На macOS/Linux он недоступен.") + "\n")
+            self.q.put(("ctxmenu", "".join(lines), None)); return
+        try:
+            import winreg
+        except Exception as e:
+            lines.append("  " + L("ошибка чтения реестра: {e}").format(e=e) + "\n")
+            self.q.put(("ctxmenu", "".join(lines), None)); return
+
+        # --- verb-пункты (управляемые) ---
+        for root, title in self.CTXMENU_VERB_ROOTS:
+            lines.append("  " + title + "  (" + root + ")\n")
+            verbs = []
+            try:
+                rk = winreg.OpenKey(winreg.HKEY_CLASSES_ROOT, root)
+                try:
+                    for i in range(winreg.QueryInfoKey(rk)[0]):
+                        try: verbs.append(winreg.EnumKey(rk, i))
+                        except OSError: break
+                finally:
+                    winreg.CloseKey(rk)
+            except OSError:
+                lines.append("      " + L("(нет пунктов)") + "\n\n"); continue
+            if not verbs:
+                lines.append("      " + L("(нет пунктов)") + "\n")
+            for verb in sorted(verbs):
+                vpath = root + "\\" + verb
+                value_names, command = [], ""
+                try:
+                    vk = winreg.OpenKey(winreg.HKEY_CLASSES_ROOT, vpath)
+                    try:
+                        for j in range(winreg.QueryInfoKey(vk)[1]):
+                            try: value_names.append(winreg.EnumValue(vk, j)[0])
+                            except OSError: break
+                    finally:
+                        winreg.CloseKey(vk)
+                except OSError:
+                    pass
+                try:
+                    ck = winreg.OpenKey(winreg.HKEY_CLASSES_ROOT, vpath + "\\command")
+                    try:
+                        command = winreg.QueryValueEx(ck, "")[0] or ""
+                    finally:
+                        winreg.CloseKey(ck)
+                except OSError:
+                    pass
+                status = ctxmenu_status(value_names)
+                tag = L("включён") if status == "включён" else L("выключен")
+                lines.append(f"      • {verb}  [{tag}]\n")
+                if command:
+                    lines.append(f"          {command}\n")
+                toggles.append((root, verb, status))
+            lines.append("\n")
+
+        # --- shellex-хендлеры (только просмотр) ---
+        for root, title in self.CTXMENU_HANDLER_ROOTS:
+            lines.append("  " + title + "  (" + root + ")  — " + L("только просмотр") + "\n")
+            try:
+                rk = winreg.OpenKey(winreg.HKEY_CLASSES_ROOT, root)
+                try:
+                    handlers = []
+                    for i in range(winreg.QueryInfoKey(rk)[0]):
+                        try:
+                            hn = winreg.EnumKey(rk, i)
+                        except OSError:
+                            break
+                        clsid = ""
+                        try:
+                            hk = winreg.OpenKey(rk, hn)
+                            try: clsid = winreg.QueryValueEx(hk, "")[0] or ""
+                            finally: winreg.CloseKey(hk)
+                        except OSError:
+                            pass
+                        handlers.append((hn, clsid))
+                finally:
+                    winreg.CloseKey(rk)
+                if not handlers:
+                    lines.append("      " + L("(нет пунктов)") + "\n")
+                for hn, clsid in sorted(handlers):
+                    lines.append(f"      • {hn}" + (f"  {clsid}\n" if clsid else "\n"))
+            except OSError:
+                lines.append("      " + L("(нет пунктов)") + "\n")
+            lines.append("\n")
+
+        lines.append("  " + L("«выключить» добавляет обратимый флаг LegacyDisable "
+                              "(ключ реестра НЕ удаляется); «включить» снимает его. "
+                              "Хендлеры (shellex) показаны только для просмотра.") + "\n")
+        self.q.put(("ctxmenu", "".join(lines), toggles or None))
+
+    def _ctxmenu_toggle(self, root, verb, disable):
+        """Скрыть (disable=True) / показать (disable=False) verb-пункт меню
+        обратимым флагом LegacyDisable. Ключ реестра НИКОГДА не удаляется."""
+        if SYSTEM != "Windows":
+            return
+        if not messagebox.askyesno("KRYLAN",
+                (L("Скрыть пункт «{verb}» из контекстного меню?\n(обратимо: флаг LegacyDisable)")
+                 if disable else
+                 L("Показать пункт «{verb}» в контекстном меню?\n(снять флаг LegacyDisable)")).format(verb=verb)):
+            return
+        try:
+            import winreg
+            vpath = root + "\\" + verb
+            k = winreg.OpenKey(winreg.HKEY_CLASSES_ROOT, vpath, 0,
+                               winreg.KEY_SET_VALUE | winreg.KEY_QUERY_VALUE)
+            try:
+                if disable:
+                    winreg.SetValueEx(k, "LegacyDisable", 0, winreg.REG_SZ, "")
+                else:
+                    try: winreg.DeleteValue(k, "LegacyDisable")
+                    except OSError: pass  # уже отсутствует — пункт и так виден
+            finally:
+                winreg.CloseKey(k)
+        except PermissionError:
+            messagebox.showerror("KRYLAN", L("Нужны права администратора для изменения этого пункта."))
+        except Exception as e:
+            messagebox.showerror("KRYLAN", L("Не удалось изменить пункт: {e}").format(e=e))
+        self.t_ctxmenu()  # перечитать актуальный статус
 
     def t_privacy(self):
         self._out(L("🔒 Ищу следы браузеров…")); threading.Thread(target=self._privacy_w, daemon=True).start()
@@ -3879,6 +4069,17 @@ class Krylan(tk.Tk):
                     # как tout, но результат экспортируемый (большие файлы и т.п.)
                     if self.page == "tools":
                         self._out(a); self._add_export_buttons()
+                elif kind == "ctxmenu":
+                    if self.page == "tools":
+                        self._out(a)
+                        # b = [(root, verb, "включён"/"выключен")] — verb-пункты, управляемые
+                        for root, verb, status in (b or [])[:20]:
+                            if status == "включён":
+                                self._btn(self.t_action, L("🚫 {verb}").format(verb=verb), YELLOW,
+                                          lambda r=root, v=verb: self._ctxmenu_toggle(r, v, True)).pack(side="left", padx=(0,4), pady=4)
+                            else:
+                                self._btn(self.t_action, L("✓ {verb}").format(verb=verb), GREEN,
+                                          lambda r=root, v=verb: self._ctxmenu_toggle(r, v, False)).pack(side="left", padx=(0,4), pady=4)
                 elif kind == "scanout":
                     if self.page == "scan":
                         self._sout(a)

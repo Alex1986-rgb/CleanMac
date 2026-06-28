@@ -179,6 +179,38 @@ TR = {
         "Large Apple Mail attachments (> 5 MB). Check unneeded ones → Trash. "
         "The emails themselves are not deleted; on IMAP an attachment can be "
         "downloaded again.",
+    # --- 🗜 Сжать базы браузеров (VACUUM) ---
+    "🗜 Сжать базы браузеров":"🗜 Compact browser databases",
+    "Сжатие баз браузеров":"Compacting browser databases",
+    "Перепаковка баз SQLite (VACUUM) без потери данных. Только для закрытых "
+    "браузеров — запущенные пропускаются.":
+        "Repacking SQLite databases (VACUUM) without data loss. Closed browsers "
+        "only — running ones are skipped.",
+    "Найдено баз: ":"Databases found: ",
+    "  Баз для сжатия не найдено.":"  No databases to compact found.",
+    "⚠️ Сначала закройте: ":"⚠️ Close these first: ",
+    " — их базы заняты и будут пропущены.":
+        " — their databases are locked and will be skipped.",
+    "🗜 Сжать закрытые браузеры":"🗜 Compact closed browsers",
+    "Сжать базы закрытых браузеров?\nДанные не удаляются — только перепаковка "
+    "(VACUUM).":
+        "Compact databases of closed browsers?\nNo data is deleted — repack only "
+        "(VACUUM).",
+    "Сжато баз: ":"Databases compacted: ",
+    " · сэкономлено ":" · saved ",
+    " · пропущено (браузер запущен): ":" · skipped (browser running): ",
+    "Все найденные браузеры запущены — закройте их и повторите.":
+        "All found browsers are running — close them and try again.",
+    # --- 📦🕒 Большие и старые ---
+    "📦🕒 Большие и старые":"📦🕒 Big & old",
+    "Большие и старые файлы":"Big & old files",
+    "Крупные файлы, которые давно не открывали и не меняли (размер × возраст). "
+    "Отметьте лишние → в Корзину.":
+        "Large files untouched and unchanged for a long time (size × age). Check "
+        "unneeded ones → Trash.",
+    "  Больших старых файлов не найдено.":"  No big old files found.",
+    "Размер ≥":"Size ≥","Возраст ≥":"Age ≥",
+    "МБ":"MB","дн":"days",
 }
 def L(s):
     return TR.get(s, s) if LANG=="en" else s
@@ -414,6 +446,126 @@ def scan_mail_attachments(bases, min_mb=5, top=200):
                     out.append((st.st_size, fp))
                 except OSError:
                     pass
+    out.sort(reverse=True)
+    return out[:top] if top else out
+
+
+# ---------- 🗜 Сжатие баз браузеров (VACUUM SQLite) ----------
+# Семейство Chromium: User Data браузера внутри ~/Library/Application Support.
+# Маппинг «процесс браузера → его UserData» для пропуска занятых файлов и поиска
+# баз SQLite. Процесс — то, что видит app_running (через `ps -axo comm`).
+SQLITE_CHROMIUM = [
+    # (метка, имя процесса для app_running, относительный путь к User Data)
+    ("Chrome", "Google Chrome",  "Google/Chrome"),
+    ("Brave",  "Brave Browser",  "BraveSoftware/Brave-Browser"),
+    ("Edge",   "Microsoft Edge", "Microsoft Edge"),
+]
+# Базы SQLite Chromium лежат БЕЗ расширения .sqlite (это файлы такого формата).
+_CHROMIUM_DB_FILES = ("History", "Cookies", "Favicons", "Web Data", "Top Sites")
+
+
+def vacuum_sqlite(path):
+    """Сжать одну базу SQLite на месте через VACUUM. Возвращает (before, after)
+    в байтах. Только sqlite3 из стандартной библиотеки; данные НЕ удаляются
+    (VACUUM лишь перепаковывает файл). Любая ошибка/не-БД → (size, size)
+    (изменений нет). Вызывать ТОЛЬКО при закрытом браузере — иначе файл занят
+    и VACUUM либо упадёт, либо повредит данные. Чистая и тестируемая."""
+    import sqlite3
+    try:
+        before = os.path.getsize(path)
+    except OSError:
+        return (0, 0)
+    try:
+        con = sqlite3.connect(path)
+        try:
+            con.execute("VACUUM")
+            con.commit()
+        finally:
+            con.close()
+    except Exception:
+        return (before, before)
+    try:
+        after = os.path.getsize(path)
+    except OSError:
+        after = before
+    return (before, after)
+
+
+def browser_sqlite_dbs():
+    """Файлы баз SQLite браузеров (history/cookies/favicons/web data), пригодные
+    для VACUUM. Возвращает [(браузер, путь)] — только существующие обычные файлы.
+
+    macOS:
+      • Chromium (Chrome/Brave/Edge):
+        ~/Library/Application Support/<UserData>/<Profile>/{History,Cookies,…}
+        Профили: Default, Profile 1, … (БЕЗ расширения .sqlite);
+      • Firefox: ~/Library/Application Support/Firefox/Profiles/*/*.sqlite.
+    Чистая ФС-функция (без subprocess/GUI) — тестируется на temp-дереве."""
+    import glob
+    appsup = os.path.join(HOME, "Library/Application Support")
+    out = []
+    for browser, _proc, rel in SQLITE_CHROMIUM:
+        base = os.path.join(appsup, rel)
+        if not os.path.isdir(base):
+            continue
+        for prof in glob.glob(os.path.join(base, "*")):
+            if not os.path.isdir(prof):
+                continue
+            for fn in _CHROMIUM_DB_FILES:
+                fp = os.path.join(prof, fn)
+                if os.path.isfile(fp) and not os.path.islink(fp):
+                    out.append((browser, fp))
+    ff = os.path.join(appsup, "Firefox/Profiles")
+    for fp in glob.glob(os.path.join(ff, "*", "*.sqlite")):
+        if os.path.isfile(fp) and not os.path.islink(fp):
+            out.append(("Firefox", fp))
+    return out
+
+
+def scan_big_old(base, min_mb=200, min_days=180, top=100, now=None):
+    """Файлы размером ≥ ``min_mb`` МБ И не открывавшиеся/менявшиеся ≥ ``min_days``
+    дней. Возвращает отсортированный по размеру (убыв.) список
+    ``(size, path, age_days)``.
+
+    Это НЕ дубль «Старых загрузок» (только ~/Downloads, без порога размера) и
+    не «Крупных файлов» (только размер, без возраста) — здесь фильтр размер ×
+    возраст одновременно. Чистая ФС-функция (без subprocess/GUI) — тестируется
+    на temp-дереве.
+
+    Безопасно:
+      • симлинки пропускаем (os.path.islink) — не идём по чужим целям;
+      • is_protected() исключает защищённые/системные пути;
+      • возраст = по max(mtime, atime) — «последнее касание» (открыли ИЛИ
+        изменили);
+      • ``now`` передаётся в тестах для детерминизма (по умолчанию time.time()).
+    """
+    if now is None:
+        now = time.time()
+    min_bytes = int(min_mb) * 1024 * 1024
+    cutoff_age = int(min_days) * 86400
+    out = []
+    if not base or not os.path.isdir(base):
+        return out
+    for root, dirs, files in os.walk(base, topdown=True, followlinks=False):
+        # не уходим в симлинки-каталоги
+        dirs[:] = [d for d in dirs if not os.path.islink(os.path.join(root, d))]
+        for fn in files:
+            fp = os.path.join(root, fn)
+            try:
+                if os.path.islink(fp):
+                    continue
+                st = os.lstat(fp)
+                if st.st_size < min_bytes:
+                    continue
+                last_touch = max(st.st_mtime, st.st_atime)
+                age = now - last_touch
+                if age < cutoff_age:
+                    continue
+                if is_protected(fp):
+                    continue
+                out.append((st.st_size, fp, int(age // 86400)))
+            except OSError:
+                pass
     out.sort(reverse=True)
     return out[:top] if top else out
 
@@ -2090,10 +2242,12 @@ class CleanMac(tk.Tk):
                  ).pack(anchor="w", padx=24, pady=(16,8))
         self.tool_chips={}
         chips=[("startup","⚙️ Автозагрузка"),("large","📦 Крупные файлы"),
+               ("bigold",L("📦🕒 Большие и старые")),
                ("olddl","🕒 Старые загрузки"),("mailatt","📧 Вложения Почты"),
                ("dupes","👯 Дубликаты"),("uninstall","🧩 Деинсталлятор"),
                ("disk","🗺 Карта диска"),("maintain","🩺 Обслуживание"),
                ("shots","📸 Скриншоты"),("shred","🔥 Шредер"),
+               ("vacuum",L("🗜 Сжать базы браузеров")),
                ("updater","📦 Апдейтер"),("leftovers","🧹 Остатки"),("history","📜 История"),
                ("browsers","🌐 Браузеры"),("extensions","🧩 Расширения браузеров"),
                ("trash","♻️ Корзина")]
@@ -2117,9 +2271,11 @@ class CleanMac(tk.Tk):
         for k,b in self.tool_chips.items(): b.configure(bg=(BLUE if k==key else GLASS), fg=("white" if k==key else TEXT))
         for w in self.tpanel.winfo_children(): w.destroy()
         self._lv=[]
-        {"startup":self._t_startup,"large":self._t_large,"olddl":self._t_olddl,"mailatt":self._t_mailatt,"dupes":self._t_dupes,
+        {"startup":self._t_startup,"large":self._t_large,"bigold":self._t_bigold,
+         "olddl":self._t_olddl,"mailatt":self._t_mailatt,"dupes":self._t_dupes,
          "uninstall":self._t_uninstall,"disk":self._t_disk,"maintain":self._t_maintain,
-         "shots":self._t_shots,"shred":self._t_shred,"updater":self._t_updater,
+         "shots":self._t_shots,"shred":self._t_shred,"vacuum":self._t_vacuum,
+         "updater":self._t_updater,
          "leftovers":self._t_leftovers,"history":self._t_history,
          "browsers":self._t_browsers,"extensions":self._t_extensions,
          "trash":self._t_trash}[key]()
@@ -2278,6 +2434,55 @@ class CleanMac(tk.Tk):
             tk.Label(inner, text="  Старых загрузок не найдено.", bg=GLASS, fg=MUTED).pack(anchor="w", padx=8, pady=8)
         self._actionbar(f"Найдено: {len(rows)} (~{human(sum(s for s,_,_ in rows))})",
                         lambda: self._trash_sel(lambda: self._tool('olddl')))
+
+    # --- 📦🕒 Большие и старые (размер × возраст) ---
+    def _t_bigold(self):
+        if not hasattr(self, "_bigold_mb"):   self._bigold_mb = 200
+        if not hasattr(self, "_bigold_days"): self._bigold_days = 180
+        self._ptitle(L("Большие и старые файлы"),
+                     L("Крупные файлы, которые давно не открывали и не меняли (размер × возраст). "
+                       "Отметьте лишние → в Корзину."))
+        tk.Label(self.tpanel, text=L("🔎 Сканирую…"), bg=BG0, fg=MUTED,
+                 font=("SF Pro Text",11)).pack(anchor="w")
+        mb, days = self._bigold_mb, self._bigold_days
+        threading.Thread(target=lambda: self._bigold_w(mb, days), daemon=True).start()
+
+    def _bigold_w(self, mb, days):
+        rows = scan_big_old(HOME, min_mb=mb, min_days=days, top=200)
+        self.q.put(("tool", ("bigold", rows), None))
+
+    def _render_bigold(self, rows):
+        for w in self.tpanel.winfo_children(): w.destroy()
+        self._lv = []
+        mb, days = getattr(self,"_bigold_mb",200), getattr(self,"_bigold_days",180)
+        self._ptitle(L("Большие и старые файлы"),
+                     L("Крупные файлы, которые давно не открывали и не меняли (размер × возраст). "
+                       "Отметьте лишние → в Корзину."))
+        bar = tk.Frame(self.tpanel, bg=BG0); bar.pack(fill="x", pady=(0,4))
+        tk.Label(bar, text=L("Размер ≥"), bg=BG0, fg=MUTED, font=("SF Pro Text",11)).pack(side="left", padx=(0,4))
+        for v in (100, 200, 500, 1024):
+            lbl = ("1 ГБ" if v==1024 else f"{v} {L('МБ')}")
+            sel = (v == mb)
+            ch = tk.Label(bar, text=lbl, bg=(BLUE if sel else GLASS_HI), fg=("white" if sel else TEXT),
+                          font=("SF Pro Text",11,"bold"), padx=9, pady=4, cursor="pointinghand")
+            ch.pack(side="left", padx=2)
+            ch.bind("<Button-1>", lambda e, vv=v: (setattr(self,"_bigold_mb",vv), self._t_bigold()))
+        tk.Label(bar, text="   "+L("Возраст ≥"), bg=BG0, fg=MUTED, font=("SF Pro Text",11)).pack(side="left", padx=(0,4))
+        for d in (90, 180, 365):
+            lbl = {90:"3 мес", 180:"6 мес", 365:"1 год"}[d]
+            sel = (d == days)
+            ch = tk.Label(bar, text=lbl, bg=(BLUE if sel else GLASS_HI), fg=("white" if sel else TEXT),
+                          font=("SF Pro Text",11,"bold"), padx=9, pady=4, cursor="pointinghand")
+            ch.pack(side="left", padx=2)
+            ch.bind("<Button-1>", lambda e, dd=d: (setattr(self,"_bigold_days",dd), self._t_bigold()))
+        inner = self._scrollarea()
+        for s, fp, age in rows:
+            agetxt = f"{age//365} г" if age >= 365 else f"{age} дн"
+            self._checkrow(inner, fp, f"{fp.replace(HOME,'~')}   ·   {agetxt}", s)
+        if not rows:
+            tk.Label(inner, text=L("  Больших старых файлов не найдено."), bg=GLASS, fg=MUTED).pack(anchor="w", padx=8, pady=8)
+        self._actionbar(f"{L('Найдено')}: {len(rows)} (~{human(sum(s for s,_,_ in rows))})",
+                        lambda: self._trash_sel(lambda: self._tool('bigold')))
 
     # --- Вложения Почты ---
     @staticmethod
@@ -2870,6 +3075,91 @@ class CleanMac(tk.Tk):
             if app_running(app) and app!=front: run(["osascript","-e",f'quit app "{app}"']); closed.append(app)
         self._brez.configure(text=("Закрыты: "+", ".join(closed)) if closed else "Фоновых браузеров нет.")
 
+    # --- 🗜 Сжать базы браузеров (VACUUM SQLite) ---
+    @staticmethod
+    def _browser_proc(label):
+        """Имя процесса браузера для app_running по его метке."""
+        for lbl, proc, _rel in SQLITE_CHROMIUM:
+            if lbl == label:
+                return proc
+        return "Firefox" if label == "Firefox" else label
+
+    def _t_vacuum(self):
+        self._ptitle(L("Сжатие баз браузеров"),
+                     L("Перепаковка баз SQLite (VACUUM) без потери данных. Только для закрытых "
+                       "браузеров — запущенные пропускаются."))
+        tk.Label(self.tpanel, text=L("🔎 Сканирую…"), bg=BG0, fg=MUTED,
+                 font=("SF Pro Text",11)).pack(anchor="w")
+        threading.Thread(target=self._vacuum_w, daemon=True).start()
+
+    def _vacuum_w(self):
+        try:
+            dbs = browser_sqlite_dbs()
+        except Exception:
+            dbs = []
+        # запущенность браузера определяем один раз на метку
+        running = {}
+        rows = []
+        for browser, fp in dbs:
+            if browser not in running:
+                try: running[browser] = app_running(self._browser_proc(browser))
+                except Exception: running[browser] = False
+            try: sz = os.path.getsize(fp)
+            except OSError: sz = 0
+            rows.append((browser, fp, sz, running[browser]))
+        self.q.put(("tool", ("vacuum", rows), None))
+
+    def _render_vacuum(self, rows):
+        for w in self.tpanel.winfo_children(): w.destroy()
+        self._lv = []
+        self._ptitle(L("Сжатие баз браузеров"),
+                     L("Перепаковка баз SQLite (VACUUM) без потери данных. Только для закрытых "
+                       "браузеров — запущенные пропускаются."))
+        busy = sorted({b for b,_,_,run_ in rows if run_})
+        if busy:
+            tk.Label(self.tpanel, text=L("⚠️ Сначала закройте: ")+", ".join(busy)+L(" — их базы заняты и будут пропущены."),
+                     bg=BG0, fg=YELLOW, font=("SF Pro Text",11), wraplength=560, justify="left").pack(anchor="w", pady=(0,4))
+        inner = self._scrollarea()
+        for browser, fp, sz, run_ in rows:
+            mark = "🔒 " if run_ else ""
+            r = tk.Frame(inner, bg=GLASS); r.pack(fill="x", padx=8, pady=1)
+            tk.Label(r, text=human(sz), bg=GLASS, fg=MUTED, font=("SF Pro Text",10),
+                     width=9, anchor="e").pack(side="right", padx=(6,4))
+            tk.Label(r, text=f"{mark}{browser}  ·  {os.path.basename(fp)}", bg=GLASS,
+                     fg=(MUTED if run_ else TEXT), font=("SF Pro Text",11), anchor="w").pack(side="left", fill="x", expand=True)
+        if not rows:
+            tk.Label(inner, text=L("  Баз для сжатия не найдено."), bg=GLASS, fg=MUTED).pack(anchor="w", padx=8, pady=8)
+        closed = [(b,fp,sz) for b,fp,sz,run_ in rows if not run_]
+        bar = tk.Frame(self.tpanel, bg=BG0); bar.pack(fill="x")
+        tk.Label(bar, text=f"{L('Найдено баз: ')}{len(rows)} (~{human(sum(sz for _,_,sz,_ in rows))})",
+                 bg=BG0, fg=TEXT, font=("SF Pro Text",12,"bold")).pack(side="left")
+        if closed:
+            self._btn(bar, L("🗜 Сжать закрытые браузеры"), GREEN,
+                      lambda c=closed: self._vacuum_run(c)).pack(side="right")
+
+    def _vacuum_run(self, closed):
+        if not closed: return
+        if not messagebox.askyesno("CleanMac",
+            L("Сжать базы закрытых браузеров?\nДанные не удаляются — только перепаковка (VACUUM).")):
+            return
+        self.status(L("Сжатие баз браузеров"))
+        threading.Thread(target=lambda c=closed: self._vacuum_do(c), daemon=True).start()
+
+    def _vacuum_do(self, closed):
+        done, saved, skipped = 0, 0, 0
+        for browser, fp, _sz in closed:
+            # повторно убеждаемся, что браузер всё ещё закрыт (мог стартовать)
+            try:
+                if app_running(self._browser_proc(browser)):
+                    skipped += 1; continue
+            except Exception:
+                pass
+            before, after = vacuum_sqlite(fp)
+            if after < before:
+                saved += (before - after)
+            done += 1
+        self.q.put(("vacuumed", (done, saved, skipped), None))
+
     # --- Расширения браузеров (read-only) ---
     def _t_extensions(self):
         self._ptitle(L("Расширения браузеров"),
@@ -3255,10 +3545,22 @@ class CleanMac(tk.Tk):
                 elif kind=="tool" and self.page=="tools":
                     sub,data=a
                     if sub=="large": self._render_large(data)
+                    elif sub=="bigold": self._render_bigold(data)
                     elif sub=="olddl": self._render_olddl(data)
                     elif sub=="mailatt": self._render_mailatt(data)
                     elif sub=="dupes": self._render_dupes(data)
+                    elif sub=="vacuum": self._render_vacuum(data)
                     elif sub=="extensions": self._render_extensions(data)
+                elif kind=="vacuumed":
+                    done, saved, skipped = a
+                    self.status("")
+                    if done == 0 and skipped > 0:
+                        messagebox.showinfo("CleanMac", L("Все найденные браузеры запущены — закройте их и повторите."))
+                    else:
+                        msg = f"{L('Сжато баз: ')}{done}{L(' · сэкономлено ')}{human(saved)}"
+                        if skipped: msg += f"{L(' · пропущено (браузер запущен): ')}{skipped}"
+                        messagebox.showinfo("CleanMac", msg)
+                    if self.page=="tools": self._tool("vacuum")
                 elif kind=="disk" and self.page=="tools": self._render_disk(a)
                 elif kind=="sunburst" and self.page=="tools": self._on_sun_tree(a)
                 elif kind=="bench" and self.page=="tools": self._render_bench(a)

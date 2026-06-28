@@ -1289,6 +1289,21 @@ class TestStartupApproved(unittest.TestCase):
         self.assertIsNone(krylan.parse_startup_approved(None))
 
 
+class TestCtxMenuStatus(unittest.TestCase):
+    def test_disabled_when_legacydisable_present(self):
+        self.assertEqual(krylan.ctxmenu_status(["LegacyDisable"]), "выключен")
+        self.assertEqual(krylan.ctxmenu_status(["Icon", "LegacyDisable", "MUIVerb"]), "выключен")
+
+    def test_case_insensitive(self):
+        self.assertEqual(krylan.ctxmenu_status(["legacydisable"]), "выключен")
+        self.assertEqual(krylan.ctxmenu_status(["LEGACYDISABLE"]), "выключен")
+
+    def test_enabled_without_legacydisable(self):
+        self.assertEqual(krylan.ctxmenu_status([]), "включён")
+        self.assertEqual(krylan.ctxmenu_status(["Icon", "MUIVerb"]), "включён")
+        self.assertEqual(krylan.ctxmenu_status(None), "включён")
+
+
 class TestDiskCheck(unittest.TestCase):
     def test_no_errors_chkdsk(self):
         txt = ("Windows has scanned the file system and found no problems.\n"
