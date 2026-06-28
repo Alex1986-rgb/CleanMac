@@ -19,17 +19,24 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -112,8 +119,13 @@ private class MediaActions(
 
     /** Вызывается после успешного системного запроса «в корзину». */
     fun onTrashed(count: Int) {
-        statusText = "Перемещено в корзину: $count"
-        canUndo = true
+        statusText = if (supportsTrash) {
+            "Перенесено в корзину: $count. Освободится через 30 дней или очисти " +
+                "вручную в Google Фото / Файлах."
+        } else {
+            "Удалено: $count"
+        }
+        canUndo = supportsTrash
     }
 
     /** Вызывается после успешного восстановления из корзины. */
@@ -245,11 +257,16 @@ private fun GenericMediaScreen(ctx: Context, title: String, loader: (Context) ->
         var reload by remember { mutableIntStateOf(0) }
         // null = идёт загрузка; иначе результат (возможно пустой).
         var files by remember { mutableStateOf<List<MediaFile>?>(null) }
+        // Сброс выбора после успешного удаления/перезагрузки списка.
+        var selected by remember { mutableStateOf<Set<Long>>(emptySet()) }
         val actions = rememberMediaActions(ctx) { reload++ }
+        val haptics = LocalHapticFeedback.current
 
+        // Авто-скан при открытии экрана (разрешения уже выданы — мы внутри гейта).
         // Тяжёлый запрос MediaStore — в IO, чтобы не блокировать главный поток.
         LaunchedEffect(reload, title) {
             files = null
+            selected = emptySet()
             files = withContext(Dispatchers.IO) {
                 try { loader(ctx) } catch (e: Exception) { emptyList() }
             }
@@ -257,8 +274,6 @@ private fun GenericMediaScreen(ctx: Context, title: String, loader: (Context) ->
 
         val list = files
         val total = list?.sumOf { it.size } ?: 0L
-        // Действие на строке: безопасно — «В корзину» (API 30+), иначе «Удалить».
-        val rowLabel = if (actions.supportsTrash) "В корзину" else "Удалить"
 
         var sortMode by remember { mutableStateOf(SortMode.Size) }
         // Только сортировка отображения: пересчитываем при смене режима или перезагрузке списка.
@@ -269,13 +284,19 @@ private fun GenericMediaScreen(ctx: Context, title: String, loader: (Context) ->
             }
         }
 
+        // Выбранные файлы и их суммарный размер (оценка освобождаемого места).
+        val selectedFiles = remember(sorted, selected) {
+            sorted?.filter { it.id in selected }.orEmpty()
+        }
+        val selectedBytes = selectedFiles.sumOf { it.size }
+
         Column(Modifier.fillMaxSize().background(Brand.bg0)) {
             TrashBanner(actions)
             if (sorted != null && sorted.isNotEmpty()) {
                 SortChips(sortMode) { sortMode = it }
             }
             LazyColumn(
-                Modifier.fillMaxSize(),
+                Modifier.weight(1f).fillMaxWidth(),
                 contentPadding = PaddingValues(20.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
@@ -290,13 +311,92 @@ private fun GenericMediaScreen(ctx: Context, title: String, loader: (Context) ->
                             modifier = Modifier.padding(bottom = 4.dp))
                     }
                     items(sorted, key = { it.id }) { f ->
-                        FileRow(f, actionLabel = rowLabel) { actions.remove(listOf(f)) }
+                        SelectableFileRow(
+                            f = f,
+                            checked = f.id in selected,
+                            onToggle = {
+                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                selected = if (f.id in selected) selected - f.id else selected + f.id
+                            }
+                        )
                     }
                     if (sorted.isEmpty()) item {
                         Text("Ничего не найдено.", color = Brand.muted, fontSize = 14.sp)
                     }
                 }
             }
+            // Панель массового действия: видна, когда список загружен и непустой.
+            if (sorted != null && sorted.isNotEmpty()) {
+                val allSelected = selected.size == sorted.size
+                SelectionBar(
+                    allSelected = allSelected,
+                    selectedCount = selectedFiles.size,
+                    selectedBytes = selectedBytes,
+                    supportsTrash = actions.supportsTrash,
+                    onToggleAll = {
+                        selected = if (allSelected) emptySet() else sorted.map { it.id }.toSet()
+                    },
+                    onDelete = {
+                        if (selectedFiles.isNotEmpty()) {
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            actions.remove(selectedFiles)
+                        }
+                    }
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Нижняя панель массового выбора: «Выбрать все»/«Снять» + «Удалить выбранные (N)»
+ * с честной оценкой «освободит ≈ X». На Android 11+ удаление идёт в корзину.
+ */
+@Composable
+private fun SelectionBar(
+    allSelected: Boolean,
+    selectedCount: Int,
+    selectedBytes: Long,
+    supportsTrash: Boolean,
+    onToggleAll: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    val deleteVerb = if (supportsTrash) "В корзину" else "Удалить"
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .background(Brand.glass)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            TextButton(onClick = onToggleAll) {
+                Text(
+                    if (allSelected) "Снять выбор" else "Выбрать все",
+                    color = Brand.cyan, fontWeight = FontWeight.Bold, fontSize = 13.sp
+                )
+            }
+            Spacer(Modifier.weight(1f))
+            if (selectedCount > 0) {
+                Text(
+                    "освободит ≈ ${SystemInfo.fmtSize(selectedBytes)}",
+                    color = Brand.muted, fontSize = 12.sp
+                )
+            }
+        }
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(14.dp))
+                .background(if (selectedCount > 0) Brand.red else Brand.red.copy(alpha = 0.4f))
+                .clickable(enabled = selectedCount > 0, onClick = onDelete)
+                .padding(vertical = 13.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                if (selectedCount > 0) "$deleteVerb выбранные ($selectedCount)" else "Ничего не выбрано",
+                color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold
+            )
         }
     }
 }
@@ -358,11 +458,15 @@ fun DuplicatesScreen(ctx: Context) {
         var reload by remember { mutableIntStateOf(0) }
         // null = идёт скан (до 5000 строк MediaStore); иначе результат (возможно пустой).
         var groups by remember { mutableStateOf<List<List<MediaFile>>?>(null) }
+        // Выбранные к удалению (по id). «Лучший» в группе никогда сюда не попадает по умолчанию.
+        var selected by remember { mutableStateOf<Set<Long>>(emptySet()) }
         val actions = rememberMediaActions(ctx) { reload++ }
+        val haptics = LocalHapticFeedback.current
 
-        // Тяжёлый скан дубликатов — в IO, чтобы не блокировать главный поток.
+        // Авто-скан при открытии. Тяжёлый скан дубликатов — в IO.
         LaunchedEffect(reload) {
             groups = null
+            selected = emptySet()
             groups = withContext(Dispatchers.IO) {
                 try { MediaStoreUtils.duplicateGroups(ctx) } catch (e: Exception) { emptyList() }
             }
@@ -370,12 +474,21 @@ fun DuplicatesScreen(ctx: Context) {
 
         val list = groups
         val wastedBytes = list?.sumOf { g -> g.first().size * (g.size - 1) } ?: 0L
-        val dupLabelPrefix = if (actions.supportsTrash) "В корзину лишние" else "Удалить лишние"
+
+        // «Лучший» в каждой группе = первый (группы отсортированы, размеры внутри равны) — его оставляем.
+        // Все остальные id — кандидаты на удаление.
+        val allDeletableIds = remember(list) {
+            list?.flatMap { g -> g.drop(1).map { it.id } }?.toSet() ?: emptySet()
+        }
+        val selectedFiles = remember(list, selected) {
+            list?.flatten()?.filter { it.id in selected }.orEmpty()
+        }
+        val selectedBytes = selectedFiles.sumOf { it.size }
 
         Column(Modifier.fillMaxSize().background(Brand.bg0)) {
             TrashBanner(actions)
             LazyColumn(
-                Modifier.fillMaxSize(),
+                Modifier.weight(1f).fillMaxWidth(),
                 contentPadding = PaddingValues(20.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
@@ -403,11 +516,42 @@ fun DuplicatesScreen(ctx: Context) {
                     shape = RoundedCornerShape(16.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text(g.first().name, color = Brand.text, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(g.first().name, color = Brand.text, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1)
                         Text("${g.size} копии · ${SystemInfo.fmtSize(g.first().size)} каждая", color = Brand.muted, fontSize = 12.sp)
-                        TextButton(onClick = { actions.remove(g.drop(1)) }) {
-                            Text("$dupLabelPrefix (${g.size - 1})", color = Brand.red, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        // Каждая копия с галочкой. Первая помечена «оставить» и не выбирается.
+                        g.forEachIndexed { idx, f ->
+                            val isBest = idx == 0
+                            val checked = f.id in selected
+                            Row(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .clickable(enabled = !isBest) {
+                                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        selected = if (checked) selected - f.id else selected + f.id
+                                    }
+                                    .padding(vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Icon(
+                                    imageVector = if (checked) Icons.Filled.CheckCircle else Icons.Filled.RadioButtonUnchecked,
+                                    contentDescription = null,
+                                    tint = when {
+                                        isBest -> Brand.muted.copy(alpha = 0.4f)
+                                        checked -> Brand.green
+                                        else -> Brand.muted
+                                    },
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Text(
+                                    "Копия ${idx + 1}" + if (isBest) " · оставить" else "",
+                                    color = if (isBest) Brand.green else Brand.text,
+                                    fontSize = 12.sp,
+                                    fontWeight = if (isBest) FontWeight.Bold else FontWeight.Normal
+                                )
+                            }
                         }
                     }
                 }
@@ -417,28 +561,112 @@ fun DuplicatesScreen(ctx: Context) {
             }
             }
             }
+            // Панель: «Выбрать все, кроме лучшего» / «Снять» + удалить выбранные.
+            if (list != null && list.isNotEmpty()) {
+                val allDeletableSelected = allDeletableIds.isNotEmpty() && selected.containsAll(allDeletableIds)
+                DuplicatesSelectionBar(
+                    allSelected = allDeletableSelected,
+                    selectedCount = selectedFiles.size,
+                    selectedBytes = selectedBytes,
+                    supportsTrash = actions.supportsTrash,
+                    onToggleAll = {
+                        selected = if (allDeletableSelected) emptySet() else allDeletableIds
+                    },
+                    onDelete = {
+                        if (selectedFiles.isNotEmpty()) {
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            actions.remove(selectedFiles)
+                        }
+                    }
+                )
+            }
         }
     }
 }
 
+/**
+ * Нижняя панель для дублей: «Выбрать все, кроме лучшего» (оставить по одной копии)
+ * + «Удалить выбранные (N)» с оценкой освобождаемого места.
+ */
 @Composable
-private fun FileRow(f: MediaFile, actionLabel: String, onAction: () -> Unit) {
+private fun DuplicatesSelectionBar(
+    allSelected: Boolean,
+    selectedCount: Int,
+    selectedBytes: Long,
+    supportsTrash: Boolean,
+    onToggleAll: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    val deleteVerb = if (supportsTrash) "В корзину" else "Удалить"
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .background(Brand.glass)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            TextButton(onClick = onToggleAll) {
+                Text(
+                    if (allSelected) "Снять выбор" else "Выбрать все, кроме лучшего",
+                    color = Brand.cyan, fontWeight = FontWeight.Bold, fontSize = 13.sp
+                )
+            }
+            Spacer(Modifier.weight(1f))
+            if (selectedCount > 0) {
+                Text(
+                    "освободит ≈ ${SystemInfo.fmtSize(selectedBytes)}",
+                    color = Brand.muted, fontSize = 12.sp
+                )
+            }
+        }
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(14.dp))
+                .background(if (selectedCount > 0) Brand.red else Brand.red.copy(alpha = 0.4f))
+                .clickable(enabled = selectedCount > 0, onClick = onDelete)
+                .padding(vertical = 13.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                if (selectedCount > 0) "$deleteVerb выбранные ($selectedCount)" else "Ничего не выбрано",
+                color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold
+            )
+        }
+    }
+}
+
+/**
+ * Строка файла с кружком-галочкой выбора. Тап по всей строке переключает выбор.
+ * Выбранный — зелёный CheckCircle; невыбранный — серый RadioButtonUnchecked.
+ */
+@Composable
+private fun SelectableFileRow(f: MediaFile, checked: Boolean, onToggle: () -> Unit) {
     Card(
-        colors = CardDefaults.cardColors(containerColor = Brand.glass),
+        colors = CardDefaults.cardColors(
+            containerColor = if (checked) Brand.green.copy(alpha = 0.12f) else Brand.glass
+        ),
         shape = RoundedCornerShape(16.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
         Row(
-            Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+            Modifier
+                .clip(RoundedCornerShape(16.dp))
+                .clickable(onClick = onToggle)
+                .padding(horizontal = 14.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            Icon(
+                imageVector = if (checked) Icons.Filled.CheckCircle else Icons.Filled.RadioButtonUnchecked,
+                contentDescription = if (checked) "Выбрано" else "Не выбрано",
+                tint = if (checked) Brand.green else Brand.muted,
+                modifier = Modifier.size(24.dp).clip(CircleShape)
+            )
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(f.name, color = Brand.text, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1)
                 Text(SystemInfo.fmtSize(f.size), color = Brand.muted, fontSize = 12.sp)
-            }
-            TextButton(onClick = onAction) {
-                Text(actionLabel, color = Brand.red, fontSize = 13.sp, fontWeight = FontWeight.Bold)
             }
         }
     }

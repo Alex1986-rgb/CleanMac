@@ -9,6 +9,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -16,6 +17,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -48,6 +51,7 @@ fun HudGauge(
     label: String,
     valueText: String,
     size: Dp = 84.dp,
+    onTap: (() -> Unit)? = null,
 ) {
     val frac = progress.coerceIn(0f, 1f)
     val transition = rememberInfiniteTransition(label = "hud-gauge")
@@ -61,7 +65,15 @@ fun HudGauge(
         label = "hud-pulse"
     )
 
-    Box(contentAlignment = Alignment.Center, modifier = Modifier.size(size)) {
+    val tapModifier = if (onTap != null) {
+        Modifier
+            .size(size)
+            .clip(CircleShape)
+            .clickable(onClick = onTap)
+    } else {
+        Modifier.size(size)
+    }
+    Box(contentAlignment = Alignment.Center, modifier = tapModifier) {
         Canvas(Modifier.size(size)) {
             val cx = this.size.width / 2f
             val cy = this.size.height / 2f
@@ -159,6 +171,7 @@ fun HudConsole(
     upRate: String,
     ekg: List<Float>,
     modifier: Modifier = Modifier,
+    onMetricTap: (HudMetric) -> Unit = {},
 ) {
     // Стабильные звёзды на всё время жизни компонента.
     val stars = remember {
@@ -290,7 +303,8 @@ fun HudConsole(
                         color = m.color,
                         label = m.label,
                         valueText = m.valueText,
-                        size = gaugeSize
+                        size = gaugeSize,
+                        onTap = { onMetricTap(m) }
                     )
                 }
             }

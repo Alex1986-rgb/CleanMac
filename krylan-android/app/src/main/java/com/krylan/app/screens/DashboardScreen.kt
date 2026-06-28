@@ -2,6 +2,8 @@
 package com.krylan.app.screens
 
 import android.content.Context
+import android.content.Intent
+import android.provider.Settings
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -17,7 +19,10 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.Text
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
@@ -26,6 +31,7 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Photo
 import androidx.compose.material.icons.filled.PhotoSizeSelectLarge
+import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.runtime.*
@@ -50,9 +56,11 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale as JLocale
 
-// Индекс вкладки «Медиа» = ordinal enum Tab в MainActivity (Dashboard0/Storage1/Cleanup2/Media3/Apps4).
+// Индексы вкладок = ordinal enum Tab в MainActivity (Dashboard0/Storage1/Cleanup2/Media3/Apps4).
+private const val TAB_STORAGE_DASH = 1
 private const val TAB_MEDIA_DASH = 3
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DashboardScreen(ctx: Context, onNavigate: (Int) -> Unit = {}) {
     var tick by remember { mutableIntStateOf(0) }
@@ -81,6 +89,32 @@ fun DashboardScreen(ctx: Context, onNavigate: (Int) -> Unit = {}) {
         downHist.map { (it / peak).coerceIn(0f, 1f) }
     }
 
+    // Метрика, по тапу на чьё кольцо открыт ModalBottomSheet (null — закрыт).
+    // Идентификация по стабильному label кольца (ЗДОРОВЬЕ/ОЗУ/ДИСК/CPU/СЕТЬ/БАТАРЕЯ).
+    var sheetLabel by remember { mutableStateOf<String?>(null) }
+    val sheetState = rememberModalBottomSheetState()
+
+    // ✨ Оптимизация (чистит ТОЛЬКО свой кэш + считает, что есть к разбору). Без «boost RAM».
+    val scope = rememberCoroutineScope()
+    var optimizing by remember { mutableStateOf(false) }
+    var result by remember { mutableStateOf<OptimizeResult?>(null) }
+    val runOptimize: () -> Unit = run@{
+        if (optimizing) return@run
+        optimizing = true
+        result = null
+        scope.launch {
+            val r = withContext(Dispatchers.IO) {
+                val freed = try { SystemInfo.clearCache(ctx) } catch (_: Throwable) { 0L }
+                val dupes = try { MediaStoreUtils.duplicateGroups(ctx).size } catch (_: Throwable) { 0 }
+                val shots = try { MediaStoreUtils.screenshots(ctx).size } catch (_: Throwable) { 0 }
+                val large = try { MediaStoreUtils.largeFiles(ctx).size } catch (_: Throwable) { 0 }
+                OptimizeResult(freedBytes = freed, duplicates = dupes, screenshots = shots, largeFiles = large)
+            }
+            result = r
+            optimizing = false
+        }
+    }
+
     Column(
         Modifier
             .fillMaxSize()
@@ -99,32 +133,12 @@ fun DashboardScreen(ctx: Context, onNavigate: (Int) -> Unit = {}) {
         // (чистит СВОЙ кэш) и быстро считает, что есть к разбору (скриншоты/крупные/дубли).
         // Удаление медиа НЕ авто — только переход на вкладку «Медиа» (системный диалог/корзина).
         // Формулировки честные — без «boost RAM / ускорить» (политика Google Play).
-        val scope = rememberCoroutineScope()
-        var optimizing by remember { mutableStateOf(false) }
-        var result by remember { mutableStateOf<OptimizeResult?>(null) }
-
         Box(
             Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(50))
                 .background(Brush.horizontalGradient(listOf(Brand.green, Brand.cyan)))
-                .clickable(enabled = !optimizing) {
-                    optimizing = true
-                    result = null
-                    scope.launch {
-                        val r = withContext(Dispatchers.IO) {
-                            // 1) Реально: чистим только кэш этого приложения.
-                            val freed = try { SystemInfo.clearCache(ctx) } catch (_: Throwable) { 0L }
-                            // 2) Быстрые подсчёты к разбору (без удаления).
-                            val dupes = try { MediaStoreUtils.duplicateGroups(ctx).size } catch (_: Throwable) { 0 }
-                            val shots = try { MediaStoreUtils.screenshots(ctx).size } catch (_: Throwable) { 0 }
-                            val large = try { MediaStoreUtils.largeFiles(ctx).size } catch (_: Throwable) { 0 }
-                            OptimizeResult(freedBytes = freed, duplicates = dupes, screenshots = shots, largeFiles = large)
-                        }
-                        result = r
-                        optimizing = false
-                    }
-                }
+                .clickable(enabled = !optimizing) { runOptimize() }
                 .padding(vertical = 15.dp),
             contentAlignment = Alignment.Center
         ) {
@@ -185,7 +199,8 @@ fun DashboardScreen(ctx: Context, onNavigate: (Int) -> Unit = {}) {
             downRate = SystemInfo.fmtRate(net.downBps),
             upRate = SystemInfo.fmtRate(net.upBps),
             ekg = ekg,
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
+            onMetricTap = { m -> sheetLabel = m.label }
         )
 
         InfoCard(Icons.Filled.Storage, "Хранилище",
@@ -219,6 +234,193 @@ fun DashboardScreen(ctx: Context, onNavigate: (Int) -> Unit = {}) {
         }
 
         Text("Создатель: ${Brand.AUTHOR}", color = Brand.muted, fontSize = 11.sp)
+    }
+
+    // Лист по тапу на кольцо HUD. Контент зависит от метрики (label).
+    val openLabel = sheetLabel
+    if (openLabel != null) {
+        ModalBottomSheet(
+            onDismissRequest = { sheetLabel = null },
+            sheetState = sheetState,
+            containerColor = Brand.glass,
+        ) {
+            MetricSheetContent(
+                label = openLabel,
+                ctx = ctx,
+                storage = storage,
+                ramPct = ramPct,
+                battery = battery,
+                health = health,
+                onNavigate = { idx -> sheetLabel = null; onNavigate(idx) },
+                onOptimize = { sheetLabel = null; runOptimize() },
+                onClose = { sheetLabel = null },
+            )
+        }
+    }
+}
+
+/**
+ * Содержимое ModalBottomSheet для метрики HUD. Navy-стиль, честные формулировки.
+ * Без фейкового «boost RAM»; удаление медиа — только переход на вкладку «Медиа».
+ */
+@Composable
+private fun MetricSheetContent(
+    label: String,
+    ctx: Context,
+    storage: com.krylan.app.StorageInfo,
+    ramPct: Float,
+    battery: Int,
+    health: Float,
+    onNavigate: (Int) -> Unit,
+    onOptimize: () -> Unit,
+    onClose: () -> Unit,
+) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(start = 20.dp, end = 20.dp, bottom = 28.dp, top = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        when (label) {
+            "ДИСК" -> {
+                SheetTitle(Icons.Filled.Storage, Brand.blue, "Хранилище")
+                Text(
+                    "${"%.0f".format(SystemInfo.gb(storage.usedBytes))} ГБ занято · " +
+                        "${"%.0f".format(SystemInfo.gb(storage.freeBytes))} ГБ свободно",
+                    color = Brand.text, fontSize = 16.sp, fontWeight = FontWeight.Bold
+                )
+                Text(
+                    "Из ${"%.0f".format(SystemInfo.gb(storage.totalBytes))} ГБ всего. " +
+                        "Показаны реальные данные раздела хранения — без накруток.",
+                    color = Brand.muted, fontSize = 12.sp
+                )
+                SheetButton("Открыть «Хранилище»", Brand.blue) { onNavigate(TAB_STORAGE_DASH) }
+                SheetButton("Крупные файлы", Brand.glass, outlined = true) { onNavigate(TAB_MEDIA_DASH) }
+                SheetButton("Медиа-дубли", Brand.glass, outlined = true) { onNavigate(TAB_MEDIA_DASH) }
+                var clearing by remember { mutableStateOf(false) }
+                var freedText by remember { mutableStateOf<String?>(null) }
+                val scope = rememberCoroutineScope()
+                SheetButton(
+                    if (clearing) "Очищаю кэш…" else "Очистить кэш приложения",
+                    Brand.green, enabled = !clearing
+                ) {
+                    clearing = true
+                    scope.launch {
+                        val freed = withContext(Dispatchers.IO) {
+                            try { SystemInfo.clearCache(ctx) } catch (_: Throwable) { 0L }
+                        }
+                        freedText = "Освобождено: ${SystemInfo.fmtSize(freed)}"
+                        clearing = false
+                    }
+                }
+                freedText?.let { Text(it, color = Brand.green, fontSize = 13.sp, fontWeight = FontWeight.Bold) }
+                Text(
+                    "Чистим только кэш этого приложения. Чужие и системные файлы не трогаем.",
+                    color = Brand.muted, fontSize = 11.sp
+                )
+            }
+            "ОЗУ", "CPU" -> {
+                SheetTitle(Icons.Filled.Memory, Brand.purple, "Оперативная память")
+                Text(
+                    "${ramPct.toInt()}% занято · всего " +
+                        "${"%.1f".format(SystemInfo.gb(SystemInfo.ramTotalBytes(ctx)))} ГБ",
+                    color = Brand.text, fontSize = 16.sp, fontWeight = FontWeight.Bold
+                )
+                Text(
+                    "Android сам управляет памятью: освобождает её под активные задачи и " +
+                        "кэширует то, что нужно. Ручной «буст» не ускоряет систему и здесь его нет.",
+                    color = Brand.muted, fontSize = 12.sp
+                )
+            }
+            "СЕТЬ" -> {
+                SheetTitle(Icons.Filled.Wifi, Brand.cyan, "Сеть")
+                Text(
+                    "Скорость показана по системным счётчикам трафика (приём/передача).",
+                    color = Brand.muted, fontSize = 12.sp
+                )
+                Text(
+                    "KRYLAN ничего не отправляет в сеть — все измерения локальные.",
+                    color = Brand.muted, fontSize = 12.sp
+                )
+            }
+            "БАТАРЕЯ" -> {
+                SheetTitle(Icons.Filled.Memory, Brand.green, "Батарея")
+                Text(
+                    "$battery% заряда",
+                    color = Brand.text, fontSize = 18.sp, fontWeight = FontWeight.Bold
+                )
+                Text(
+                    "Тонкая настройка энергосбережения доступна в системных настройках.",
+                    color = Brand.muted, fontSize = 12.sp
+                )
+                SheetButton("Открыть настройки батареи", Brand.green) {
+                    val opened = runCatching {
+                        ctx.startActivity(
+                            Intent(Settings.ACTION_BATTERY_SAVER_SETTINGS)
+                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        )
+                    }.isSuccess
+                    if (!opened) runCatching {
+                        ctx.startActivity(
+                            Intent(Settings.ACTION_SETTINGS)
+                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        )
+                    }
+                    onClose()
+                }
+            }
+            "ЗДОРОВЬЕ" -> {
+                SheetTitle(Icons.Filled.CheckCircle, Brand.green, "Здоровье системы")
+                Text(
+                    "${health.toInt()} из 100",
+                    color = Brand.text, fontSize = 18.sp, fontWeight = FontWeight.Bold
+                )
+                Text(
+                    "Оценка — среднее от запаса свободной памяти и диска. " +
+                        "Запусти безопасную оптимизацию: очистим кэш приложения и покажем, что есть к разбору.",
+                    color = Brand.muted, fontSize = 12.sp
+                )
+                SheetButton("✨  Оптимизировать", Brand.green) { onOptimize() }
+            }
+            else -> {
+                SheetTitle(Icons.Filled.Speed, Brand.cyan, label)
+                Text("Информация о метрике.", color = Brand.muted, fontSize = 13.sp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun SheetTitle(icon: ImageVector, tint: Color, title: String) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Box(
+            Modifier.size(40.dp).background(tint.copy(alpha = 0.15f), RoundedCornerShape(12.dp)),
+            contentAlignment = Alignment.Center
+        ) { Icon(icon, contentDescription = null, tint = tint) }
+        Text(title, color = Brand.text, fontSize = 19.sp, fontWeight = FontWeight.Bold)
+    }
+}
+
+@Composable
+private fun SheetButton(
+    label: String,
+    color: Color,
+    enabled: Boolean = true,
+    outlined: Boolean = false,
+    onClick: () -> Unit,
+) {
+    val bg = if (outlined) Brand.glass else color
+    val fg = if (outlined) Brand.text else Color(0xFF0B1410)
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(if (enabled) bg else bg.copy(alpha = 0.5f))
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(vertical = 13.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(label, color = fg, fontSize = 14.sp, fontWeight = FontWeight.Bold)
     }
 }
 
