@@ -2554,6 +2554,10 @@ def close_background_browsers(active_name=None, self_pid=None):
     if self_pid is None:
         self_pid = os.getpid()
     active = (active_name or "").lower()
+    # Семейство активного браузера (напр. "chrome") — НЕ трогаем целиком,
+    # включая его дочерние процессы ("Google Chrome Helper"), иначе уроним
+    # браузер, с которым пользователь сейчас работает.
+    active_key = next((k for k in keys if k in active), None)
     closed = []
     for p in psutil.process_iter(["name", "pid"]):
         try:
@@ -2563,7 +2567,7 @@ def close_background_browsers(active_name=None, self_pid=None):
                 continue
             if not any(k in low for k in keys):
                 continue
-            if active and low in active:        # не закрываем активный браузер
+            if active_key and active_key in low:   # активное семейство браузера — пропускаем
                 continue
             p.terminate()                        # мягко — НЕ kill
             closed.append(nm)
