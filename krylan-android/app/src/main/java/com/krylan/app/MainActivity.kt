@@ -7,7 +7,9 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Apps
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.CleaningServices
+import androidx.compose.material.icons.filled.LocationOff
 import androidx.compose.material.icons.filled.PermMedia
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Storage
@@ -22,8 +24,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.sp
 import com.krylan.app.screens.AppsScreen
+import com.krylan.app.screens.AutopilotScreen
 import com.krylan.app.screens.CleanupScreen
 import com.krylan.app.screens.DashboardScreen
+import com.krylan.app.screens.GeoPrivacyScreen
 import com.krylan.app.screens.MediaHubScreen
 import com.krylan.app.screens.StorageScreen
 import com.krylan.app.ui.Brand
@@ -35,6 +39,8 @@ private enum class Tab(val title: String, val icon: ImageVector) {
     Cleanup("Очистка", Icons.Filled.CleaningServices),
     Media("Медиа", Icons.Filled.PermMedia),
     Apps("Приложения", Icons.Filled.Apps),
+    Autopilot("Автопилот", Icons.Filled.Bolt),
+    Geo("Геолокация", Icons.Filled.LocationOff),
 }
 
 class MainActivity : ComponentActivity() {
@@ -52,6 +58,8 @@ class MainActivity : ComponentActivity() {
             androidx.work.PeriodicWorkRequestBuilder<StorageCheckWorker>(
                 12, java.util.concurrent.TimeUnit.HOURS).build()
         )
+        // Если пользователь включал Автопилот ранее — восстановим периодическую задачу.
+        if (AutopilotPrefs(this).enabled) Autopilot.enable(this)
         setContent { KrylanTheme { Root() } }
     }
 }
@@ -92,6 +100,8 @@ private fun Root() {
                 Tab.Cleanup   -> CleanupScreen(ctx)
                 Tab.Media     -> MediaHubScreen(ctx)
                 Tab.Apps      -> AppsScreen(ctx)
+                Tab.Autopilot -> AutopilotScreen(ctx)
+                Tab.Geo       -> GeoPrivacyScreen(ctx)
             }
         }
     }

@@ -31,7 +31,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -56,7 +55,6 @@ private fun notifGranted(ctx: Context): Boolean =
 
 @Composable
 fun AutopilotScreen(ctx: Context) {
-    val activityCtx = LocalContext.current
     val prefs = remember { AutopilotPrefs(ctx) }
     var enabled by remember { mutableStateOf(prefs.enabled) }
     var hasNotif by remember { mutableStateOf(notifGranted(ctx)) }
