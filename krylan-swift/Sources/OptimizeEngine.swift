@@ -31,7 +31,7 @@ extension Section {
         case .dashboard:                      return .dashboard
         case .storage, .cleanup, .battery:    return .storage
         case .review, .photos, .shots, .videos: return .media
-        case .contacts, .calendar, .geoprivacy, .tips: return .system
+        case .autopilot, .contacts, .calendar, .geoprivacy, .tips: return .system
         case .about:                          return .more
         }
     }

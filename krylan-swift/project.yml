@@ -56,6 +56,8 @@ targets:
       properties:
         CFBundleDisplayName: KRYLAN
         UILaunchScreen: {}
+        UIBackgroundModes: [fetch, processing]
+        BGTaskSchedulerPermittedIdentifiers: [com.krylan.app.autopilot.refresh]
         NSPhotoLibraryUsageDescription: "KRYLAN ищет дубликаты фотографий в вашей медиатеке."
         NSContactsUsageDescription: "KRYLAN ищет дубликаты контактов."
         NSCalendarsUsageDescription: "KRYLAN показывает старые события календаря, чтобы помочь навести порядок."

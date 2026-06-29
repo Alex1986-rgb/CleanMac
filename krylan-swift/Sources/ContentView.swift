@@ -7,6 +7,7 @@ import SwiftUI
 /// на macOS показываются единым списком, сгруппированным заголовками.
 enum Section: String, CaseIterable, Identifiable {
     case dashboard = "Дашборд"
+    case autopilot = "Автопилот"
     case storage   = "Хранилище"
     case battery   = "Батарея"
     case cleanup   = "Очистка"
@@ -24,6 +25,7 @@ enum Section: String, CaseIterable, Identifiable {
     var key: String {
         switch self {
         case .dashboard: return "dashboard"
+        case .autopilot: return "autopilot"
         case .storage:   return "storage"
         case .battery:   return "battery"
         case .cleanup:   return "cleanup"
@@ -41,6 +43,7 @@ enum Section: String, CaseIterable, Identifiable {
     var icon: String {
         switch self {
         case .dashboard: return "gauge.with.dots.needle.67percent"
+        case .autopilot: return "bolt.badge.automatic"
         case .storage:   return "internaldrive"
         case .battery:   return "battery.100"
         case .cleanup:   return "trash"
@@ -59,6 +62,7 @@ enum Section: String, CaseIterable, Identifiable {
     var subtitle: String {
         switch self {
         case .dashboard: return "Состояние устройства"
+        case .autopilot: return "Фоновый страж: кэш + напоминания"
         case .storage:   return "Что занимает место"
         case .battery:   return "Здоровье аккумулятора"
         case .cleanup:   return "Очистка кэша"
@@ -103,6 +107,7 @@ struct ContentView: View {
     @ViewBuilder private func screen(_ s: Section) -> some View {
         switch s {
         case .dashboard: DashboardView(monitor: monitor)
+        case .autopilot: AutopilotView()
         case .storage:   StorageView(monitor: monitor)
         case .battery:   BatteryView(monitor: monitor)
         case .cleanup:   CleanupView()
@@ -259,6 +264,7 @@ struct SystemHubView: View {
     @ObservedObject var monitor: SystemMonitor
     var body: some View {
         HubScroll {
+            HubLink(section: .autopilot)
             HubLink(section: .contacts)
             HubLink(section: .calendar)
             HubLink(section: .geoprivacy)
