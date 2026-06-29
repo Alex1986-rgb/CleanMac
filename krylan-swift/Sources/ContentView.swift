@@ -16,6 +16,7 @@ enum Section: String, CaseIterable, Identifiable {
     case videos    = "Видео"
     case contacts  = "Контакты"
     case calendar  = "Календарь"
+    case geoprivacy = "Геолокация"
     case tips      = "Советы"
     case about     = "О программе"
     var id: String { rawValue }
@@ -32,6 +33,7 @@ enum Section: String, CaseIterable, Identifiable {
         case .videos:    return "videos"
         case .contacts:  return "contacts"
         case .calendar:  return "calendar"
+        case .geoprivacy: return "geoprivacy"
         case .tips:      return "tips"
         case .about:     return "about"
         }
@@ -48,6 +50,7 @@ enum Section: String, CaseIterable, Identifiable {
         case .videos:    return "film"
         case .contacts:  return "person.2"
         case .calendar:  return "calendar"
+        case .geoprivacy: return "location.slash"
         case .tips:      return "lightbulb"
         case .about:     return "info.circle"
         }
@@ -65,6 +68,7 @@ enum Section: String, CaseIterable, Identifiable {
         case .videos:    return "Самые тяжёлые ролики"
         case .contacts:  return "Дубли и неполные записи"
         case .calendar:  return "Старые события"
+        case .geoprivacy: return "Выключить и скрыть геопозицию"
         case .tips:      return "Советы по устройству"
         case .about:     return "О приложении KRYLAN"
         }
@@ -108,6 +112,7 @@ struct ContentView: View {
         case .videos:    LargeVideosView()
         case .contacts:  ContactsDuplicatesView()
         case .calendar:  CalendarEventsView()
+        case .geoprivacy: GeoPrivacyView()
         case .tips:      TipsView(monitor: monitor)
         case .about:     AboutScreen()
         }
@@ -256,6 +261,7 @@ struct SystemHubView: View {
         HubScroll {
             HubLink(section: .contacts)
             HubLink(section: .calendar)
+            HubLink(section: .geoprivacy)
             HubLink(section: .tips)
         }
     }
