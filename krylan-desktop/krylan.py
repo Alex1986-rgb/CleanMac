@@ -5,7 +5,7 @@ KRYLAN Desktop — кросс-платформенный оптимизатор:
 «Дай устройству крылья». Создатель: Кырлан Александр Сергеевич.
 Зависимости: psutil, send2trash.  Запуск: python krylan.py
 """
-import os, sys, platform, threading, queue, math, hashlib, json, random, time
+import os, sys, platform, threading, queue, math, hashlib, json, random, time, atexit
 import tkinter as tk
 from tkinter import messagebox, filedialog
 import psutil
@@ -19,7 +19,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import krylan_core
 
-VERSION = "1.17.0"
+VERSION = "1.18.0"
 SYSTEM = platform.system()           # Windows / Darwin / Linux
 HOME = os.path.expanduser("~")
 
@@ -167,6 +167,31 @@ I18N = {
     "«{name}» — системный процесс, пауза запрещена.":
         "“{name}” is a system process; pausing is not allowed.",
     "KRYLAN — Режим фокуса": "KRYLAN — Focus mode",
+    "Режим фокуса": "Focus mode",
+    "🎯  Режим фокуса": "🎯  Focus mode",
+    "Приостанавливает фоновые программы на время фокуса и возвращает их обратно — ничего не закрывается и не теряется. Системные процессы не трогаются.":
+        "Pauses background apps for the focus session and brings them back — nothing is closed or lost. System processes are never touched.",
+    "▶ Выключить фокус": "▶ Disable focus",
+    "🎯 Включить фокус": "🎯 Enable focus",
+    "Авто-возврат:": "Auto-resume:",
+    "выкл": "off", "мин": "min",
+    "Кандидаты (тяжёлые фоновые приложения) — отметьте, что приостановить:":
+        "Candidates (heavy background apps) — check what to pause:",
+    "  Подходящих фоновых приложений не найдено.": "  No suitable background apps found.",
+    "Журнал фокуса:": "Focus log:",
+    "(журнал пуст)": "(log is empty)",
+    "🎯 Фокус включён · на паузе: {n}": "🎯 Focus on · paused: {n}",
+    "авто-возврат через {m}:{s:02d}": "auto-resume in {m}:{s:02d}",
+    "🔵 Фокус выключен · всё работает": "🔵 Focus off · everything running",
+    "Отметьте хотя бы одно приложение для паузы.": "Check at least one app to pause.",
+    "Приостановить выбранные приложения ({n})?\n\nЭто обратимо: они «замёрзнут» и перестанут отвечать, пока вы не нажмёте «▶ Выключить фокус» (или не сработает авто-возврат). Ничего не закрывается, данные не теряются.":
+        "Pause the selected apps ({n})?\n\nThis is reversible: they will freeze and stop responding until you press “▶ Disable focus” (or auto-resume triggers). Nothing is closed, no data is lost.",
+    "🎯 Фокус включён · приостановлено: {n}": "🎯 Focus on · paused: {n}",
+    " (пропущено: {s})": " (skipped: {s})",
+    "⏲ Авто-возврат через {m} мин": "⏲ Auto-resume in {m} min",
+    "⏲ Сработал авто-возврат": "⏲ Auto-resume triggered",
+    "⏸ Приостановлено: {name}": "⏸ Paused: {name}",
+    "▶ Возобновлено процессов: {n}": "▶ Processes resumed: {n}",
     "Приостановить «{name}» (PID {pid})?\n\n⚠️ Это обратимо ЗАМОРОЗИТ приложение до возобновления — оно перестанет отвечать, пока вы не нажмёте «▶ Возобновить всё».\n\nНесохранённые данные в нём станут недоступны до возобновления.":
         "Suspend “{name}” (PID {pid})?\n\n⚠️ This will reversibly FREEZE the app until resumed — it will stop responding until you press “▶ Resume all”.\n\nUnsaved data in it will be unavailable until resumed.",
     "Процесс «{name}» уже завершён.": "Process “{name}” has already ended.",
@@ -1343,19 +1368,158 @@ def disk_advice(disk_pct, ram_pct, batt_pct=None):
 # ---------- Режим фокуса (обратимая пауза процессов) ----------
 # Жёсткий чёрный список: эти процессы НИКОГДА не приостанавливаем — пауза
 # системного процесса способна «заморозить» рабочий стол или весь сеанс.
+# Сравнение по имени без учёта регистра. Списки расширены критичными для
+# каждой ОС службами (звук, оконный сервер, оболочка, ввод, безопасность).
 FOCUS_BLACKLIST_UNIX = (
-    "kernel_task", "launchd", "WindowServer", "loginwindow",
-    "systemd", "Finder", "Dock", "python", "Python",
+    # ядро/инициализация/сессия
+    "kernel_task", "launchd", "init", "systemd", "logind", "systemd-logind",
+    "loginwindow", "WindowServer", "Window Manager", "SystemUIServer",
+    # оболочка рабочего стола (macOS / Linux DE)
+    "Finder", "Dock", "Spotlight", "ControlCenter", "NotificationCenter",
+    "gnome-shell", "plasmashell", "kwin", "kwin_x11", "kwin_wayland",
+    "Xorg", "Xwayland", "mutter", "cinnamon", "xfwm4", "marco",
+    # звук / ввод / питание
+    "coreaudiod", "pulseaudio", "pipewire", "wireplumber",
+    "dbus-daemon", "dbus", "powerd", "ibus-daemon",
+    # безопасность / агенты системы
+    "securityd", "trustd", "opendirectoryd", "mds", "mds_stores",
+    "cfprefsd", "distnoted", "syslogd", "polkitd",
+    # сам интерпретатор/приложение
+    "python", "python3", "Python", "krylan", "krylan.py",
 )
 FOCUS_BLACKLIST_WINDOWS = (
-    "System", "csrss.exe", "wininit.exe", "winlogon.exe",
-    "services.exe", "explorer.exe", "python.exe",
+    # ядро/инициализация/сессия
+    "System", "Registry", "smss.exe", "csrss.exe", "wininit.exe",
+    "winlogon.exe", "services.exe", "lsass.exe", "fontdrvhost.exe",
+    # оболочка рабочего стола / ввод / звин
+    "explorer.exe", "dwm.exe", "ctfmon.exe", "ShellExperienceHost.exe",
+    "StartMenuExperienceHost.exe", "SearchHost.exe", "sihost.exe",
+    "audiodg.exe", "taskhostw.exe", "RuntimeBroker.exe",
+    # безопасность / антивирус
+    "MsMpEng.exe", "SecurityHealthService.exe", "spoolsv.exe",
+    # сам интерпретатор/приложение
+    "python.exe", "pythonw.exe", "krylan.exe",
 )
 
 def focus_blacklist():
     """Чёрный список имён для текущей ОС (нижний регистр для сравнения)."""
     base = FOCUS_BLACKLIST_WINDOWS if SYSTEM == "Windows" else FOCUS_BLACKLIST_UNIX
     return {n.lower() for n in base}
+
+def is_suspendable(proc_info, self_pid=None, min_pid=100):
+    """Можно ли безопасно (обратимо) приостановить процесс в Режиме фокуса.
+
+    Вход: dict / namedtuple / объект с полями name (str), pid (int) и
+    опционально cpu, mem. psutil НЕ вызывается — функция чистая и тестируемая.
+
+    Возвращает False (НЕ трогаем) для:
+      • записей без имени или pid;
+      • самого KRYLAN (self_pid; по умолчанию os.getpid());
+      • низких PID (pid < min_pid) — это почти всегда системные службы/ядро;
+        на Windows под этот порог попадают System(4)/csrss/wininit и т. п.;
+      • имён из жёсткого чёрного списка текущей ОС (без учёта регистра).
+    Иначе True — это пользовательское фоновое приложение.
+    """
+    if self_pid is None:
+        self_pid = os.getpid()
+    name = _proc_field(proc_info, "name")
+    pid = _proc_field(proc_info, "pid")
+    if not name or pid is None:
+        return False
+    try:
+        pid = int(pid)
+    except (TypeError, ValueError):
+        return False
+    if pid == int(self_pid):
+        return False
+    if pid < int(min_pid):
+        return False
+    if str(name).lower() in focus_blacklist():
+        return False
+    return True
+
+def pick_focus_targets(processes, current_app=None, self_pid=None,
+                       min_cpu=0.0, min_mem=0):
+    """Выбрать кандидатов на обратимую паузу — тяжёлые фоновые приложения.
+
+    Вход: список процессов (dict/namedtuple/объект) c name/pid/cpu/mem.
+    current_app — имя активного приложения (его НЕ приостанавливаем, чтобы
+    не заморозить окно, с которым работает пользователь).
+    min_cpu/min_mem — необязательные пороги «тяжести» (по умолчанию 0 — берём
+    всё suspendable). psutil не вызывается — функция чистая.
+
+    Возвращает список suspendable-кандидатов, отсортированный по убыванию
+    (mem, cpu): самые прожорливые первыми.
+    """
+    cur = str(current_app).lower() if current_app else None
+    out = []
+    for p in processes:
+        if not is_suspendable(p, self_pid=self_pid):
+            continue
+        name = str(_proc_field(p, "name") or "")
+        if cur and name.lower() == cur:
+            continue
+        cpu = _proc_field(p, "cpu") or 0
+        mem = _proc_field(p, "mem") or 0
+        if cpu < min_cpu and mem < min_mem:
+            continue
+        out.append(p)
+    out.sort(key=lambda p: (_proc_field(p, "mem") or 0, _proc_field(p, "cpu") or 0),
+             reverse=True)
+    return out
+
+def focus_suspend(pids):
+    """Обратимо приостановить процессы по PID через psutil (SIGSTOP/нативно).
+
+    Никогда не бросает: исчезнувший процесс / отказ в доступе пропускаются.
+    Финальная проверка безопасности (is_suspendable) выполняется и здесь —
+    даже если в pids случайно попал системный процесс, он не будет тронут.
+    Возвращает список PID, которые РЕАЛЬНО были приостановлены.
+    """
+    done = []
+    for pid in pids:
+        try:
+            p = psutil.Process(int(pid))
+            if not is_suspendable({"name": p.name(), "pid": p.pid}):
+                continue
+            p.suspend()
+            done.append(int(pid))
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
+        except Exception:
+            continue
+    return done
+
+def focus_resume(pids):
+    """Возобновить процессы по PID (resume). Зеркало focus_suspend.
+
+    Никогда не бросает. Возвращает список PID, которые реально возобновлены
+    (исчезнувшие считаем «возобновлёнными» — их и так больше нет в паузе).
+    """
+    done = []
+    for pid in pids:
+        try:
+            psutil.Process(int(pid)).resume()
+            done.append(int(pid))
+        except psutil.NoSuchProcess:
+            done.append(int(pid))   # процесса нет — он точно не «заморожен»
+        except psutil.AccessDenied:
+            continue
+        except Exception:
+            continue
+    return done
+
+# Глобальный набор приостановленных PID — страховка для atexit-резюма,
+# чтобы НИЧЕГО не осталось «замороженным» даже при аварийном выходе.
+_FOCUS_PAUSED_GLOBAL = set()
+
+def _focus_resume_atexit():
+    """Гарантированный resume всех приостановленных при завершении процесса."""
+    if _FOCUS_PAUSED_GLOBAL:
+        focus_resume(list(_FOCUS_PAUSED_GLOBAL))
+        _FOCUS_PAUSED_GLOBAL.clear()
+
+atexit.register(_focus_resume_atexit)
 
 def _proc_field(p, key):
     """Достаёт поле из dict / namedtuple / объекта (name, pid, cpu, mem)."""
@@ -2961,6 +3125,9 @@ class Krylan(tk.Tk):
         self.info = {}
         self.found = {}
         self._paused = set()           # PID приостановленных (Режим фокуса)
+        self._focus_log = []           # журнал событий Режима фокуса (последние)
+        self._focus_deadline = None    # время авто-возврата (epoch) или None
+        self._focus_after = None       # id запланированного after для таймера
         # ----- Автопилот: конфиг + фоновый страж -----
         self.ap_cfg = load_autopilot_config()
         self.guardian = Guardian(cfg=self.ap_cfg,
@@ -2981,7 +3148,7 @@ class Krylan(tk.Tk):
         tk.Label(side, text="  "+L("Дай устройству крылья"), bg=SIDEBAR, fg=GREEN, font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=12)
         tk.Label(side, text=f"  {os_label()} · v{VERSION}", bg=SIDEBAR, fg=MUTED, font=("Segoe UI", 9)).pack(anchor="w", padx=12, pady=(0,16))
         self.nav_btns = {}
-        for key, base in [("dash","📊  Дашборд"),("scan","🚀  Сканер"),("procs","🧠  Процессы"),("clean","🧽  Очистка"),("autopilot","🤖  Автопилот"),("tools","🛠  Инструменты"),("about","ℹ️  О программе")]:
+        for key, base in [("dash","📊  Дашборд"),("scan","🚀  Сканер"),("procs","🧠  Процессы"),("focus","🎯  Режим фокуса"),("clean","🧽  Очистка"),("autopilot","🤖  Автопилот"),("tools","🛠  Инструменты"),("about","ℹ️  О программе")]:
             icon, name = base.split("  ", 1)
             b = tk.Label(side, text=f"   {icon}  "+L(name), bg=SIDEBAR, fg=TEXT, font=("Segoe UI", 12), anchor="w", padx=10, pady=11, cursor="hand2")
             b.pack(fill="x"); b.bind("<Button-1>", lambda e,k=key: self.nav(k)); self.nav_btns[key] = b
@@ -3004,7 +3171,7 @@ class Krylan(tk.Tk):
         self.page = key
         for k,b in self.nav_btns.items(): b.configure(bg=GLASS if k==key else SIDEBAR)
         for w in self.main.winfo_children(): w.destroy()
-        {"dash":self.show_dash, "scan":self.show_scan, "procs":self.show_procs, "clean":self.show_clean, "autopilot":self.show_autopilot, "tools":self.show_tools, "about":self.show_about}[key]()
+        {"dash":self.show_dash, "scan":self.show_scan, "procs":self.show_procs, "focus":self.show_focus, "clean":self.show_clean, "autopilot":self.show_autopilot, "tools":self.show_tools, "about":self.show_about}[key]()
 
     # ---------- HUD-фон: радиальное свечение + звёздное небо ----------
     def _grad(self, c, w, h):
@@ -3555,6 +3722,8 @@ class Krylan(tk.Tk):
         try:
             psutil.Process(pid).suspend()
             self._paused.add(pid)
+            _FOCUS_PAUSED_GLOBAL.add(pid)
+            self._focus_add_log(L("⏸ Приостановлено: {name}").format(name=name))
         except psutil.NoSuchProcess:
             messagebox.showinfo("KRYLAN", L("Процесс «{name}» уже завершён.").format(name=name))
         except psutil.AccessDenied:
@@ -3566,25 +3735,40 @@ class Krylan(tk.Tk):
         self._procs_refresh()
 
     def _resume_all(self, silent=False):
-        """Возобновить все приостановленные процессы. Безопасно вызывать всегда."""
-        resumed = 0
-        for pid in list(self._paused):
-            try:
-                psutil.Process(pid).resume()
-                resumed += 1
-            except psutil.NoSuchProcess:
-                pass            # процесс уже исчез — просто убираем из набора
-            except psutil.AccessDenied:
-                pass            # нет прав — тихо пропускаем
-            except Exception:
-                pass
-            self._paused.discard(pid)
+        """Возобновить ВСЕ приостановленные процессы. Безопасно вызывать всегда.
+
+        Через чистую focus_resume(); синхронизирует и self._paused, и
+        глобальный набор (страховка atexit). Сбрасывает таймер авто-возврата.
+        """
+        pids = list(self._paused)
+        focus_resume(pids)
+        resumed = len(pids)
+        self._paused.clear()
+        for pid in pids:
+            _FOCUS_PAUSED_GLOBAL.discard(pid)
+        self._focus_cancel_timer()
+        if resumed:
+            self._focus_add_log(L("▶ Возобновлено процессов: {n}").format(n=resumed))
         if not silent:
             if resumed:
                 messagebox.showinfo("KRYLAN", L("▶ Возобновлено процессов: {n}.").format(n=resumed))
             else:
                 messagebox.showinfo("KRYLAN", L("Приостановленных процессов нет."))
         self._focus_label()
+
+    # ---------- журнал и таймер Режима фокуса ----------
+    def _focus_add_log(self, text):
+        ts = time.strftime("%H:%M:%S")
+        self._focus_log.append(f"[{ts}] {text}")
+        self._focus_log = self._focus_log[-200:]      # держим хвост
+        self._focus_log_refresh()
+
+    def _focus_cancel_timer(self):
+        self._focus_deadline = None
+        if self._focus_after is not None:
+            try: self.after_cancel(self._focus_after)
+            except Exception: pass
+            self._focus_after = None
 
     def _on_close(self):
         # никого не оставляем «замороженным» после выхода
@@ -3596,9 +3780,157 @@ class Krylan(tk.Tk):
         try:
             psutil.Process(pid).terminate()
             self._paused.discard(pid)
+            _FOCUS_PAUSED_GLOBAL.discard(pid)
         except Exception as e:
             messagebox.showerror("KRYLAN", L("Не удалось завершить: {e}").format(e=e))
         self._procs_refresh()
+
+    # ---------- Режим фокуса (отдельная страница) ----------
+    def _active_app_name(self):
+        """Имя активного приложения переднего плана (best-effort, чтобы не
+        приостанавливать окно, с которым работает пользователь). На неудаче — None."""
+        try:
+            if SYSTEM == "Darwin":
+                r = run(["osascript", "-e",
+                         'tell application "System Events" to get name of first process whose frontmost is true'],
+                        timeout=4)
+                if r.returncode == 0 and r.stdout.strip():
+                    return r.stdout.strip()
+        except Exception:
+            pass
+        return None
+
+    def show_focus(self):
+        tk.Label(self.main, text=L("Режим фокуса"), bg=BG0, fg=TEXT,
+                 font=("Segoe UI", 20, "bold")).pack(anchor="w", padx=24, pady=(18, 0))
+        tk.Label(self.main, text=L("Приостанавливает фоновые программы на время фокуса и возвращает их "
+                 "обратно — ничего не закрывается и не теряется. Системные процессы не трогаются."),
+                 bg=BG0, fg=MUTED, font=("Segoe UI", 10), wraplength=620, justify="left"
+                 ).pack(anchor="w", padx=24, pady=(0, 10))
+
+        # --- статус + кнопки включить/выключить ---
+        card = tk.Frame(self.main, bg=GLASS); card.pack(fill="x", padx=24, pady=6)
+        self.focus_state = tk.Label(card, text="…", bg=GLASS, fg=TEXT, font=("Segoe UI", 14, "bold"))
+        self.focus_state.pack(side="left", padx=18, pady=14)
+        self._btn(card, L("▶ Выключить фокус"), GREEN, lambda: self._resume_all()).pack(side="right", padx=(8, 18), pady=10)
+        self._btn(card, L("🎯 Включить фокус"), PURPLE, self._focus_enable).pack(side="right", pady=10)
+
+        # --- таймер авто-возврата ---
+        trow = tk.Frame(self.main, bg=BG0); trow.pack(fill="x", padx=24, pady=(2, 4))
+        tk.Label(trow, text=L("Авто-возврат:"), bg=BG0, fg=MUTED, font=("Segoe UI", 10)).pack(side="left")
+        if not hasattr(self, "focus_timer_var"):
+            self.focus_timer_var = tk.IntVar(value=0)
+        for label, mins in [(L("выкл"), 0), ("25 " + L("мин"), 25), ("50 " + L("мин"), 50)]:
+            tk.Radiobutton(trow, text=label, value=mins, variable=self.focus_timer_var,
+                           bg=BG0, fg=TEXT, selectcolor=GLASS, activebackground=BG0,
+                           activeforeground=TEXT, font=("Segoe UI", 10)).pack(side="left", padx=4)
+
+        tk.Label(self.main, text=L("Кандидаты (тяжёлые фоновые приложения) — отметьте, что приостановить:"),
+                 bg=BG0, fg=MUTED, font=("Segoe UI", 10)).pack(anchor="w", padx=24, pady=(8, 2))
+        self.focus_box = tk.Frame(self.main, bg=GLASS)
+        self.focus_box.pack(fill="both", expand=False, padx=24, pady=(0, 6))
+        self.focus_vars = {}     # pid -> (BooleanVar, name)
+
+        tk.Label(self.main, text=L("Журнал фокуса:"), bg=BG0, fg=MUTED,
+                 font=("Segoe UI", 10)).pack(anchor="w", padx=24, pady=(4, 2))
+        self.focus_log = tk.Text(self.main, bg="#0f1218", fg=TEXT, font=("Consolas", 10),
+                                 relief="flat", padx=12, pady=8, height=6)
+        self.focus_log.pack(fill="both", expand=True, padx=24, pady=(0, 14))
+
+        self._focus_candidates_refresh()
+        self._focus_log_refresh()
+        self._focus_state_refresh()
+
+    def _focus_candidates_refresh(self):
+        if self.page != "focus" or not (hasattr(self, "focus_box") and self.focus_box.winfo_exists()):
+            return
+        rows = []
+        for p in psutil.process_iter(["pid", "name", "memory_info", "cpu_percent"]):
+            try:
+                rss = p.info["memory_info"].rss if p.info["memory_info"] else 0
+                rows.append({"name": p.info["name"] or "?", "pid": p.info["pid"],
+                             "cpu": p.info.get("cpu_percent") or 0, "mem": rss})
+            except Exception:
+                pass
+        active = self._active_app_name()
+        cands = pick_focus_targets(rows, current_app=active)[:14]
+        prev = {pid: var.get() for pid, (var, _n) in self.focus_vars.items()}
+        for w in self.focus_box.winfo_children(): w.destroy()
+        self.focus_vars = {}
+        if not cands:
+            tk.Label(self.focus_box, text=L("  Подходящих фоновых приложений не найдено."),
+                     bg=GLASS, fg=MUTED, font=("Segoe UI", 10), anchor="w").pack(fill="x", padx=10, pady=8)
+        for c in cands:
+            pid, name = c["pid"], c["name"]
+            paused = pid in self._paused
+            var = tk.BooleanVar(value=prev.get(pid, not paused))
+            self.focus_vars[pid] = (var, name)
+            rbg = _blend(GLASS, PURPLE, 0.18) if paused else GLASS
+            r = tk.Frame(self.focus_box, bg=rbg); r.pack(fill="x", padx=8, pady=1)
+            cb = tk.Checkbutton(r, variable=var, bg=rbg, fg=TEXT, selectcolor=BG0,
+                                activebackground=rbg, activeforeground=TEXT,
+                                text="  " + (name[:26] + ("  ⏸" if paused else "")),
+                                font=("Segoe UI", 11), anchor="w", width=30)
+            cb.pack(side="left")
+            tk.Label(r, text=human(c["mem"]), bg=rbg, fg=MUTED, font=("Segoe UI", 10), width=10).pack(side="left")
+            tk.Label(r, text=f"{c['cpu']:.0f}%", bg=rbg, fg=load_color(min(100, c["cpu"])),
+                     font=("Segoe UI", 10), width=7).pack(side="left")
+        self.after(3000, self._focus_candidates_refresh)
+
+    def _focus_log_refresh(self):
+        if not (hasattr(self, "focus_log") and self.focus_log.winfo_exists()):
+            return
+        body = "\n".join(self._focus_log) if self._focus_log else L("(журнал пуст)")
+        self.focus_log.configure(state="normal"); self.focus_log.delete("1.0", "end")
+        self.focus_log.insert("end", body); self.focus_log.see("end")
+        self.focus_log.configure(state="disabled")
+
+    def _focus_state_refresh(self):
+        if not (hasattr(self, "focus_state") and self.focus_state.winfo_exists()):
+            return
+        n = len(self._paused)
+        if n:
+            extra = ""
+            if self._focus_deadline:
+                left = max(0, int(self._focus_deadline - time.time()))
+                extra = "  ·  " + L("авто-возврат через {m}:{s:02d}").format(m=left // 60, s=left % 60)
+            self.focus_state.configure(text=L("🎯 Фокус включён · на паузе: {n}").format(n=n) + extra, fg=PURPLE)
+        else:
+            self.focus_state.configure(text=L("🔵 Фокус выключен · всё работает"), fg=BLUE)
+        self.after(1000, self._focus_state_refresh)
+
+    def _focus_enable(self):
+        # выбранные чекбоксами кандидаты
+        chosen = [pid for pid, (var, _n) in self.focus_vars.items() if var.get()]
+        if not chosen:
+            messagebox.showinfo("KRYLAN", L("Отметьте хотя бы одно приложение для паузы.")); return
+        if not messagebox.askyesno(
+                L("KRYLAN — Режим фокуса"),
+                L("Приостановить выбранные приложения ({n})?\n\n"
+                  "Это обратимо: они «замёрзнут» и перестанут отвечать, пока вы не "
+                  "нажмёте «▶ Выключить фокус» (или не сработает авто-возврат). "
+                  "Ничего не закрывается, данные не теряются.").format(n=len(chosen))):
+            return
+        done = focus_suspend(chosen)
+        for pid in done:
+            self._paused.add(pid)
+            _FOCUS_PAUSED_GLOBAL.add(pid)
+        skipped = len(chosen) - len(done)
+        self._focus_add_log(L("🎯 Фокус включён · приостановлено: {n}").format(n=len(done))
+                            + (L(" (пропущено: {s})").format(s=skipped) if skipped else ""))
+        # таймер авто-возврата
+        self._focus_cancel_timer()
+        mins = int(self.focus_timer_var.get()) if hasattr(self, "focus_timer_var") else 0
+        if mins > 0 and done:
+            self._focus_deadline = time.time() + mins * 60
+            self._focus_after = self.after(mins * 60 * 1000, self._focus_auto_resume)
+            self._focus_add_log(L("⏲ Авто-возврат через {m} мин").format(m=mins))
+        self._focus_candidates_refresh()
+
+    def _focus_auto_resume(self):
+        self._focus_add_log(L("⏲ Сработал авто-возврат"))
+        self._resume_all(silent=True)
+        self._focus_candidates_refresh()
 
     # ---------- инструменты (в духе BoostSpeed) ----------
     def show_tools(self):

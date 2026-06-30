@@ -336,6 +336,162 @@ class TestFocusCandidates(unittest.TestCase):
         self.assertEqual([c["name"] for c in cand], ["Other"])
 
 
+class TestIsSuspendable(unittest.TestCase):
+    """Режим фокуса — чистая проверка «можно ли обратимо приостановить»."""
+
+    def test_normal_app_is_suspendable(self):
+        self.assertTrue(krylan.is_suspendable(
+            {"name": "Telegram", "pid": 5000}, self_pid=999))
+
+    def test_self_pid_not_suspendable(self):
+        self.assertFalse(krylan.is_suspendable(
+            {"name": "Whatever", "pid": 999}, self_pid=999))
+
+    def test_low_pid_not_suspendable(self):
+        # PID < min_pid (системные службы/ядро) — никогда
+        self.assertFalse(krylan.is_suspendable(
+            {"name": "SomethingEarly", "pid": 4}, self_pid=999))
+        self.assertFalse(krylan.is_suspendable(
+            {"name": "SomethingEarly", "pid": 99}, self_pid=999, min_pid=100))
+
+    def test_blacklisted_names_not_suspendable(self):
+        # берём реальный чёрный список текущей ОС, чтобы тест был кросс-платформенным
+        for bad in list(krylan.focus_blacklist())[:8]:
+            self.assertFalse(
+                krylan.is_suspendable({"name": bad, "pid": 5000}, self_pid=999),
+                f"{bad} must not be suspendable")
+
+    def test_blacklist_case_insensitive(self):
+        self.assertFalse(krylan.is_suspendable(
+            {"name": "FINDER", "pid": 5000}, self_pid=999))
+
+    def test_missing_name_or_pid(self):
+        self.assertFalse(krylan.is_suspendable({"name": "", "pid": 5000}, self_pid=999))
+        self.assertFalse(krylan.is_suspendable({"name": "X", "pid": None}, self_pid=999))
+
+    def test_namedtuple_input(self):
+        from collections import namedtuple
+        Proc = namedtuple("Proc", "name pid")
+        self.assertTrue(krylan.is_suspendable(Proc("Notes", 5000), self_pid=999))
+        self.assertFalse(krylan.is_suspendable(Proc("Finder", 5000), self_pid=999))
+
+
+class TestPickFocusTargets(unittest.TestCase):
+    """Режим фокуса — выбор тяжёлых фоновых кандидатов."""
+
+    def _procs(self):
+        MB = 1024 * 1024
+        return [
+            {"name": "Google Chrome", "pid": 102, "cpu": 12.0, "mem": 900 * MB},
+            {"name": "Telegram", "pid": 101, "cpu": 3.0, "mem": 500 * MB},
+            {"name": "Spotify", "pid": 103, "cpu": 1.0, "mem": 300 * MB},
+            {"name": "kernel_task", "pid": 1, "cpu": 5.0, "mem": 100 * MB},
+            {"name": "Finder", "pid": 91, "cpu": 0.5, "mem": 120 * MB},
+        ]
+
+    def test_excludes_system_and_sorts(self):
+        out = krylan.pick_focus_targets(self._procs(), self_pid=999)
+        names = [p["name"] for p in out]
+        self.assertNotIn("kernel_task", names)
+        self.assertNotIn("Finder", names)
+        self.assertEqual(names, ["Google Chrome", "Telegram", "Spotify"])
+
+    def test_excludes_current_app(self):
+        out = krylan.pick_focus_targets(self._procs(), current_app="Google Chrome", self_pid=999)
+        names = [p["name"] for p in out]
+        self.assertNotIn("Google Chrome", names)
+        self.assertIn("Telegram", names)
+
+    def test_current_app_case_insensitive(self):
+        out = krylan.pick_focus_targets(self._procs(), current_app="telegram", self_pid=999)
+        self.assertNotIn("Telegram", [p["name"] for p in out])
+
+    def test_thresholds_filter_light_procs(self):
+        MB = 1024 * 1024
+        procs = [{"name": "Heavy", "pid": 5000, "cpu": 0.0, "mem": 800 * MB},
+                 {"name": "Light", "pid": 5001, "cpu": 0.1, "mem": 2 * MB}]
+        out = krylan.pick_focus_targets(procs, self_pid=999, min_cpu=5.0, min_mem=100 * MB)
+        self.assertEqual([p["name"] for p in out], ["Heavy"])
+
+
+class TestFocusSuspendResume(unittest.TestCase):
+    """Режим фокуса — focus_suspend/focus_resume на фейковых процессах (monkeypatch).
+
+    НИКОГДА не трогаем реальные системные процессы: psutil.Process подменён."""
+
+    class FakeProc:
+        registry = {}
+
+        def __init__(self, pid):
+            self.pid = pid
+            if pid not in TestFocusSuspendResume.FakeProc.registry:
+                raise krylan.psutil.NoSuchProcess(pid)
+            self._d = TestFocusSuspendResume.FakeProc.registry[pid]
+
+        def name(self):
+            return self._d["name"]
+
+        def suspend(self):
+            if self._d.get("denied"):
+                raise krylan.psutil.AccessDenied(self.pid)
+            self._d["suspended"] = True
+
+        def resume(self):
+            if self._d.get("denied"):
+                raise krylan.psutil.AccessDenied(self.pid)
+            self._d["suspended"] = False
+
+    def setUp(self):
+        self._orig = krylan.psutil.Process
+        self.FakeProc.registry = {
+            5000: {"name": "Telegram", "suspended": False},
+            5001: {"name": "Spotify", "suspended": False},
+            5002: {"name": "Locked", "suspended": False, "denied": True},
+            1:    {"name": "kernel_task", "suspended": False},  # системный, низкий PID
+        }
+        krylan.psutil.Process = self.FakeProc
+
+    def tearDown(self):
+        krylan.psutil.Process = self._orig
+
+    def test_suspend_normal_apps(self):
+        done = krylan.focus_suspend([5000, 5001])
+        self.assertCountEqual(done, [5000, 5001])
+        self.assertTrue(self.FakeProc.registry[5000]["suspended"])
+        self.assertTrue(self.FakeProc.registry[5001]["suspended"])
+
+    def test_suspend_refuses_system_proc(self):
+        # даже если в список попал системный/низкий PID — он НЕ приостановлен
+        done = krylan.focus_suspend([1])
+        self.assertEqual(done, [])
+        self.assertFalse(self.FakeProc.registry[1]["suspended"])
+
+    def test_suspend_handles_missing_and_denied(self):
+        done = krylan.focus_suspend([5000, 5002, 9999])  # denied + несуществующий
+        self.assertEqual(done, [5000])
+        self.assertFalse(self.FakeProc.registry[5002]["suspended"])
+
+    def test_resume_mirrors_suspend(self):
+        krylan.focus_suspend([5000, 5001])
+        done = krylan.focus_resume([5000, 5001])
+        self.assertCountEqual(done, [5000, 5001])
+        self.assertFalse(self.FakeProc.registry[5000]["suspended"])
+        self.assertFalse(self.FakeProc.registry[5001]["suspended"])
+
+    def test_resume_missing_counts_as_done(self):
+        # исчезнувший процесс — точно не «заморожен», считаем возобновлённым
+        done = krylan.focus_resume([9999])
+        self.assertEqual(done, [9999])
+
+    def test_atexit_resume_clears_global(self):
+        krylan._FOCUS_PAUSED_GLOBAL.clear()
+        krylan.focus_suspend([5000, 5001])
+        krylan._FOCUS_PAUSED_GLOBAL.update([5000, 5001])
+        krylan._focus_resume_atexit()
+        self.assertEqual(krylan._FOCUS_PAUSED_GLOBAL, set())
+        self.assertFalse(self.FakeProc.registry[5000]["suspended"])
+
+
 class TestSimilarImages(unittest.TestCase):
     """Похожие изображения (perceptual hash / dHash)."""
 
