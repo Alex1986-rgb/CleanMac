@@ -96,6 +96,23 @@ struct OptimizeResult {
     var estReclaimBytes: Int64 = 0      // грубая оценка освобождаемого места по медиа
     var photosDenied = false           // не дали доступ к медиатеке
     var contactsDenied = false         // не дали доступ к контактам
+    var diskFreeBeforeGB = 0           // свободно на диске ДО прогона (ГБ)
+    var diskFreeAfterGB  = 0           // свободно на диске ПОСЛЕ прогона (ГБ)
+    var finishedAt = Date()            // когда завершился прогон (для подписи трофея)
+
+    /// Сколько всего найдено к разбору (для бейджа «потенциала»).
+    var foundToReviewTotal: Int {
+        photoDupExtras + screenshots + largeVideos + livePhotos
+            + contactDuplicates + contactsIncomplete
+    }
+}
+
+/// Свободно на диске в ГБ (тот же расчёт, что в SystemMonitor — но без @MainActor,
+/// чтобы движок мог снять «было/стало» прямо во время прогона).
+private func diskFreeGBNow() -> Int {
+    guard let a = try? FileManager.default.attributesOfFileSystem(forPath: NSHomeDirectory()),
+          let free = (a[.systemFreeSize] as? NSNumber)?.doubleValue else { return 0 }
+    return Int(free / 1_073_741_824)
 }
 
 @MainActor
@@ -117,6 +134,8 @@ final class OptimizeEngine: ObservableObject {
         phase = .running
         progress = 0
         result = OptimizeResult()
+        // Снимок свободного места ДО прогона (честное «было → стало»).
+        result.diskFreeBeforeGB = diskFreeGBNow()
 
         Task {
             // 1) Реальная очистка собственного кэша (.cachesDirectory).
@@ -173,6 +192,10 @@ final class OptimizeEngine: ObservableObject {
                 result.contactsDenied = true
             }
             progress = 1.0
+
+            // Снимок свободного места ПОСЛЕ прогона.
+            result.diskFreeAfterGB = diskFreeGBNow()
+            result.finishedAt = Date()
 
             statusLine = "Готово"
             withAnimation { phase = .done }

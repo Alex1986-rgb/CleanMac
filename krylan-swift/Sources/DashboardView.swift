@@ -567,6 +567,7 @@ struct OptimizeProgressSheet: View {
     @ObservedObject var engine: OptimizeEngine
     let coord: AppCoordinator
     @Environment(\.dismiss) private var dismiss
+    @State private var showTrophy = false
 
     var body: some View {
         MetricSheetScaffold(icon: "sparkles", title: "Оптимизация", tint: Brand.green) {
@@ -583,11 +584,19 @@ struct OptimizeProgressSheet: View {
                 resultBody
             }
         }
+        .sheet(isPresented: $showTrophy) {
+            ResultTrophyView(result: engine.result)
+        }
     }
 
     @ViewBuilder
     private var resultBody: some View {
         let r = engine.result
+
+        // Кнопка-трофей: красивый экран «До → После» с шерингом/сохранением.
+        SheetActionButton(title: "Показать результат", icon: "rosette", tint: Brand.green) {
+            showTrophy = true
+        }
 
         HStack(spacing: 10) {
             Image(systemName: "trash.fill").foregroundStyle(Brand.green).frame(width: 24)

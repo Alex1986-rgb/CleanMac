@@ -30,6 +30,8 @@
 	<string>KRYLAN показывает старые события календаря, чтобы помочь навести порядок.</string>
 	<key>NSContactsUsageDescription</key>
 	<string>KRYLAN ищет дубликаты контактов.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>KRYLAN сохраняет картинку-трофей с результатом оптимизации в вашу медиатеку.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>KRYLAN ищет дубликаты фотографий в вашей медиатеке.</string>
 	<key>UIBackgroundModes</key>
