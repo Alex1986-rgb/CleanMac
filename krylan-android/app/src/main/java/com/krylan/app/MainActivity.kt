@@ -9,8 +9,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.CleaningServices
+import androidx.compose.material.icons.filled.FolderDelete
 import androidx.compose.material.icons.filled.LocationOff
 import androidx.compose.material.icons.filled.PermMedia
+import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material3.Icon
@@ -29,6 +31,8 @@ import com.krylan.app.screens.CleanupScreen
 import com.krylan.app.screens.DashboardScreen
 import com.krylan.app.screens.GeoPrivacyScreen
 import com.krylan.app.screens.MediaHubScreen
+import com.krylan.app.screens.OrphanScreen
+import com.krylan.app.screens.SimilarPhotosScreen
 import com.krylan.app.screens.StorageScreen
 import com.krylan.app.ui.Brand
 import com.krylan.app.ui.KrylanTheme
@@ -41,6 +45,8 @@ private enum class Tab(val title: String, val icon: ImageVector) {
     Apps("Приложения", Icons.Filled.Apps),
     Autopilot("Автопилот", Icons.Filled.Bolt),
     Geo("Геолокация", Icons.Filled.LocationOff),
+    Photos("Фото", Icons.Filled.PhotoLibrary),
+    Orphans("Сироты", Icons.Filled.FolderDelete),
 }
 
 class MainActivity : ComponentActivity() {
@@ -102,6 +108,8 @@ private fun Root() {
                 Tab.Apps      -> AppsScreen(ctx)
                 Tab.Autopilot -> AutopilotScreen(ctx)
                 Tab.Geo       -> GeoPrivacyScreen(ctx)
+                Tab.Photos    -> SimilarPhotosScreen(ctx)
+                Tab.Orphans   -> OrphanScreen(ctx)
             }
         }
     }

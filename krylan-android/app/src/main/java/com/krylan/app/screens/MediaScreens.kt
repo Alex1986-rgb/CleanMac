@@ -51,7 +51,7 @@ import kotlinx.coroutines.withContext
 
 /** Запрашивает доступ к медиа; показывает content только после разрешения. */
 @Composable
-private fun MediaPermissionGate(ctx: Context, content: @Composable () -> Unit) {
+internal fun MediaPermissionGate(ctx: Context, content: @Composable () -> Unit) {
     val perms = remember { MediaStoreUtils.readPermissions() }
     var granted by remember {
         mutableStateOf(perms.all {
@@ -88,7 +88,7 @@ private fun MediaPermissionGate(ctx: Context, content: @Composable () -> Unit) {
  * с возможностью «Отменить», плюс fallback на необратимое удаление до API 30.
  * Держит [statusText] для текстового баннера и [canUndo] для кнопки отмены.
  */
-private class MediaActions(
+internal class MediaActions(
     /** Запуск системного запроса корзины: trashTo=true — в корзину, false — восстановить. */
     private val launchTrash: (uris: List<Uri>, trashTo: Boolean) -> Unit,
     /** Необратимое удаление media-uri через createDeleteRequest (fallback / API < 30). */
@@ -188,7 +188,7 @@ private class MediaActions(
  * удаляем напрямую (необратимо). [onDone] перезагружает список после успеха.
  */
 @Composable
-private fun rememberMediaActions(ctx: Context, onDone: () -> Unit): MediaActions {
+internal fun rememberMediaActions(ctx: Context, onDone: () -> Unit): MediaActions {
     val supportsTrash = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
 
     // Что именно подтверждает пользователь в системном диалоге — для верного баннера.
@@ -418,7 +418,7 @@ private fun GenericMediaScreen(ctx: Context, title: String, loader: (Context) ->
  * с честной оценкой «освободит ≈ X». На Android 11+ удаление идёт в корзину.
  */
 @Composable
-private fun SelectionBar(
+internal fun SelectionBar(
     allSelected: Boolean,
     selectedCount: Int,
     selectedBytes: Long,
@@ -495,7 +495,7 @@ private fun SortChips(current: SortMode, onSelect: (SortMode) -> Unit) {
  * чтобы не тащить лишнюю обвязку.
  */
 @Composable
-private fun TrashBanner(actions: MediaActions) {
+internal fun TrashBanner(actions: MediaActions) {
     val status = actions.statusText ?: return
     Row(
         Modifier
@@ -707,7 +707,7 @@ private fun DuplicatesSelectionBar(
  * Выбранный — зелёный CheckCircle; невыбранный — серый RadioButtonUnchecked.
  */
 @Composable
-private fun SelectableFileRow(f: MediaFile, checked: Boolean, onToggle: () -> Unit) {
+internal fun SelectableFileRow(f: MediaFile, checked: Boolean, onToggle: () -> Unit) {
     Card(
         colors = CardDefaults.cardColors(
             containerColor = if (checked) Brand.green.copy(alpha = 0.12f) else Brand.glass

@@ -151,6 +151,15 @@ object MediaStoreUtils {
                      selection = sel, selectionArgs = args)
     }
 
+    /**
+     * Последние фото из коллекции Images (по дате добавления, убыв.), для анализа похожих/размытых.
+     * Возвращаем типизированные image-uri (годятся для корзины/удаления). Ограничиваем [limit]
+     * последними кадрами — perceptual-hash + резкость считаются по битмапу, это недёшево.
+     */
+    fun recentImages(ctx: Context, limit: Int = 2000): List<MediaFile> =
+        query(ctx, sort = "${MediaStore.Images.Media.DATE_ADDED} DESC", limit = limit,
+              collection = MediaStore.Images.Media.EXTERNAL_CONTENT_URI)
+
     /** Группы дубликатов: одинаковые имя+размер, групп больше одной записи. */
     fun duplicateGroups(ctx: Context): List<List<MediaFile>> =
         query(ctx, sort = "${MediaStore.Files.FileColumns.SIZE} DESC", limit = 5000)
