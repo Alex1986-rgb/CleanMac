@@ -331,6 +331,72 @@ class TestDirTree(unittest.TestCase):
         self.assertAlmostEqual(sum(ext for _, _, ext, _ in ring1), 360.0, places=3)
 
 
+class TestCrumbParts(unittest.TestCase):
+    """_crumb_parts: путь → хлебные крошки, HOME свёрнут в «~», без выхода выше дома."""
+
+    def test_home_is_tilde(self):
+        parts = cm.CleanMac._crumb_parts(HOME)
+        self.assertEqual(parts[-1][0], "~")
+        self.assertEqual(parts[-1][1], HOME)
+
+    def test_subdir_chain_ends_at_home(self):
+        p = os.path.join(HOME, "A", "B")
+        parts = cm.CleanMac._crumb_parts(p)
+        labels = [n for n, _ in parts]
+        self.assertEqual(labels[0], "~")        # не поднимаемся выше домашней папки
+        self.assertEqual(labels[-1], "B")
+        self.assertEqual(parts[-1][1], p)
+
+
+class TestAdwareSuspect(unittest.TestCase):
+    """adware_suspect: чистая классификация записей автозапуска. Apple/системное и
+    защищённые пути — никогда не подозрительны; известные сигнатуры/tmp/random — да."""
+
+    def _plist(self, name):
+        return os.path.join(HOME, "Library", "LaunchAgents", name + ".plist")
+
+    def test_apple_never_flagged(self):
+        for lbl in ("com.apple.something", "com.apple.dock.extra",
+                    "group.com.apple.foo", "apple.bar"):
+            sus, _ = cm.adware_suspect(lbl, self._plist(lbl), ["/usr/bin/true"])
+            self.assertFalse(sus, f"{lbl} не должен помечаться")
+
+    def test_normal_third_party_clean(self):
+        for lbl in ("com.google.keystone.agent", "com.spotify.helper",
+                    "org.mozilla.updater", "homebrew.mxcl.something"):
+            sus, _ = cm.adware_suspect(lbl, self._plist(lbl), ["/Applications/App.app/x"])
+            self.assertFalse(sus, f"{lbl} должен считаться чистым")
+
+    def test_known_adware_signatures_flagged(self):
+        for tok in ("genieo", "vsearch", "mackeeper", "pcvark",
+                    "advancedmac", "bundlore", "pirrit"):
+            lbl = f"com.{tok}.agent"
+            sus, reason = cm.adware_suspect(lbl, self._plist(lbl), [])
+            self.assertTrue(sus, f"{tok} должен помечаться")
+            self.assertIn(tok, reason)
+
+    def test_signature_in_args_flagged(self):
+        sus, reason = cm.adware_suspect(
+            "com.vendor.helper", self._plist("vendor"),
+            ["/Users/me/Library/Application Support/Genieo/genieo"])
+        self.assertTrue(sus)
+
+    def test_tmp_launch_flagged(self):
+        sus, reason = cm.adware_suspect(
+            "com.vendor.x", self._plist("x"), ["/tmp/payload.sh"])
+        self.assertTrue(sus)
+        self.assertIn("tmp", reason)
+
+    def test_random_label_flagged(self):
+        sus, _ = cm.adware_suspect("a8x93kf72bzq", self._plist("rand"), [])
+        self.assertTrue(sus)
+
+    def test_protected_path_never_flagged(self):
+        # путь = защищённый корень → не помечаем даже при сигнатуре
+        sus, _ = cm.adware_suspect("com.genieo.agent", HOME, [])
+        self.assertFalse(sus)
+
+
 class TestScanSize(unittest.TestCase):
     """_scan_size: размер через os.walk без перехода по симлинкам (чистая ФС-функция)."""
 

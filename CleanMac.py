@@ -80,7 +80,7 @@ from tkinter import messagebox, filedialog
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from krylan_core import human  # noqa: E402
 
-VERSION = "2.47.0"
+VERSION = "2.48.0"
 BRAND   = "KRYLAN"
 SLOGAN  = "Дай устройству крылья"
 AUTHOR  = "Кырлан Александр Сергеевич"
@@ -1223,9 +1223,112 @@ PRIVACY_ITEMS = [
 ]
 
 # ---------- сигнатуры известного рекламного/нежелательного ПО (эвристика) ----------
+# Подстроки имён/путей типичных рекламных и «mac-cleaner»-агентов. НЕ полноценный
+# антивирус — только безопасный обзор точек автозапуска для ручного разбора.
 ADWARE = ["genieo","installmac","vsearch","conduit","mackeeper","pirrit","bundlore","adload",
           "spigot","crossrider","trovi","mughthesec","shlayer","searchquick","search-quick",
-          "advancedmaccleaner","macsweeper","weknow","aerodynamic","chumsearch","maxxmediasearch"]
+          "advancedmaccleaner","advancedmac","macsweeper","weknow","aerodynamic","chumsearch",
+          "maxxmediasearch","pcvark","mac-cleanup","maccleanup","cleanmymac-helper","geneio",
+          "imckeeper","macreviver","mediadownloader","searchmine","searchpie","spaces.app",
+          "wirelurker","silver","keranger","macdownloader","macupdater-helper"]
+
+# Каталоги автозапуска, которые мы сканируем (только чтение).
+LAUNCH_DIRS = (
+    os.path.join(HOME, "Library/LaunchAgents"),
+    "/Library/LaunchAgents",
+    "/Library/LaunchDaemons",
+)
+
+def _parse_launch_plist(path):
+    """Прочитать .plist автозапуска → dict с Label/Program/ProgramArguments/RunAtLoad.
+    Безопасно (только чтение); при ошибке возвращает пустой dict."""
+    import plistlib
+    try:
+        with open(path, "rb") as f:
+            d = plistlib.load(f)
+    except Exception:
+        return {}
+    args = d.get("ProgramArguments")
+    if isinstance(args, str):
+        args = [args]
+    elif not isinstance(args, (list, tuple)):
+        args = []
+    return {
+        "label": str(d.get("Label", "") or ""),
+        "program": str(d.get("Program", "") or ""),
+        "args": [str(a) for a in args],
+        "run_at_load": bool(d.get("RunAtLoad", False)),
+    }
+
+def adware_suspect(label, path, args):
+    """Чистая классификация записи автозапуска: подозрительна ли она (эвристика).
+
+    Возвращает (suspect: bool, reason: str). reason пуст, если запись чистая.
+    Системное Apple (``com.apple.*``) и защищённые пути НИКОГДА не помечаются.
+    ``args`` — список строк (ProgramArguments + Program), ``path`` — путь к plist."""
+    label = (label or "").strip()
+    path = (path or "").strip()
+    low_label = label.lower()
+    low_path = path.lower()
+    if isinstance(args, str):
+        args = [args]
+    blob = " ".join([low_label] + [str(a).lower() for a in (args or [])] + [low_path])
+
+    # 1) Apple-системное и безопасное — никогда не подозрительно.
+    if low_label.startswith(("com.apple.", "apple.", "group.com.apple")):
+        return (False, "")
+    if path and is_protected(path):
+        return (False, "")
+
+    # 2) Прямое совпадение с сигнатурой известного adware.
+    for tok in ADWARE:
+        if tok in blob:
+            return (True, f"известная сигнатура «{tok}»")
+
+    # 3) Запуск исполняемого из временных/подозрительных каталогов.
+    for arg in ([low_label] + [str(a).lower() for a in (args or [])]):
+        a = arg.strip().strip('"')
+        if a.startswith(("/tmp/", "/private/tmp/", "/var/tmp/", "/private/var/tmp/")):
+            return (True, "запуск из временного каталога (/tmp)")
+        if "/.hidden" in a or a.startswith(os.path.join(HOME, ".").lower()) or "/users/shared/." in a:
+            return (True, "запуск из скрытого каталога")
+
+    # 4) Случайное (бессмысленное) имя лейбла: длинная «каша» из букв/цифр без точек.
+    stem = label.split(".")[-1] if label else ""
+    if stem and len(stem) >= 12 and "." not in label:
+        digits = sum(c.isdigit() for c in stem)
+        if digits >= 4 and stem.isalnum():
+            return (True, "случайное имя агента")
+
+    return (False, "")
+
+def scan_launch_agents(dirs=None):
+    """Сканировать каталоги автозапуска. Возвращает (suspicious, clean) — два списка
+    dict {label, path, reason, run_at_load}. Только чтение, никаких изменений."""
+    if dirs is None:
+        dirs = LAUNCH_DIRS
+    suspicious, clean = [], []
+    for loc in dirs:
+        if not os.path.isdir(loc):
+            continue
+        try:
+            names = sorted(os.listdir(loc))
+        except OSError:
+            continue
+        for fn in names:
+            if not fn.endswith(".plist"):
+                continue
+            p = os.path.join(loc, fn)
+            meta = _parse_launch_plist(p)
+            label = meta.get("label") or fn[:-6]
+            args = list(meta.get("args", []))
+            if meta.get("program"):
+                args = [meta["program"]] + args
+            suspect, reason = adware_suspect(label, p, args)
+            rec = {"label": label, "path": p, "reason": reason,
+                   "run_at_load": meta.get("run_at_load", False)}
+            (suspicious if suspect else clean).append(rec)
+    return suspicious, clean
 
 
 class CleanMac(tk.Tk):
@@ -2717,12 +2820,58 @@ class CleanMac(tk.Tk):
                              "Клик по сектору — провалиться внутрь, клик в центр — на уровень вверх.",
                         bg=BG0, fg=MUTED, font=("SF Pro Text",11), wraplength=620, justify="left", anchor="w")
         info.pack(anchor="w", pady=(6,2))
+        # «Хлебные крошки» текущего пути + кнопка «вверх» — обновляются при навигации.
+        self._sun_crumbs=tk.Frame(self.tpanel, bg=BG0)
+        self._sun_crumbs.pack(fill="x", pady=(0,2))
         cv=tk.Canvas(self.tpanel, bg=GLASS, highlightthickness=0)
         cv.pack(fill="both", expand=True, pady=(4,8))
         self._sun_cv=cv; self._sun_rows=rows; self._sun_tree=None
         cv.bind("<Configure>", lambda e: self._draw_sunburst())
+        self._draw_crumbs()
         self._sun_status(cv, "Считаю размеры…")
         threading.Thread(target=self._sun_w, args=(self._sun_path,), daemon=True).start()
+
+    @staticmethod
+    def _crumb_parts(path):
+        """Путь → список (label, abs_path) для хлебных крошек, HOME свёрнут в «~»."""
+        path=os.path.abspath(path).rstrip("/") or "/"
+        parts=[]
+        cur=path
+        guard=0
+        while True:
+            guard+=1
+            if guard>64: break
+            name=os.path.basename(cur) or "/"
+            if cur==HOME: name="~"
+            parts.append((name, cur))
+            parent=os.path.dirname(cur)
+            if parent==cur: break
+            if cur==HOME: break               # выше домашней папки крошки не строим
+            cur=parent
+        return list(reversed(parts))
+
+    def _draw_crumbs(self):
+        bar=getattr(self,"_sun_crumbs",None)
+        if not bar or not bar.winfo_exists(): return
+        for w in bar.winfo_children(): w.destroy()
+        path=getattr(self,"_sun_path",HOME)
+        up=os.path.dirname(path.rstrip("/"))
+        upbtn=tk.Label(bar, text="↑ вверх", bg=(GLASS_HI if (up and up!=path) else GLASS),
+                       fg=(TEXT if (up and up!=path) else MUTED), font=("SF Pro Text",10,"bold"),
+                       padx=8, pady=3, cursor=("pointinghand" if (up and up!=path) else "arrow"))
+        upbtn.pack(side="left", padx=(0,8))
+        if up and up!=path:
+            upbtn.bind("<Button-1>", lambda e,p=up: self._sun_navigate(p))
+        parts=self._crumb_parts(path)
+        for i,(name,p) in enumerate(parts):
+            last=(i==len(parts)-1)
+            c=tk.Label(bar, text=name[:22], bg=BG0, fg=(CYAN if last else MUTED),
+                       font=("SF Pro Text",10,"bold" if last else "normal"),
+                       cursor=("arrow" if last else "pointinghand"))
+            c.pack(side="left")
+            if not last:
+                c.bind("<Button-1>", lambda e,pp=p: self._sun_navigate(pp))
+                tk.Label(bar, text=" › ", bg=BG0, fg=MUTED, font=("SF Pro Text",10)).pack(side="left")
 
     def _sun_status(self, cv, text):
         cv.delete("all")
@@ -2824,6 +2973,7 @@ class CleanMac(tk.Tk):
         """Провалиться/подняться: перестроить дерево от новой папки (в фоне)."""
         if not path or not os.path.isdir(path): return
         self._sun_path=path; self._sun_tree=None
+        self._draw_crumbs()
         cv=getattr(self,"_sun_cv",None)
         if cv and cv.winfo_exists(): self._sun_status(cv, "Считаю размеры…")
         threading.Thread(target=self._sun_w, args=(path,), daemon=True).start()
@@ -3294,48 +3444,52 @@ class CleanMac(tk.Tk):
         threading.Thread(target=self._threats_scan, daemon=True).start()
 
     def _threats_scan(self):
-        findings=[]
-        for loc in (os.path.join(HOME,"Library/LaunchAgents"),"/Library/LaunchAgents","/Library/LaunchDaemons"):
-            if not os.path.isdir(loc): continue
-            try: names=os.listdir(loc)
-            except Exception: continue
-            for f in names:
-                p=os.path.join(loc,f); low=f.lower(); content=""
-                try:
-                    with open(p,"r",errors="ignore") as fh: content=fh.read().lower()
-                except Exception: pass
-                for tok in ADWARE:
-                    if tok in low or tok in content:
-                        findings.append((p, f"автозапуск · «{tok}»")); break
+        suspicious, clean = scan_launch_agents()
+        # Доп. проверка папок приложений по сигнатурам (только подозрительные).
         for base in ("/Applications", os.path.join(HOME,"Applications")):
             if not os.path.isdir(base): continue
-            for f in os.listdir(base):
+            try: names=os.listdir(base)
+            except Exception: continue
+            for f in names:
                 low=f.lower()
                 for tok in ADWARE:
-                    if tok in low: findings.append((os.path.join(base,f), f"приложение · «{tok}»")); break
-        self.q.put(("threats", findings, None))
+                    if tok in low:
+                        suspicious.append({"label": f, "path": os.path.join(base,f),
+                                           "reason": f"приложение · известная сигнатура «{tok}»",
+                                           "run_at_load": False}); break
+        self.q.put(("threats", (suspicious, clean), None))
 
-    def _render_threats(self, findings):
+    def _render_threats(self, payload):
+        # payload: (suspicious, clean) — каждый элемент dict {label, path, reason, run_at_load}
+        suspicious, clean = payload if isinstance(payload, tuple) else (payload, [])
         for w in self.th_box.winfo_children(): w.destroy()
         self.th_found=[]
-        if not findings:
-            tk.Label(self.th_box, text="✅ Угроз не обнаружено", bg=BG0, fg=GREEN,
+        if not suspicious:
+            tk.Label(self.th_box, text="✅ Подозрительных объектов не обнаружено", bg=BG0, fg=GREEN,
                      font=("SF Pro Display",17,"bold")).pack(anchor="w", pady=10)
-            tk.Label(self.th_box, text="Проверены LaunchAgents, LaunchDaemons и папки приложений.",
-                     bg=BG0, fg=MUTED, font=("SF Pro Text",11)).pack(anchor="w")
+            tk.Label(self.th_box, text=f"Проверены LaunchAgents, LaunchDaemons и папки приложений. "
+                     f"Чистых записей автозапуска: {len(clean)} (включая системные Apple).",
+                     bg=BG0, fg=MUTED, font=("SF Pro Text",11), wraplength=640, justify="left").pack(anchor="w")
             return
-        tk.Label(self.th_box, text=f"⚠️ Подозрительных объектов: {len(findings)}", bg=BG0, fg=YELLOW,
-                 font=("SF Pro Display",15,"bold")).pack(anchor="w", pady=(0,6))
+        tk.Label(self.th_box, text=f"⚠️ Подозрительных объектов: {len(suspicious)}", bg=BG0, fg=YELLOW,
+                 font=("SF Pro Display",15,"bold")).pack(anchor="w", pady=(0,2))
+        tk.Label(self.th_box, text="Только для ручного разбора — это эвристика, а не приговор. "
+                 "Проверьте элемент, прежде чем перемещать его в Корзину.",
+                 bg=BG0, fg=MUTED, font=("SF Pro Text",10), wraplength=640, justify="left").pack(anchor="w", pady=(0,6))
         wrap=tk.Frame(self.th_box, bg=GLASS); wrap.pack(fill="both", expand=True)
-        for p,reason in findings:
+        for rec in suspicious:
+            p=rec["path"]; reason=rec.get("reason") or "подозрительно"
             r=tk.Frame(wrap, bg=GLASS); r.pack(fill="x", padx=10, pady=2)
-            v=tk.BooleanVar(value=True)
+            v=tk.BooleanVar(value=False)   # по умолчанию НЕ выбрано (только ручной разбор)
             tk.Checkbutton(r, variable=v, bg=GLASS, selectcolor=BG0, activebackground=GLASS, bd=0, highlightthickness=0).pack(side="left")
             tk.Label(r, text=reason, bg=GLASS, fg=YELLOW, font=("SF Pro Text",10), anchor="e").pack(side="right", padx=6)
-            tk.Label(r, text=p.replace(HOME,"~"), bg=GLASS, fg=TEXT, font=("SF Pro Text",11), anchor="w").pack(side="left", fill="x", expand=True)
+            txt=f"{rec.get('label','')}  —  {p.replace(HOME,'~')}"
+            tk.Label(r, text=txt, bg=GLASS, fg=TEXT, font=("SF Pro Text",11), anchor="w").pack(side="left", fill="x", expand=True)
             self.th_found.append((v,p))
         bar=tk.Frame(self.th_box, bg=BG0); bar.pack(fill="x", pady=(6,0))
-        self._btn(bar, "🗑 Удалить выбранное (в Корзину)", RED, self._threats_remove).pack(side="right")
+        tk.Label(bar, text=f"Чистых записей автозапуска: {len(clean)}", bg=BG0, fg=MUTED,
+                 font=("SF Pro Text",10)).pack(side="left")
+        self._btn(bar, "🗑 Переместить выбранное в Корзину", RED, self._threats_remove).pack(side="right")
 
     def _threats_remove(self):
         sel=[p for v,p in self.th_found if v.get()]
