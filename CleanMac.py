@@ -572,6 +572,60 @@ def scan_big_old(base, min_mb=200, min_days=180, top=100, now=None):
     return out[:top] if top else out
 
 
+# Проектные артефакты сборки — безопасно удаляются и пересоздаются менеджером
+# пакетов (npm install / cargo build / pod install / …). Часто занимают гигабайты.
+DEV_JUNK_ALWAYS = {
+    "node_modules": "npm/yarn", "__pycache__": "Python", ".pytest_cache": "pytest",
+    ".mypy_cache": "mypy", ".ruff_cache": "ruff", ".terraform": "Terraform",
+    ".turbo": "Turborepo", ".parcel-cache": "Parcel", ".next": "Next.js",
+    ".nuxt": "Nuxt", ".svelte-kit": "SvelteKit",
+}
+# Неоднозначные имена — берём ТОЛЬКО при наличии манифеста-маркера рядом (иначе
+# рискуем удалить не сборочную папку). Для venv маркер — pyvenv.cfg внутри самой папки.
+DEV_JUNK_GATED = {
+    "target": ("Cargo.toml", "pom.xml"),
+    "build": ("build.gradle", "build.gradle.kts", "CMakeLists.txt"),
+    "Pods": ("Podfile",),
+    ".venv": ("pyvenv.cfg",),
+    "venv": ("pyvenv.cfg",),
+}
+
+def scan_dev_junk(base, top=200):
+    """Найти проектные артефакты сборки (node_modules, target, __pycache__, Pods,
+    .venv, .next …) — крупные и безопасно пересоздаваемые. Возвращает
+    отсортированный по размеру список ``(size, path, kind)``.
+
+    Безопасно: симлинки не следуются; внутрь найденной папки не спускаемся (нет
+    двойного счёта); неоднозначные имена берём только при манифесте рядом; ветки
+    Library/.Trash пропускаем. Чистая ФС-функция — тестируется на temp-дереве."""
+    out = []
+    if not base or not os.path.isdir(base):
+        return out
+    for root, dirs, files in os.walk(base, topdown=True, followlinks=False):
+        dirs[:] = [d for d in dirs if not os.path.islink(os.path.join(root, d))
+                   and d not in ("Library", ".Trash")]
+        pruned = []
+        for d in list(dirs):
+            full = os.path.join(root, d)
+            kind = None
+            if d in DEV_JUNK_ALWAYS:
+                kind = DEV_JUNK_ALWAYS[d]
+            elif d in DEV_JUNK_GATED:
+                if d in (".venv", "venv"):
+                    if os.path.exists(os.path.join(full, "pyvenv.cfg")): kind = "venv"
+                elif any(os.path.exists(os.path.join(root, m)) for m in DEV_JUNK_GATED[d]):
+                    kind = {"target": "Rust/Maven", "build": "Gradle/CMake", "Pods": "CocoaPods"}[d]
+            if kind and not is_protected(full):
+                sz = _scan_size(full)
+                if sz > 0:
+                    out.append((sz, full, kind))
+                pruned.append(d)          # не спускаться внутрь артефакта
+        for d in pruned:
+            dirs.remove(d)
+    out.sort(reverse=True)
+    return out[:top] if top else out
+
+
 # ---------- Расширения браузеров (read-only) ----------
 # Семейство Chromium: каталоги профилей внутри Application Support.
 CHROMIUM_BROWSERS = [
@@ -2393,6 +2447,7 @@ class CleanMac(tk.Tk):
                  ).pack(anchor="w", padx=24, pady=(16,8))
         self.tool_chips={}
         chips=[("startup","⚙️ Автозагрузка"),("large","📦 Крупные файлы"),
+               ("devjunk","🧰 Dev-мусор"),
                ("bigold",L("📦🕒 Большие и старые")),
                ("olddl","🕒 Старые загрузки"),("mailatt","📧 Вложения Почты"),
                ("dupes","👯 Дубликаты"),("uninstall","🧩 Деинсталлятор"),
@@ -2422,7 +2477,7 @@ class CleanMac(tk.Tk):
         for k,b in self.tool_chips.items(): b.configure(bg=(BLUE if k==key else GLASS), fg=("white" if k==key else TEXT))
         for w in self.tpanel.winfo_children(): w.destroy()
         self._lv=[]
-        {"startup":self._t_startup,"large":self._t_large,"bigold":self._t_bigold,
+        {"startup":self._t_startup,"large":self._t_large,"devjunk":self._t_devjunk,"bigold":self._t_bigold,
          "olddl":self._t_olddl,"mailatt":self._t_mailatt,"dupes":self._t_dupes,
          "uninstall":self._t_uninstall,"disk":self._t_disk,"maintain":self._t_maintain,
          "shots":self._t_shots,"shred":self._t_shred,"vacuum":self._t_vacuum,
@@ -2549,6 +2604,30 @@ class CleanMac(tk.Tk):
         if not shown: tk.Label(inner, text="  Ничего не найдено.", bg=GLASS, fg=MUTED).pack(anchor="w", padx=8, pady=8)
         self._actionbar(f"Показано: {len(shown)} (~{human(sum(s for s,_,_ in shown))}) · старые отмечены",
                         lambda: self._trash_sel(lambda: self._tool('large')))
+
+    # --- Dev-мусор (проектные артефакты сборки) ---
+    def _t_devjunk(self):
+        self._ptitle("🧰 Dev-мусор", "Проектные node_modules, target, __pycache__, Pods, .venv и т.п. "
+                     "Безопасно — пересоздаются менеджером пакетов (npm install / cargo build / …).")
+        tk.Label(self.tpanel, text="🔎 Ищу артефакты сборки…", bg=BG0, fg=MUTED, font=("SF Pro Text",11)).pack(anchor="w")
+        threading.Thread(target=self._devjunk_w, daemon=True).start()
+
+    def _devjunk_w(self):
+        rows=scan_dev_junk(HOME, top=200)
+        self.q.put(("tool",("devjunk",rows),None))
+
+    def _render_devjunk(self, rows):
+        for w in self.tpanel.winfo_children(): w.destroy()
+        self._lv=[]
+        self._ptitle("🧰 Dev-мусор", "Артефакты сборки — крупные и безопасно пересоздаваемые. "
+                     "Отметьте лишние → в Корзину (обратимо). Восстанавливаются командой сборки/установки.")
+        inner=self._scrollarea()
+        for s,fp,kind in rows:
+            self._checkrow(inner, fp, f"{fp.replace(HOME,'~')}   ·   {kind}", s, preselect=False)
+        if not rows:
+            tk.Label(inner, text="  Артефактов сборки не найдено.", bg=GLASS, fg=MUTED).pack(anchor="w", padx=8, pady=8)
+        self._actionbar(f"Найдено: {len(rows)} (~{human(sum(s for s,_,_ in rows))})",
+                        lambda: self._trash_sel(lambda: self._tool('devjunk')))
 
     # --- Старые загрузки ---
     def _t_olddl(self):
@@ -3749,6 +3828,7 @@ class CleanMac(tk.Tk):
                 elif kind=="tool" and self.page=="tools":
                     sub,data=a
                     if sub=="large": self._render_large(data)
+                    elif sub=="devjunk": self._render_devjunk(data)
                     elif sub=="bigold": self._render_bigold(data)
                     elif sub=="olddl": self._render_olddl(data)
                     elif sub=="mailatt": self._render_mailatt(data)

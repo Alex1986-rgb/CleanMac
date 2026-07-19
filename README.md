@@ -17,7 +17,7 @@ HUD-дашборд с кольцами-гейджами, Автопилот, б�
 > и страшилок вроде «ускорим в 10 раз». Любое удаление — обратимо (Корзина / «Недавно удалённые» / undo).
 > Честные цифры в ГБ. Системное под защитой — решаешь ты.
 
-![version](https://img.shields.io/badge/version-2.48.0-37d39a)
+![version](https://img.shields.io/badge/version-2.49.0-37d39a)
 ![desktop](https://img.shields.io/badge/desktop-1.18.0-4b8cf9)
 ![platform](https://img.shields.io/badge/macOS-11%2B-blue)
 ![license](https://img.shields.io/badge/license-MIT-purple)

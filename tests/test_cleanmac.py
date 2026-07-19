@@ -1119,5 +1119,65 @@ class TestToTrashCollision(unittest.TestCase):
         self.assertEqual(got, sorted(contents))
 
 
+class TestScanDevJunk(unittest.TestCase):
+    """scan_dev_junk: находит артефакты сборки, гейтит неоднозначные по манифесту,
+    не спускается внутрь и не следует по симлинкам."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+
+    def tearDown(self):
+        import shutil; shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _mk(self, rel, size=2048):
+        full = os.path.join(self.tmp, rel)
+        os.makedirs(os.path.dirname(full), exist_ok=True)
+        with open(full, "wb") as f: f.write(b"x" * size)
+        return full
+
+    def test_always_names_found(self):
+        self._mk("proj/node_modules/lib/a.js")
+        self._mk("proj/src/__pycache__/m.pyc")
+        found = {os.path.basename(p): k for _, p, k in cm.scan_dev_junk(self.tmp)}
+        self.assertIn("node_modules", found)
+        self.assertIn("__pycache__", found)
+
+    def test_gated_target_needs_manifest(self):
+        # target без Cargo.toml/pom.xml — НЕ трогаем
+        self._mk("a/target/out.bin")
+        self.assertEqual(cm.scan_dev_junk(self.tmp), [])
+        # с манифестом — берём
+        self._mk("b/Cargo.toml", 10); self._mk("b/target/out.bin")
+        paths = [p for _, p, _ in cm.scan_dev_junk(self.tmp)]
+        self.assertTrue(any(p.endswith("/b/target") for p in paths))
+
+    def test_venv_needs_pyvenv_cfg(self):
+        self._mk("x/venv/bin/python", 10)          # без pyvenv.cfg → не венв
+        self.assertEqual(cm.scan_dev_junk(self.tmp), [])
+        self._mk("y/.venv/pyvenv.cfg", 10); self._mk("y/.venv/lib/site.py")
+        paths = [p for _, p, _ in cm.scan_dev_junk(self.tmp)]
+        self.assertTrue(any(p.endswith("/y/.venv") for p in paths))
+
+    def test_no_descend_into_junk(self):
+        # вложенный node_modules внутри node_modules не даёт отдельной записи
+        self._mk("p/node_modules/dep/node_modules/x.js")
+        rows = cm.scan_dev_junk(self.tmp)
+        nm = [p for _, p, _ in rows if os.path.basename(p) == "node_modules"]
+        self.assertEqual(len(nm), 1)
+        self.assertTrue(nm[0].endswith("/p/node_modules"))
+
+    def test_symlinked_junk_not_followed(self):
+        real = os.path.join(self.tmp, "real_nm"); os.makedirs(real)
+        with open(os.path.join(real, "a.js"), "w") as f: f.write("x" * 4096)
+        proj = os.path.join(self.tmp, "proj"); os.makedirs(proj)
+        try:
+            os.symlink(real, os.path.join(proj, "node_modules"))
+        except OSError:
+            self.skipTest("симлинки недоступны")
+        # симлинк node_modules не должен попасть в находки
+        paths = [p for _, p, _ in cm.scan_dev_junk(proj)]
+        self.assertEqual(paths, [])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
