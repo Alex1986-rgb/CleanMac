@@ -14,11 +14,18 @@ IDENTITY="${1:?Передайте имя подписи: ./sign_and_notarize.sh 
 PROFILE="${2:-CLEANMAC}"
 APP="dist/CleanMac.app"
 DMG="CleanMac.dmg"
+ENTS="$(dirname "$0")/cleanmac.entitlements"
 
 [ -d "$APP" ] || { echo "Нет $APP — сначала ./build_dmg.sh"; exit 1; }
+[ -f "$ENTS" ] || { echo "Нет $ENTS (entitlements для Python-бандла)"; exit 1; }
 
-echo "▶ Подписываю .app (hardened runtime)…"
-codesign --deep --force --options runtime --timestamp --sign "$IDENTITY" "$APP"
+echo "▶ Подписываю .app (hardened runtime + entitlements для Python)…"
+# entitlements обязательны: PyInstaller/Python грузит dylib и использует JIT —
+# без них нотаризованное приложение падает при запуске. Внутренние бинарники
+# подписываем раньше внешнего бандла (Apple не рекомендует --deep для notarize).
+find "$APP" -type f \( -name "*.dylib" -o -name "*.so" \) -exec \
+    codesign --force --options runtime --timestamp --entitlements "$ENTS" --sign "$IDENTITY" {} + 2>/dev/null || true
+codesign --force --options runtime --timestamp --entitlements "$ENTS" --sign "$IDENTITY" "$APP"
 codesign --verify --strict --verbose=2 "$APP"
 
 echo "▶ Пересобираю DMG из подписанного .app…"
