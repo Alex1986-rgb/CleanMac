@@ -1045,5 +1045,79 @@ class TestBrowserSqliteDbs(unittest.TestCase):
             self.assertFalse(os.path.islink(path))
 
 
+class TestLeftoverMatch(unittest.TestCase):
+    """leftover_match: точное совпадение хвостов приложения, НЕ подстрока
+    (регресс: удаление приложения «Mail» не должно захватывать чужие данные)."""
+
+    def test_exact_bundle_id(self):
+        self.assertTrue(cm.leftover_match("com.apple.mail", "Mail", "com.apple.mail"))
+        self.assertTrue(cm.leftover_match("com.apple.mail.plist", "Mail", "com.apple.mail"))
+        self.assertTrue(cm.leftover_match("com.apple.mail.savedState", "Mail", "com.apple.mail"))
+
+    def test_bundle_id_subcomponent_helper(self):
+        # хелперы/контейнеры вида <bid>.Helper — это тоже наш хвост
+        self.assertTrue(cm.leftover_match("com.zoom.xos.Helper", "Zoom", "com.zoom.xos"))
+
+    def test_bundle_id_blocks_foreign(self):
+        # с bundle-id имя-подстрока НЕ используется: чужие *mail* не трогаем
+        self.assertFalse(cm.leftover_match("com.mailchimp.desktop", "Mail", "com.apple.mail"))
+        self.assertFalse(cm.leftover_match("MailChimp", "Mail", "com.apple.mail"))
+        self.assertFalse(cm.leftover_match("com.apple.mailer", "Mail", "com.apple.mail"))
+
+    def test_no_bid_exact_name_only(self):
+        # без bundle-id — только точная основа имени, не подстрока
+        self.assertTrue(cm.leftover_match("Zoom", "Zoom", ""))
+        self.assertTrue(cm.leftover_match("Zoom.plist", "Zoom", ""))
+        self.assertFalse(cm.leftover_match("ZoomInfo", "Zoom", ""))
+        self.assertFalse(cm.leftover_match("com.apple.mail", "Mail", ""))  # подстрока не проходит
+
+    def test_short_name_guard(self):
+        self.assertFalse(cm.leftover_match("xy", "xy", ""))   # слишком короткое имя
+
+
+class TestAsEscape(unittest.TestCase):
+    """as_escape: экранирование для литерала AppleScript (защита от инъекции)."""
+
+    def test_quote_and_backslash(self):
+        self.assertEqual(cm.as_escape('a"b'), 'a\\"b')
+        self.assertEqual(cm.as_escape('a\\b'), 'a\\\\b')
+        # бэклеш перед кавычкой — критичный случай: слэш экранируется первым
+        self.assertEqual(cm.as_escape('a\\"b'), 'a\\\\\\"b')
+
+    def test_injection_neutralised(self):
+        payload = '"; do shell script "rm -rf ~"'
+        esc = cm.as_escape(payload)
+        # ни одной «голой» кавычки: после удаления экранированных \" не остаётся "
+        self.assertNotIn('"', esc.replace('\\"', ''))
+        self.assertEqual(esc.count('\\"'), payload.count('"'))
+
+
+class TestToTrashCollision(unittest.TestCase):
+    """to_trash: два файла с одинаковым basename не затирают друг друга в Корзине."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self._orig_trash = cm.TRASH
+        cm.TRASH = os.path.join(self.tmp, "Trash"); os.makedirs(cm.TRASH)
+
+    def tearDown(self):
+        cm.TRASH = self._orig_trash
+        import shutil; shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_same_basename_both_survive(self):
+        contents = []
+        for i in range(3):
+            d = os.path.join(self.tmp, f"src{i}"); os.makedirs(d)
+            fp = os.path.join(d, "cache.dat")
+            with open(fp, "w") as f: f.write(f"payload-{i}")
+            contents.append(f"payload-{i}")
+            self.assertTrue(cm.to_trash(fp))
+        # в Корзине должно быть 3 разных файла, все данные целы
+        moved = [os.path.join(cm.TRASH, n) for n in os.listdir(cm.TRASH)]
+        self.assertEqual(len(moved), 3)
+        got = sorted(open(m).read() for m in moved)
+        self.assertEqual(got, sorted(contents))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

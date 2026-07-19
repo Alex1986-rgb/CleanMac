@@ -339,7 +339,9 @@ def get_brightness():
 
 def path_size(p):
     if not os.path.exists(p): return 0
-    try: return int(run(["/usr/bin/du", "-sk", p], 60).split("\t")[0]) * 1024
+    # -P: не следовать по симлинкам. Иначе, если p — симлинк на каталог, du считал
+    # размер ЧУЖОГО дерева (цели), завышая «освобождено» и вводя в заблуждение.
+    try: return int(run(["/usr/bin/du", "-sk", "-P", p], 60).split("\t")[0]) * 1024
     except Exception: return 0
 
 def _scan_size(path):
@@ -811,9 +813,45 @@ def to_trash(path):
     if is_protected(path): return False          # страховка: не трогаем системные/корневые папки
     base = os.path.basename(path.rstrip("/")) or "item"
     dest = os.path.join(TRASH, base)
-    if os.path.lexists(dest): dest = os.path.join(TRASH, f"{base}-{int(time.time()*1000)}")
+    # Уникализация счётчиком, а не time.time(): два файла с одинаковым basename,
+    # перемещённые в одну миллисекунду (частый случай в цикле очистки), раньше
+    # давали одинаковый dest и второй shutil.move затирал первый → потеря данных.
+    n = 0
+    while os.path.lexists(dest):
+        n += 1
+        dest = os.path.join(TRASH, f"{base}-{int(time.time()*1000)}-{n}")
     try: shutil.move(path, dest); return True
     except Exception: return False
+
+def leftover_match(entry, name, bid):
+    """True, если элемент папки ~/Library/* — это «хвост» удаляемого приложения.
+
+    Совпадение ТОЧНОЕ, а не по подстроке: иначе приложение с коротким/общим именем
+    (напр. «Mail») увело бы в Корзину чужие данные — com.apple.mail, MailChimp,
+    любые *mail*. Матчим по bundle-id (точно или его под-компоненты вида
+    `<bid>.helper`) и, только если bid нет, по точной основе имени приложения.
+
+    Чистая функция — тестируется без ФС/GUI."""
+    low = (entry or "").lower()
+    stem = low
+    for suf in (".plist", ".savedstate", ".binarycookies"):
+        if stem.endswith(suf):
+            stem = stem[:-len(suf)]
+            break
+    if bid:
+        b = bid.lower()
+        if stem == b or stem.startswith(b + "."):
+            return True
+        return False            # есть bundle-id → имя-подстроку не используем (слишком широко)
+    if name and len(name) >= 3:
+        return stem == name.lower()   # точная основа, НЕ подстрока
+    return False
+
+def as_escape(s):
+    """Экранирование строки для вставки в литерал AppleScript (osascript -e).
+    Сначала обратный слэш, потом двойная кавычка — иначе `\\` перед `"` ломает
+    экранирование. Защита от инъекции AppleScript через динамические имена/тексты."""
+    return str(s).replace("\\", "\\\\").replace('"', '\\"')
 
 def disk_advice(disk_pct, ram_pct, batt_pct=None):
     """Краткие безопасные рекомендации по метрикам. Возвращает [(иконка, текст)].
@@ -1008,11 +1046,19 @@ def record_cleanup(freed_bytes, kind="clean"):
     hist = cleanup_history()
     hist.append({"ts": int(time.time()), "freed": int(freed_bytes), "kind": kind})
     hist = hist[-200:]   # держим последние 200 записей
+    # Атомарная запись: пишем во временный файл и os.replace. Иначе прерывание
+    # json.dump (сбой/второй экземпляр) оставляло усечённый JSON, и cleanup_history
+    # молча возвращал [] — терялся весь журнал. os.replace атомарен в пределах тома.
     try:
         os.makedirs(OPT, exist_ok=True)
-        with open(_history_path(), "w", encoding="utf-8") as f:
+        dst = _history_path()
+        tmp = f"{dst}.{os.getpid()}.tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
             json.dump(hist, f)
-    except Exception: pass
+        os.replace(tmp, dst)
+    except Exception:
+        try: os.remove(tmp)
+        except Exception: pass
 
 def cleanup_history():
     """Список записей истории очисток (старые→новые)."""
@@ -1483,7 +1529,7 @@ class CleanMac(tk.Tk):
         def fire(key, cooldown, title, msg):
             if now - self._alert_t.get(key, 0) > cooldown:
                 self._alert_t[key] = now
-                run(["osascript", "-e", f'display notification "{msg}" with title "{title}"'])
+                run(["osascript", "-e", f'display notification "{as_escape(msg)}" with title "{as_escape(title)}"'])
         if disk >= 90:
             fire("disk", 6*3600, "🪽 KRYLAN", "Диск почти заполнен — запустите Умную очистку.")
         if batt_health and batt_health < 80:
@@ -1946,7 +1992,7 @@ class CleanMac(tk.Tk):
         if os.path.exists(os.path.join(OPT, "close_browsers.on")):
             front=run(["osascript","-e",'tell application "System Events" to name of first process whose frontmost is true']).strip()
             for app in ("Microsoft Edge","Google Chrome","Safari","Yandex"):
-                if app_running(app) and app!=front: run(["osascript","-e",f'quit app "{app}"'])
+                if app_running(app) and app!=front: run(["osascript","-e",f'quit app "{as_escape(app)}"'])
         self.q.put(("optimized", freed, None))
 
     # ===== 1 КЛИК «УСКОРИТЬ» — всё безопасное разом (лучше BoostSpeed: без дефрага/реестра) =====
@@ -2306,12 +2352,16 @@ class CleanMac(tk.Tk):
     def run_analyze(self):
         self.total_lbl.configure(text="Анализирую…")
         for cid in self.cat_vars: self.cat_size_lbl[cid].configure(text="…")
-        threading.Thread(target=self._analyze_worker, daemon=True).start()
+        # Снимаем значения Tk-переменных в ГЛАВНОМ потоке: чтение BooleanVar.get()
+        # из рабочего потока обращается к интерпретатору Tcl не из main loop и
+        # может уронить приложение. Передаём готовый набор выбранных id воркеру.
+        sel={cid for cid in self.cat_vars if self.cat_vars[cid].get()}
+        threading.Thread(target=self._analyze_worker, args=(sel,), daemon=True).start()
 
-    def _analyze_worker(self):
+    def _analyze_worker(self, sel):
         self.found={}; total=0
         for cid,title,paths,skip,mode in CATEGORIES:
-            if not self.cat_vars[cid].get(): self.q.put(("catsize",cid,None)); continue
+            if cid not in sel: self.q.put(("catsize",cid,None)); continue
             if skip and app_running(skip): self.q.put(("catsize",cid,"skip")); continue
             items,ct=[],0
             for p in paths:
@@ -2700,8 +2750,7 @@ class CleanMac(tk.Tk):
             d=os.path.join(HOME,sub)
             if not os.path.isdir(d): continue
             for f in os.listdir(d):
-                low=f.lower()
-                if (bid and bid.lower() in low) or (len(name)>=4 and name.lower() in low):
+                if leftover_match(f, name, bid):
                     targets.append(os.path.join(d,f))
         sizes=[(t,path_size(t)) for t in targets]; tot=sum(s for _,s in sizes)
         lines="\n".join(f"  {human(s):>8}  {t.replace(HOME,'~')}" for t,s in sizes)
@@ -3035,8 +3084,7 @@ class CleanMac(tk.Tk):
     def _maintain_w(self, label, cmd, admin):
         try:
             if admin:
-                esc=cmd.replace('"','\\"')
-                run(["osascript","-e",f'do shell script "{esc}" with administrator privileges'], 180)
+                run(["osascript","-e",f'do shell script "{as_escape(cmd)}" with administrator privileges'], 180)
             else:
                 run(["/bin/bash","-c",cmd], 180)
         except Exception: pass
@@ -3220,7 +3268,7 @@ class CleanMac(tk.Tk):
         front=run(["osascript","-e",'tell application "System Events" to name of first process whose frontmost is true']).strip()
         closed=[]
         for app in ("Microsoft Edge","Google Chrome","Safari","Yandex"):
-            if app_running(app) and app!=front: run(["osascript","-e",f'quit app "{app}"']); closed.append(app)
+            if app_running(app) and app!=front: run(["osascript","-e",f'quit app "{as_escape(app)}"']); closed.append(app)
         self._brez.configure(text=("Закрыты: "+", ".join(closed)) if closed else "Фоновых браузеров нет.")
 
     # --- 🗜 Сжать базы браузеров (VACUUM SQLite) ---
@@ -3566,19 +3614,26 @@ class CleanMac(tk.Tk):
             messagebox.showerror("CleanMac", f"Не удалось перезапустить: {e}\nЗакройте и откройте приложение вручную.")
 
     def _fetch_url(self, url, headers):
-        """GET с откатом контекста SSL (для замороженной сборки без системных CA)."""
+        """GET c проверкой TLS. Используется только для https:// (проверка обновлений).
+
+        Раньше был откат на ssl._create_unverified_context() «для сборки без системных
+        CA» — но это отключало проверку сертификата и открывало MITM-подмену версии/
+        содержимого при проверке обновлений. Проверяем сертификат всегда: системный CA
+        или certifi. Никакого небезопасного отката."""
         import ssl
-        contexts=[None]
+        if not str(url).lower().startswith("https:"):
+            return None
+        contexts=[None]      # системный CA
         try:
             import certifi; contexts.append(ssl.create_default_context(cafile=certifi.where()))
         except Exception: pass
-        contexts.append(ssl._create_unverified_context())
         req=urllib.request.Request(url, headers=headers)
         for ctx in contexts:
             try:
                 kw={"timeout":6}
                 if ctx is not None: kw["context"]=ctx
-                return urllib.request.urlopen(req, **kw).read().decode()
+                with urllib.request.urlopen(req, **kw) as r:
+                    return r.read().decode()
             except Exception:
                 continue
         return None
@@ -3756,5 +3811,28 @@ class CleanMac(tk.Tk):
         self.after(120, self._poll)
 
 
+def acquire_single_instance():
+    """Не даём запустить второй экземпляр: два CleanMac одновременно могли
+    параллельно чистить/перемещать в Корзину и чинить launch-агенты, конкурируя
+    за одни файлы. Держим эксклюзивный flock на файле в OPT. Возвращает
+    file-объект (держать до выхода) или None, если уже запущен другой экземпляр."""
+    try:
+        os.makedirs(OPT, exist_ok=True)
+        lock = open(os.path.join(OPT, "cleanmac.lock"), "w")
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        return lock
+    except Exception:
+        return None
+
+
 if __name__ == "__main__":
+    _lock = acquire_single_instance()
+    if _lock is None:
+        try:
+            r = tk.Tk(); r.withdraw()
+            messagebox.showinfo("CleanMac", "CleanMac уже запущен.")
+            r.destroy()
+        except Exception:
+            pass
+        sys.exit(0)
     CleanMac().mainloop()
