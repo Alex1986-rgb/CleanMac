@@ -1461,8 +1461,10 @@ class CleanMac(tk.Tk):
         self.update_note = ""
         self._group_active = {}   # запоминаем активную под-вкладку каждой группы
         self._visible = True      # окно на экране и в фокусе → анимируем; иначе пауза
+        self._alive = True        # снимается при закрытии — сигнал потокам/циклам остановиться
         self._build()
         self.nav("dash")
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
         # пауза анимации, когда окно не активно/свёрнуто — чтобы не жечь CPU
         self.bind("<FocusIn>",  lambda e: setattr(self, "_visible", True))
         self.bind("<FocusOut>", lambda e: setattr(self, "_visible", False))
@@ -1948,7 +1950,9 @@ class CleanMac(tk.Tk):
                 if not os.path.exists(p): continue
                 if mode=="subitems" and os.path.isdir(p):
                     for nm in os.listdir(p):
-                        fp=os.path.join(p,nm); s=path_size(fp); ct+=s; items.append((fp,s))
+                        fp=os.path.join(p,nm)
+                        if os.path.islink(fp): continue   # не трогаем симлинки пользователя
+                        s=path_size(fp); ct+=s; items.append((fp,s))
                 else: s=path_size(p); ct+=s; items.append((p,s))
             if ct>0: found[cid]=(title,items,ct); total+=ct
         self.q.put(("smart",(found,total),None))
@@ -2036,7 +2040,9 @@ class CleanMac(tk.Tk):
             for p in paths:
                 if mode=="subitems" and os.path.isdir(p):
                     for nm in os.listdir(p):
-                        fp=os.path.join(p,nm); s=path_size(fp)
+                        fp=os.path.join(p,nm)
+                        if os.path.islink(fp): continue   # не трогаем симлинки пользователя
+                        s=path_size(fp)
                         if to_trash(fp): freed+=s
                 elif os.path.exists(p):
                     s=path_size(p)
@@ -2065,7 +2071,9 @@ class CleanMac(tk.Tk):
                 if not os.path.exists(p): continue
                 if mode=="subitems" and os.path.isdir(p):
                     for nm in os.listdir(p):
-                        fp=os.path.join(p,nm); s=path_size(fp)
+                        fp=os.path.join(p,nm)
+                        if os.path.islink(fp): continue   # не трогаем симлинки пользователя
+                        s=path_size(fp)
                         if to_trash(fp): freed+=s
                 else:
                     s=path_size(p)
@@ -2122,7 +2130,9 @@ class CleanMac(tk.Tk):
                             if not os.path.exists(p): continue
                             if mode == "subitems" and os.path.isdir(p):
                                 for nm in os.listdir(p):
-                                    fp = os.path.join(p, nm); s = path_size(fp)
+                                    fp = os.path.join(p, nm)
+                                    if os.path.islink(fp): continue   # не трогаем симлинки пользователя
+                                    s = path_size(fp)
                                     if to_trash(fp): got += s
                             else:
                                 s = path_size(p)
@@ -2422,7 +2432,9 @@ class CleanMac(tk.Tk):
                 if not os.path.exists(p): continue
                 if mode=="subitems" and os.path.isdir(p):
                     for nm in os.listdir(p):
-                        fp=os.path.join(p,nm); s=path_size(fp); ct+=s; items.append((fp,s))
+                        fp=os.path.join(p,nm)
+                        if os.path.islink(fp): continue   # не трогаем симлинки пользователя
+                        s=path_size(fp); ct+=s; items.append((fp,s))
                 else: s=path_size(p); ct+=s; items.append((p,s))
             self.found[cid]=items; total+=ct; self.q.put(("catsize",cid,ct))
         self.q.put(("total",total,None))
@@ -2957,7 +2969,8 @@ class CleanMac(tk.Tk):
         cv.bind("<Configure>", lambda e: self._draw_sunburst())
         self._draw_crumbs()
         self._sun_status(cv, "Считаю размеры…")
-        threading.Thread(target=self._sun_w, args=(self._sun_path,), daemon=True).start()
+        self._sun_seq = getattr(self, "_sun_seq", 0) + 1
+        threading.Thread(target=self._sun_w, args=(self._sun_path, self._sun_seq), daemon=True).start()
 
     @staticmethod
     def _crumb_parts(path):
@@ -3006,16 +3019,22 @@ class CleanMac(tk.Tk):
         W=cv.winfo_width() or 600; H=cv.winfo_height() or 360
         cv.create_text(W/2, H/2, fill=MUTED, font=("SF Pro Text",13,"bold"), text="⏳ "+text)
 
-    def _sun_w(self, path):
-        """Фоновый воркер: строит dir_tree (медленно — НЕ в UI-потоке)."""
+    def _sun_w(self, path, seq):
+        """Фоновый воркер: строит dir_tree (медленно — НЕ в UI-потоке).
+        seq — токен запроса: приёмник отбросит результат устаревшего клика."""
         try:
             tree = dir_tree(path, depth=2, min_frac=0.012, top_n=12)
         except Exception:
             tree = {"name": os.path.basename(path) or path, "path": path, "size": 0, "children": []}
-        self.q.put(("sunburst", tree, None))
+        self.q.put(("sunburst", (seq, tree), None))
 
-    def _on_sun_tree(self, tree):
-        """Колбэк из очереди (UI-поток): дерево готово — рисуем."""
+    def _on_sun_tree(self, payload):
+        """Колбэк из очереди (UI-поток): дерево готово — рисуем.
+        Игнорируем результат устаревшего запроса (быстрые клики по секторам):
+        рисуем только дерево последнего запрошенного каталога, а не последнего
+        досчитавшегося."""
+        seq, tree = payload
+        if seq != getattr(self, "_sun_seq", 0): return
         if self.page!="tools" or getattr(self,"_disk_mode",None)!="sun": return
         self._sun_tree=tree
         if getattr(self,"_sun_cv",None) and self._sun_cv.winfo_exists():
@@ -3104,7 +3123,8 @@ class CleanMac(tk.Tk):
         self._draw_crumbs()
         cv=getattr(self,"_sun_cv",None)
         if cv and cv.winfo_exists(): self._sun_status(cv, "Считаю размеры…")
-        threading.Thread(target=self._sun_w, args=(path,), daemon=True).start()
+        self._sun_seq = getattr(self, "_sun_seq", 0) + 1
+        threading.Thread(target=self._sun_w, args=(path, self._sun_seq), daemon=True).start()
 
     def _bench_start(self):
         try:
@@ -3738,9 +3758,16 @@ class CleanMac(tk.Tk):
         elif manual:
             self.q.put(("update", "Не удалось проверить обновления (нет сети).", None))
 
+    def _on_close(self):
+        """Аккуратное закрытие: снимаем флаг (потоки-сэмплеры и циклы after прекращают
+        обращаться к разрушаемым виджетам → нет TclError/трейсбеков), затем destroy."""
+        self._alive = False
+        try: self.destroy()
+        except Exception: pass
+
     # ---------- сэмплер ----------
     def _sampler(self):
-        while True:
+        while getattr(self, "_alive", True):
             cpu=stat_cpu(); ram=stat_mem(); sused,_=stat_swap()
             disk,dfree,dtot=stat_disk(); vm=stat_vm(); batt=stat_batt(); procs=stat_procs()
             swap_sev=min(100, sused/8192*100)
@@ -3753,7 +3780,7 @@ class CleanMac(tk.Tk):
         """Лёгкий поток сети: обновляет скорость раз в секунду независимо от тяжёлого сэмплера.
         Так интернет на дашборде идёт по-настоящему в реальном времени."""
         stat_net()  # инициализация prev
-        while True:
+        while getattr(self, "_alive", True):
             time.sleep(1.0)
             d,u = stat_net()
             self.net_down, self.net_up = d, u
@@ -3777,7 +3804,8 @@ class CleanMac(tk.Tk):
         except Exception:
             pass
         # 15 fps когда смотрим; раз в 0.6 с когда окно неактивно/свёрнуто
-        self.after(85 if active else 600, self._animate)
+        if getattr(self, "_alive", True):
+            self.after(85 if active else 600, self._animate)
 
     # ---------- очередь ----------
     def _poll(self):
@@ -3888,7 +3916,8 @@ class CleanMac(tk.Tk):
                         "приложение в «Программы», заменив старое.")
         except queue.Empty: pass
         except Exception: pass
-        self.after(120, self._poll)
+        if getattr(self, "_alive", True):
+            self.after(120, self._poll)
 
 
 def acquire_single_instance():
