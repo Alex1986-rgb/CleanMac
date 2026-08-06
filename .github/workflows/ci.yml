@@ -13,19 +13,28 @@ on:
 jobs:
   test:
     runs-on: macos-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        python: ["3.9", "3.12"]   # 3.9 — системный python из Command Line Tools
+    # Обе версии Python гоняем ПОСЛЕДОВАТЕЛЬНО в одной задаче, а не матрицей.
+    # Матрица просила два macOS-раннера одновременно, и первый же прогон
+    # закончился «The job was not acquired by Runner of type hosted even after
+    # multiple attempts» — GitHub не выдал второй раннер. Одна задача — один
+    # запрос к пулу и вдвое меньше шансов упереться в его загруженность.
     steps:
       - uses: actions/checkout@v5
 
+      - name: Тесты на системном python (3.9 из Command Line Tools)
+        # Ровно то, чем приложение запускается у пользователя без python.org.
+        run: |
+          /usr/bin/python3 -V
+          /usr/bin/python3 tests/test_cleanmac.py
+
       - uses: actions/setup-python@v6
         with:
-          python-version: ${{ matrix.python }}
+          python-version: "3.12"
 
-      - name: Тесты macOS-флагмана
-        run: python3 tests/test_cleanmac.py
+      - name: Тесты на Python 3.12
+        run: |
+          python3 -V
+          python3 tests/test_cleanmac.py
 
       - name: Статический разбор
         run: |
