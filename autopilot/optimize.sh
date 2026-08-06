@@ -9,10 +9,25 @@ LOG="$DIR/optimize.log"
 STATE="$DIR/state.json"          # сюда дашборд читает текущие метрики
 COOLDOWN_FILE="$DIR/.last_action"
 COOLDOWN=300                      # не действовать чаще раза в 5 минут
+COOLDOWN_STUCK=3600               # если прошлое вмешательство не помогло — ждать час
 
 # --- пороги пика ---
-FREE_PCT_PEAK=20                  # свободной памяти меньше 20%
-SWAP_PEAK_MB=5000                 # ИЛИ swap больше 5 ГБ при нехватке памяти
+# Главный сигнал — вердикт самой macOS: kern.memorystatus_vm_pressure_level
+# (1 = норма, 2 = предупреждение, 4 = критично). Именно по нему система решает
+# сжимать и выгружать страницы.
+#
+# Почему не «процент свободной памяти», как было раньше. Замер на живом маке
+# 8 ГБ: swap занял 4953 МБ (60% от ОЗУ), компрессор держал 3200 МБ, macOS
+# рапортовала pressure_level = 2 — а `memory_pressure` показывала 39% свободно.
+# Порог «меньше 20%» не срабатывал никогда, потому что этот показатель считает
+# сжатое и вытесняемое доступным и под свопом почти не падает. Второй порог был
+# ещё хуже: фиксированные 5000 МБ swap на машине, где весь файл подкачки
+# начинается с 2048 МБ, — условие, недостижимое в принципе.
+#
+# Поэтому: доля swap считается ОТ ОБЪЁМА ОЗУ, а не в абсолютных мегабайтах.
+PRESSURE_PEAK=2                   # вердикт macOS: 2 = warn, 4 = critical
+SWAP_PEAK_PCT=25                  # swap занял четверть ОЗУ — это уже трэшинг
+FREE_PCT_PEAK=15                  # запасной сигнал, если sysctl недоступен
 
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S')  $1" >> "$LOG"; }
 notify() {
@@ -24,6 +39,9 @@ free_pct=$(memory_pressure 2>/dev/null | awk -F': ' '/free percentage/{gsub(/%/,
 [ -z "$free_pct" ] && free_pct=100
 swap_used=$(sysctl -n vm.swapusage 2>/dev/null | awk '{print $6}' | tr -d 'M')
 swap_used=${swap_used%.*}; [ -z "$swap_used" ] && swap_used=0
+ram_mb=$(( $(sysctl -n hw.memsize 2>/dev/null || echo 8589934592) / 1048576 ))
+swap_pct=$(( swap_used * 100 / (ram_mb > 0 ? ram_mb : 8192) ))
+pressure=$(sysctl -n kern.memorystatus_vm_pressure_level 2>/dev/null); [ -z "$pressure" ] && pressure=1
 load1=$(sysctl -n vm.loadavg 2>/dev/null | awk '{print $2}')
 ncpu=$(sysctl -n hw.ncpu)
 
@@ -32,24 +50,45 @@ top_mem=$(/bin/ps -axo rss,comm | sort -rn | head -3 | awk '{printf "%s (%.0fM);
 
 # записать состояние для дашборда (простой JSON)
 cat > "$STATE" <<EOF
-{"ts":"$(date '+%H:%M:%S')","free_pct":$free_pct,"swap_mb":$swap_used,"load1":"$load1","ncpu":$ncpu}
+{"ts":"$(date '+%H:%M:%S')","free_pct":$free_pct,"swap_mb":$swap_used,"swap_pct":$swap_pct,"pressure":$pressure,"ram_mb":$ram_mb,"load1":"$load1","ncpu":$ncpu}
 EOF
 
 # ---------- детектор пика ----------
 peak=0
 reason=""
-if [ "$free_pct" -lt "$FREE_PCT_PEAK" ] 2>/dev/null; then peak=1; reason="мало памяти (${free_pct}% свободно)"; fi
-if [ "$swap_used" -gt "$SWAP_PEAK_MB" ] 2>/dev/null && [ "$free_pct" -lt 35 ] 2>/dev/null; then peak=1; reason="swap ${swap_used}M, память ${free_pct}%"; fi
+if [ "$pressure" -ge "$PRESSURE_PEAK" ] 2>/dev/null; then
+  peak=1; reason="macOS сообщает о нехватке памяти (уровень $pressure), swap ${swap_used}M"
+fi
+if [ "$swap_pct" -ge "$SWAP_PEAK_PCT" ] 2>/dev/null; then
+  peak=1; reason="swap ${swap_used}M — ${swap_pct}% от ${ram_mb}M ОЗУ"
+fi
+if [ "$free_pct" -lt "$FREE_PCT_PEAK" ] 2>/dev/null; then
+  peak=1; reason="свободно всего ${free_pct}% памяти"
+fi
 
 [ "$peak" -eq 0 ] && exit 0
 
-# ---------- cooldown ----------
+# ---------- cooldown с отступлением ----------
+# Пик бывает затяжным: swap на 60% от ОЗУ не уходит от того, что мы закрыли один
+# браузер. С фиксированным окном в 5 минут агент долбил бы одно и то же действие
+# круглые сутки и закрывал пользователю окна каждые пять минут. Поэтому: если
+# прошлое вмешательство не сбило swap заметно, следующее откладываем надолго.
 now=$(date +%s)
+last=0; last_swap=0
 if [ -f "$COOLDOWN_FILE" ]; then
-  last=$(cat "$COOLDOWN_FILE" 2>/dev/null); last=${last:-0}
-  if [ $((now - last)) -lt "$COOLDOWN" ]; then exit 0; fi
+  read -r last last_swap < "$COOLDOWN_FILE" 2>/dev/null
+  last=${last:-0}; last_swap=${last_swap:-0}
 fi
-echo "$now" > "$COOLDOWN_FILE"
+wait_for="$COOLDOWN"
+if [ "$last_swap" -gt 0 ] 2>/dev/null; then
+  # помогло, если swap упал хотя бы на 10% от прежнего значения
+  improved=$(( last_swap - swap_used ))
+  if [ "$improved" -lt $(( last_swap / 10 )) ]; then
+    wait_for="$COOLDOWN_STUCK"
+  fi
+fi
+if [ $((now - last)) -lt "$wait_for" ]; then exit 0; fi
+echo "$now $swap_used" > "$COOLDOWN_FILE"
 
 log "⚠️ ПИК: $reason. Топ: $top_mem"
 freed_note=""
@@ -106,8 +145,17 @@ else
 fi
 
 # ---------- итог ----------
-sleep 2
-free_after=$(memory_pressure 2>/dev/null | awk -F': ' '/free percentage/{gsub(/%/,"",$2); print $2}')
-log "✅ После оптимизации: память ${free_after}% свободно"
-notify "$reason" "Освобождено: ${freed_note}${closed:+браузеры:$closed} Память: ${free_pct}% → ${free_after}%"
+# Отчитываемся по swap и вердикту macOS, а не по «проценту свободной памяти»:
+# именно этот процент почти не двигается под свопом и создавал ложное
+# впечатление, будто всё в порядке.
+sleep 3
+swap_after=$(sysctl -n vm.swapusage 2>/dev/null | awk '{print $6}' | tr -d 'M'); swap_after=${swap_after%.*}
+press_after=$(sysctl -n kern.memorystatus_vm_pressure_level 2>/dev/null); [ -z "$press_after" ] && press_after=1
+log "✅ Итог: swap ${swap_used}M → ${swap_after:-?}M, давление $pressure → $press_after${closed:+, закрыты:$closed}"
+if [ -z "$closed" ] && [ ! -f "$DIR/close_browsers.on" ]; then
+  # Честно: чистка кэшей освобождает ДИСК, а не ОЗУ. Без закрытия тяжёлых
+  # процессов непривилегированный агент память вернуть не может.
+  log "ℹ️ Память не освобождалась: чистка кэшей releases диск, не ОЗУ. Включите закрытие фоновых браузеров в «Автопилоте», если нужен возврат памяти."
+fi
+notify "$reason" "Кэш: ${freed_note:-—} swap ${swap_used}M → ${swap_after:-?}M${closed:+, закрыты:$closed}"
 exit 0

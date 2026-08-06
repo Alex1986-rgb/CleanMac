@@ -1339,5 +1339,59 @@ class TestWorkerSafety(unittest.TestCase):
         self.assertIn('if kind=="error"', src)
 
 
+class TestToolGroups(unittest.TestCase):
+    """Инструменты сгруппированы — но ни один не должен потеряться при перекладке."""
+
+    def setUp(self):
+        self.groups = cm.CleanMac.TOOL_GROUPS
+        self.keys = [k for _, _, chips in self.groups for k, _ in chips]
+
+    def _dispatch_keys(self):
+        import re
+        with open(os.path.join(REPO_ROOT, "CleanMac.py"), encoding="utf-8") as f:
+            return set(re.findall(r'"(\w+)":self\._t_\w+', f.read()))
+
+    def test_no_duplicates(self):
+        dupes = [k for k in self.keys if self.keys.count(k) > 1]
+        self.assertEqual(dupes, [], f"чип продублирован в разных семействах: {dupes}")
+
+    def test_every_tool_reachable(self):
+        # Раньше чипы лежали одним плоским списком; при группировке легко потерять
+        # инструмент — он останется в диспетчере, но кликнуть по нему будет нечем.
+        self.assertEqual(sorted(self._dispatch_keys()), sorted(self.keys))
+
+    def test_groups_are_small(self):
+        # Смысл группировки — чтобы на экране не висело 19 кнопок разом.
+        for gkey, glabel, chips in self.groups:
+            self.assertLessEqual(len(chips), 9, f"семейство «{glabel}» разрослось")
+            self.assertGreater(len(chips), 0, f"семейство «{glabel}» пустое")
+
+
+class TestAutopilotThresholds(unittest.TestCase):
+    """Пороги пика должны ловить реальный трэшинг, а не молчать под свопом."""
+
+    def _sh(self):
+        with open(os.path.join(REPO_ROOT, "autopilot", "optimize.sh"), encoding="utf-8") as f:
+            return f.read()
+
+    def test_uses_macos_pressure_level(self):
+        # `free percentage` под свопом почти не падает: замер на живом маке —
+        # swap 4953 МБ (60% ОЗУ), pressure_level=2, а free показывал 39%.
+        self.assertIn("kern.memorystatus_vm_pressure_level", self._sh())
+
+    def test_swap_threshold_is_relative_to_ram(self):
+        # Фиксированные 5000 МБ недостижимы на машине, где файл подкачки
+        # начинается с 2048 МБ, — условие не срабатывало никогда.
+        sh = self._sh()
+        self.assertIn("SWAP_PEAK_PCT", sh)
+        self.assertIn("hw.memsize", sh)
+        self.assertNotIn("SWAP_PEAK_MB=5000", sh)
+
+    def test_backoff_when_action_did_not_help(self):
+        # Затяжной пик не лечится закрытием одного браузера: без отступления
+        # агент закрывал бы окна каждые 5 минут круглые сутки.
+        self.assertIn("COOLDOWN_STUCK", self._sh())
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

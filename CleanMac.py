@@ -72,7 +72,7 @@ from tkinter import messagebox, filedialog
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from krylan_core import human, ver_tuple, disk_advice, parse_brew_outdated, squarify  # noqa: E402
 
-VERSION = "2.53.0"
+VERSION = "2.54.0"
 BRAND   = "KRYLAN"
 SLOGAN  = "Дай устройству крылья"
 AUTHOR  = "Кырлан Александр Сергеевич"
@@ -2525,35 +2525,64 @@ class CleanMac(tk.Tk):
     def show_tools(self):
         tk.Label(self.main, text=L("Инструменты"), bg=BG0, fg=TEXT, font=("SF Pro Display",28,"bold")
                  ).pack(anchor="w", padx=24, pady=(16,8))
+        # Было 19 плоских чипов в три ряда вперемешку — поиск файлов, обслуживание
+        # системы, браузеры и деинсталляция в одной куче. Теперь два уровня:
+        # 4 семейства сверху, внутри — только чипы выбранного семейства.
+        # На экране одновременно 4 + 3..7 кнопок вместо девятнадцати.
         self.tool_chips={}
-        chips=[("startup","⚙️ Автозагрузка"),("large","📦 Крупные файлы"),
-               ("devjunk","🧰 Dev-мусор"),
-               ("bigold",L("📦🕒 Большие и старые")),
-               ("olddl","🕒 Старые загрузки"),("mailatt","📧 Вложения Почты"),
-               ("dupes","👯 Дубликаты"),("uninstall","🧩 Деинсталлятор"),
-               ("disk","🗺 Карта диска"),("maintain","🩺 Обслуживание"),
-               ("shots","📸 Скриншоты"),("shred","🔥 Шредер"),
-               ("vacuum",L("🗜 Сжать базы браузеров")),
-               ("updater","📦 Апдейтер"),("leftovers","🧹 Остатки"),("history","📜 История"),
-               ("browsers","🌐 Браузеры"),("extensions","🧩 Расширения браузеров"),
-               ("trash","♻️ Корзина")]
-        # переносим чипы в ряды, чтобы все помещались (по 7 в ряд)
-        per_row=7
-        wrap=tk.Frame(self.main, bg=BG0); wrap.pack(fill="x", padx=22)
-        for i in range(0, len(chips), per_row):
-            row=tk.Frame(wrap, bg=BG0); row.pack(fill="x", pady=2)
-            for key,lbl in chips[i:i+per_row]:
-                b=tk.Label(row, text=lbl, bg=GLASS, fg=TEXT, font=("SF Pro Text",12),
-                           padx=11, pady=8, cursor="pointinghand")
-                b.pack(side="left", padx=4)
-                b.bind("<Button-1>", lambda e,k=key:self._tool(k))
-                b.bind("<Enter>", lambda e,bb=b,k=key: bb.configure(bg=GLASS_HI) if self.tool_chips and bb.cget("bg")!=BLUE else None)
-                b.bind("<Leave>", lambda e,bb=b: bb.configure(bg=GLASS) if bb.cget("bg")==GLASS_HI else None)
-                self.tool_chips[key]=b
+        gwrap=tk.Frame(self.main, bg=BG0); gwrap.pack(fill="x", padx=22, pady=(0,2))
+        self.tool_gbtns={}
+        for gkey,glabel,_ in self.TOOL_GROUPS:
+            gb=tk.Label(gwrap, text=glabel, bg=GLASS, fg=TEXT, font=("SF Pro Text",12,"bold"),
+                        padx=14, pady=9, cursor="pointinghand")
+            gb.pack(side="left", padx=(0,6))
+            gb.bind("<Button-1>", lambda e,k=gkey: self._tool_group(k))
+            self.tool_gbtns[gkey]=gb
+        self.chip_row=tk.Frame(self.main, bg=BG0); self.chip_row.pack(fill="x", padx=22, pady=(4,0))
         self.tpanel=tk.Frame(self.main, bg=BG0); self.tpanel.pack(fill="both", expand=True, padx=22, pady=(10,14))
-        self._lv=[]; self._tool("startup")
+        self._lv=[]
+        self._tool_group(getattr(self, "_tool_group_cur", None) or self.TOOL_GROUPS[0][0])
+
+    # Семейства инструментов: ключ, подпись, состав.
+    TOOL_GROUPS = [
+        ("space", "🔍 Найти и освободить", [
+            ("large","📦 Крупные файлы"), ("bigold","📦🕒 Большие и старые"),
+            ("olddl","🕒 Старые загрузки"), ("dupes","👯 Дубликаты"),
+            ("shots","📸 Скриншоты"), ("mailatt","📧 Вложения Почты"),
+            ("devjunk","🧰 Dev-мусор"), ("disk","🗺 Карта диска"), ("trash","♻️ Корзина")]),
+        ("apps", "🧩 Приложения", [
+            ("uninstall","🧩 Деинсталлятор"), ("leftovers","🧹 Остатки"),
+            ("startup","⚙️ Автозагрузка"), ("updater","📦 Апдейтер")]),
+        ("web", "🌐 Браузеры", [
+            ("browsers","🌐 Следы браузеров"), ("extensions","🧩 Расширения"),
+            ("vacuum","🗜 Сжать базы")]),
+        ("system", "🩺 Система", [
+            ("maintain","🩺 Обслуживание"), ("shred","🔥 Шредер"), ("history","📜 История")]),
+    ]
+
+    def _tool_group(self, gkey):
+        """Показать чипы одного семейства; остальные скрыты, а не свалены рядом."""
+        self._tool_group_cur = gkey
+        for k,b in self.tool_gbtns.items():
+            b.configure(bg=(BLUE if k==gkey else GLASS), fg=("white" if k==gkey else TEXT))
+        for w in self.chip_row.winfo_children(): w.destroy()
+        self.tool_chips={}
+        chips = next(c for k,_,c in self.TOOL_GROUPS if k==gkey)
+        for key,lbl in chips:
+            b=tk.Label(self.chip_row, text=L(lbl), bg=GLASS, fg=TEXT, font=("SF Pro Text",12),
+                       padx=11, pady=8, cursor="pointinghand")
+            b.pack(side="left", padx=(0,6))
+            b.bind("<Button-1>", lambda e,k=key:self._tool(k))
+            b.bind("<Enter>", lambda e,bb=b: bb.configure(bg=GLASS_HI) if bb.cget("bg")!=BLUE else None)
+            b.bind("<Leave>", lambda e,bb=b: bb.configure(bg=GLASS) if bb.cget("bg")==GLASS_HI else None)
+            self.tool_chips[key]=b
+        # запомненный чип этого семейства, иначе первый
+        want = getattr(self, "_tool_last", {}).get(gkey) or chips[0][0]
+        self._tool(want)
 
     def _tool(self, key):
+        if not hasattr(self, "_tool_last"): self._tool_last={}
+        self._tool_last[getattr(self, "_tool_group_cur", "space")] = key
         for k,b in self.tool_chips.items(): b.configure(bg=(BLUE if k==key else GLASS), fg=("white" if k==key else TEXT))
         for w in self.tpanel.winfo_children(): w.destroy()
         self._lv=[]
@@ -3734,8 +3763,11 @@ class CleanMac(tk.Tk):
         row=tk.Frame(self.main, bg=BG0); row.pack(anchor="w", padx=24, pady=16)
         if not self.is_pro:
             self._btn(row,"⭐️ Купить Pro",PURPLE, lambda: run(["/usr/bin/open",BUY_URL])).pack(side="left", padx=(0,8))
-        self._btn(row,"🔄 Обновить и перезапустить",GREEN, self._self_update).pack(side="left", padx=(0,8))
-        self._btn(row,"Проверить обновления",BLUE, lambda: self._spawn(self._check_update, True)).pack(side="left", padx=(0,8))
+        # Были две отдельные кнопки — «Проверить обновления» и «Обновить и
+        # перезапустить». Пользователю всё равно приходилось жать сначала одну,
+        # потом другую; вторая при этом молча ничего не делала, если обновлений
+        # нет. Теперь один пункт: проверяет и сам предлагает обновиться.
+        self._btn(row,"🔄 Обновления",GREEN, self._updates_flow).pack(side="left", padx=(0,8))
         self._btn(row,"GitHub",GLASS_HI, lambda: run(["/usr/bin/open",f"https://github.com/{REPO}"])).pack(side="left")
         self._btn(row,"🔓 Не открывается?",YELLOW, self._gatekeeper_help).pack(side="left", padx=(8,0))
         self._btn(row, ("🌐 EN" if LANG=="ru" else "🌐 RU"), GREEN,
@@ -3780,6 +3812,20 @@ class CleanMac(tk.Tk):
                 pass
 
     # ---------- обновления ----------
+    def _updates_flow(self):
+        """Один пункт вместо двух: сначала проверка, потом предложение обновиться."""
+        self.status("🔄 Проверяю обновления…")
+        self._spawn(self._updates_flow_w)
+
+    def _updates_flow_w(self):
+        latest = self._latest_version()
+        if latest and ver_tuple(latest) > ver_tuple(VERSION):
+            self.q.put(("updates_offer", latest, None))
+        elif latest:
+            self.q.put(("update", f"✅ Установлена последняя версия {VERSION}", None))
+        else:
+            self.q.put(("update", "Не удалось проверить обновления (нет сети).", None))
+
     def _self_update(self):
         self.status("🔄 Обновляю из GitHub…")
         self._spawn(self._self_update_w)
@@ -3834,20 +3880,26 @@ class CleanMac(tk.Tk):
                 continue
         return None
 
-    def _check_update(self, manual=False):
+    def _latest_version(self):
+        """Последняя ОПУБЛИКОВАННАЯ версия (то, что реально можно скачать).
+
+        Сравнивать с файлом VERSION в main нельзя как с основным источником —
+        так обещали бы версию, которой ещё нет в Releases. Он только запасной.
+        """
         import json
-        # Сравниваем с последним ОПУБЛИКОВАННЫМ релизом (то, что реально можно скачать),
-        # а не с файлом VERSION в main — иначе обещали бы версию, которой нет в Releases.
-        latest=None
         data=self._fetch_url(f"https://api.github.com/repos/{REPO}/releases/latest",
                              {"User-Agent":"CleanMac","Accept":"application/vnd.github+json"})
         if data:
-            try: latest=(json.loads(data).get("tag_name") or "").lstrip("v").strip() or None
-            except Exception: latest=None
-        if not latest:   # откат: файл VERSION в main
-            raw=self._fetch_url(f"https://raw.githubusercontent.com/{REPO}/main/VERSION",
-                                {"User-Agent":"CleanMac"})
-            latest=raw.strip() if raw else None
+            try:
+                tag=(json.loads(data).get("tag_name") or "").lstrip("v").strip()
+                if tag: return tag
+            except Exception: pass
+        raw=self._fetch_url(f"https://raw.githubusercontent.com/{REPO}/main/VERSION",
+                            {"User-Agent":"CleanMac"})
+        return raw.strip() if raw else None
+
+    def _check_update(self, manual=False):
+        latest=self._latest_version()
         if latest and ver_tuple(latest) > ver_tuple(VERSION):
             self.q.put(("update", f"⬆️ Доступна версия {latest} (у вас {VERSION})", None))
         elif latest and manual:
@@ -4020,7 +4072,16 @@ class CleanMac(tk.Tk):
                     if self.page=="tools": self._tool("updater")
                 elif kind=="update":
                     self.update_note=a; self.badge.configure(text=a if a.startswith("⬆️") else "")
+                    self.status(a if not a.startswith("⬆️") else "")
                     if self.page=="pro": self.nav("pro")
+                elif kind=="updates_offer":
+                    # Нашли новее — сразу предлагаем обновиться, без второй кнопки.
+                    self.update_note=f"⬆️ Доступна версия {a} (у вас {VERSION})"
+                    self.badge.configure(text=self.update_note); self.status("")
+                    if messagebox.askyesno("Обновление",
+                            f"Доступна версия {a}, у вас {VERSION}.\n\nОбновить сейчас?"):
+                        self._self_update()
+                    elif self.page=="pro": self.nav("pro")
                 elif kind=="selfupdate":
                     self.status("")
                     changed, newver = a
