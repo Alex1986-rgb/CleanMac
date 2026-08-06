@@ -18,9 +18,9 @@ jobs:
       matrix:
         python: ["3.9", "3.12"]   # 3.9 — системный python из Command Line Tools
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python }}
 
@@ -39,14 +39,14 @@ jobs:
   shellcheck:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Синтаксис bash-скриптов
         run: for f in $(git ls-files '*.sh'); do bash -n "$f" || exit 1; done
 
   consistency:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Версия в коде совпадает с файлом VERSION
         # Уже ловило реальную ошибку: релиз 2.49.0 поднял файл VERSION, но не
         # константу в CleanMac.py, и проверка обновлений вечно предлагала
