@@ -72,7 +72,7 @@ from tkinter import messagebox, filedialog
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from krylan_core import human, ver_tuple, disk_advice, parse_brew_outdated, squarify  # noqa: E402
 
-VERSION = "2.50.0"
+VERSION = "2.51.0"
 BRAND   = "KRYLAN"
 SLOGAN  = "Дай устройству крылья"
 AUTHOR  = "Кырлан Александр Сергеевич"
@@ -1136,10 +1136,26 @@ def stat_vm():
             "Сжатая": g("Pages occupied by compressor"),
             "Неактивная": g("Pages inactive"), "Свободная": free}
 
+_SWAP_UNIT = {"K": 1/1024, "M": 1.0, "G": 1024.0, "T": 1024.0*1024}
+
+def parse_swapusage(out):
+    """(используется, всего) в МБ из строки vm.swapusage.
+
+    Разбор по именам полей, а не по позициям. Прежний вариант брал f[5]/f[2]
+    и делал rstrip("M"): при любом сдвиге формата или единице, отличной от M,
+    float() падал и функция возвращала (0, 0) — дашборд рисовал «swap 0»
+    ровно в тот момент, когда swap раздут и это важнее всего видеть.
+    """
+    def field(name):
+        m = re.search(name + r"\s*=\s*([\d.]+)\s*([KMGT])?", out or "", re.I)
+        if not m: return None
+        return float(m.group(1)) * _SWAP_UNIT.get((m.group(2) or "M").upper(), 1.0)
+    used, total = field("used"), field("total")
+    if used is None or total is None: return 0, 0
+    return used, total
+
 def stat_swap():
-    f = run(["sysctl", "-n", "vm.swapusage"]).split()
-    try: return float(f[5].rstrip("M")), float(f[2].rstrip("M"))
-    except Exception: return 0, 0
+    return parse_swapusage(run(["sysctl", "-n", "vm.swapusage"]))
 
 def stat_disk():
     try: st = os.statvfs("/System/Volumes/Data")
@@ -1244,12 +1260,54 @@ def stat_procs(n=5):
     return rows[:n]
 
 # ---------- категории очистки ----------
+def chromium_caches(*app_support_rel):
+    """Кэши Chromium-браузера, лежащие ВНЕ ~/Library/Caches.
+
+    Chromium держит в ~/Library/Caches только сетевой кэш. Ещё несколько кэшей
+    того же рода живут в профиле, внутри Application Support, и раньше не
+    попадали в очистку вообще:
+
+      Service Worker/CacheStorage — кэш офлайн-данных сайтов; на реальной машине
+        разрастался до 430 МБ (Edge) при 1,6 ГБ обычного кэша;
+      Service Worker/ScriptCache, Code Cache, GPUCache — компилированный JS
+        и шейдеры, пересобираются сами.
+
+    Всё перечисленное — производные данные: браузер восстановит их при первом
+    же заходе на сайт. Историю, куки, пароли и расширения не трогаем.
+    Профили перебираем все (Default, Profile 1, …), а не только Default.
+    Существование самих кэшей не проверяем: их может не быть в момент запуска
+    приложения, но браузер создаст их через минуту работы — очистка сама
+    пропустит то, чего нет, а вот выкинуть путь из списка навсегда нельзя.
+    """
+    out = []
+    for rel in app_support_rel:
+        root = os.path.join(HOME, "Library/Application Support", rel)
+        if not os.path.isdir(root): continue
+        for prof in sorted(os.listdir(root)):
+            if prof != "Default" and not prof.startswith("Profile "): continue
+            p = os.path.join(root, prof)
+            if not os.path.isdir(p): continue
+            out += [os.path.join(p, "Service Worker", "CacheStorage"),
+                    os.path.join(p, "Service Worker", "ScriptCache"),
+                    os.path.join(p, "Code Cache"),
+                    os.path.join(p, "GPUCache")]
+    return out
+
 CATEGORIES = [
     ("user_caches", "Кэш приложений (пользовательский)", [os.path.join(HOME,"Library/Caches")], None, "subitems"),
-    ("safari", "Кэш Safari", [os.path.join(HOME,"Library/Caches/com.apple.Safari")], "Safari", "whole"),
-    ("chrome", "Кэш Google Chrome", [os.path.join(HOME,"Library/Caches/Google")], "Chrome", "whole"),
-    ("edge", "Кэш Microsoft Edge", [os.path.join(HOME,"Library/Caches/Microsoft Edge")], "Edge", "whole"),
-    ("yandex", "Кэш Yandex", [os.path.join(HOME,"Library/Caches/Yandex")], "Yandex", "whole"),
+    ("safari", "Кэш Safari", [os.path.join(HOME,"Library/Caches/com.apple.Safari"),
+        os.path.join(HOME,"Library/Containers/com.apple.Safari/Data/Library/Caches")], "Safari", "whole"),
+    ("chrome", "Кэш Google Chrome", [os.path.join(HOME,"Library/Caches/Google")]
+        + chromium_caches("Google/Chrome"), "Chrome", "whole"),
+    ("edge", "Кэш Microsoft Edge", [os.path.join(HOME,"Library/Caches/Microsoft Edge")]
+        + chromium_caches("Microsoft Edge"), "Edge", "whole"),
+    ("yandex", "Кэш Yandex", [os.path.join(HOME,"Library/Caches/Yandex")]
+        + chromium_caches("Yandex/YandexBrowser"), "Yandex", "whole"),
+    ("updaters", "Кэши автообновлений (Google/Microsoft)",
+        [os.path.join(HOME,"Library/Application Support/Google/GoogleUpdater/crx_cache"),
+         os.path.join(HOME,"Library/Caches/com.microsoft.EdgeUpdater"),
+         os.path.join(HOME,"Library/Caches/com.google.Keystone"),
+         os.path.join(HOME,"Library/Caches/com.google.GoogleUpdater")], None, "whole"),
     ("logs", "Системные логи пользователя", [os.path.join(HOME,"Library/Logs")], None, "subitems"),
     ("crash", "Отчёты о сбоях (Diagnostics)", [os.path.join(HOME,"Library/Logs/DiagnosticReports")], None, "subitems"),
     ("ql", "Кэш миниатюр Quick Look", [os.path.join(HOME,"Library/Caches/com.apple.QuickLook.thumbnailcache")], None, "subitems"),

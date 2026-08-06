@@ -55,16 +55,31 @@ log "⚠️ ПИК: $reason. Топ: $top_mem"
 freed_note=""
 
 # ---------- ДЕЙСТВИЕ 1: безопасные кэши ----------
+# Формат записи: "имя процесса-сторожа|путь". Пустой сторож = чистить всегда.
+# Имя сторожа задаётся явно: раньше оно выводилось из пути (basename), и для
+# "com.apple.Safari" получалось "com.apple.Safari" — такой строки в `ps -axo comm`
+# нет никогда (там /Applications/Safari.app/.../Safari), поэтому проверка
+# «браузер запущен» для Safari не срабатывала и кэш сносился под работающим Safari.
+CACHE_TARGETS=(
+  "Microsoft Edge|$HOME/Library/Caches/Microsoft Edge"
+  "Microsoft Edge|$HOME/Library/Application Support/Microsoft Edge/Default/Service Worker/CacheStorage"
+  "Microsoft Edge|$HOME/Library/Application Support/Microsoft Edge/Default/Code Cache"
+  "Google Chrome|$HOME/Library/Caches/Google/Chrome"
+  "Google Chrome|$HOME/Library/Application Support/Google/Chrome/Default/Service Worker/CacheStorage"
+  "Google Chrome|$HOME/Library/Application Support/Google/Chrome/Default/Code Cache"
+  "Yandex|$HOME/Library/Caches/Yandex"
+  "Safari|$HOME/Library/Caches/com.apple.Safari"
+  "|$HOME/Library/Caches/Homebrew"
+  "|$HOME/Library/Application Support/Google/GoogleUpdater/crx_cache"
+)
 cleared=0
-for sub in "Microsoft Edge" "Google/Chrome" "Yandex" "com.apple.Safari" "Homebrew"; do
-  p="$HOME/Library/Caches/$sub"
-  if [ -d "$p" ]; then
-    sz=$(/usr/bin/du -sm "$p" 2>/dev/null | awk '{print $1}')
-    # чистим кэш браузера только если он НЕ запущен
-    appname=$(echo "$sub" | sed 's#.*/##')
-    if /bin/ps -axo comm | grep -qi "$appname" && [ "$sub" != "Homebrew" ]; then continue; fi
-    rm -rf "$p"/* 2>/dev/null && cleared=$((cleared + ${sz:-0}))
-  fi
+for entry in "${CACHE_TARGETS[@]}"; do
+  guard="${entry%%|*}"; p="${entry#*|}"
+  [ -d "$p" ] || continue
+  # кэш браузера трогаем только когда он закрыт
+  if [ -n "$guard" ] && /bin/ps -axo comm | grep -qF "$guard"; then continue; fi
+  sz=$(/usr/bin/du -smP "$p" 2>/dev/null | awk '{print $1}')
+  if rm -rf "${p:?}"/* 2>/dev/null; then cleared=$((cleared + ${sz:-0})); fi
 done
 # старые логи
 find "$HOME/Library/Logs" -type f -mtime +14 -delete 2>/dev/null

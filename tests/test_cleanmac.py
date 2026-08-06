@@ -1179,5 +1179,78 @@ class TestScanDevJunk(unittest.TestCase):
         self.assertEqual(paths, [])
 
 
+class TestParseSwapusage(unittest.TestCase):
+    """Разбор vm.swapusage по именам полей, а не по позициям."""
+
+    def test_megabytes(self):
+        self.assertEqual(
+            cm.parse_swapusage("total = 4096.00M  used = 3240.19M  free = 855.81M  (encrypted)"),
+            (3240.19, 4096.0))
+
+    def test_gigabytes_not_zeroed(self):
+        # прежний вариант делал float("6.00G".rstrip("M")) → ValueError → (0, 0),
+        # то есть показывал «swap 0» ровно при раздутом swap
+        used, total = cm.parse_swapusage("total = 6.00G  used = 4.50G  free = 1.50G")
+        self.assertAlmostEqual(used, 4608.0)
+        self.assertAlmostEqual(total, 6144.0)
+
+    def test_field_order_independent(self):
+        self.assertEqual(cm.parse_swapusage("used = 100.00M  free = 900.00M  total = 1000.00M"),
+                         (100.0, 1000.0))
+
+    def test_garbage_is_zero(self):
+        for bad in ("", None, "нет данных", "total = M used = M"):
+            self.assertEqual(cm.parse_swapusage(bad), (0, 0))
+
+    def test_zero_swap(self):
+        self.assertEqual(cm.parse_swapusage("total = 0.00M  used = 0.00M  free = 0.00M"), (0.0, 0.0))
+
+
+class TestChromiumCaches(unittest.TestCase):
+    """Кэши Chromium вне ~/Library/Caches (Service Worker и др.)."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self._home = cm.HOME
+        cm.HOME = self.tmp
+        self.root = os.path.join(self.tmp, "Library/Application Support/Test Browser")
+
+    def tearDown(self):
+        cm.HOME = self._home
+
+    def _profile(self, name):
+        os.makedirs(os.path.join(self.root, name), exist_ok=True)
+
+    def test_missing_browser_is_empty(self):
+        self.assertEqual(cm.chromium_caches("Test Browser"), [])
+
+    def test_all_profiles_covered(self):
+        self._profile("Default"); self._profile("Profile 1")
+        got = cm.chromium_caches("Test Browser")
+        self.assertEqual(len(got), 8)                       # 4 кэша × 2 профиля
+        self.assertTrue(any(p.endswith("Default/Service Worker/CacheStorage") for p in got))
+        self.assertTrue(any(p.endswith("Profile 1/Code Cache") for p in got))
+
+    def test_ignores_non_profile_dirs(self):
+        self._profile("Default"); os.makedirs(os.path.join(self.root, "Crashpad"))
+        got = cm.chromium_caches("Test Browser")
+        self.assertEqual(len(got), 4)
+        self.assertFalse(any("Crashpad" in p for p in got))
+
+    def test_listed_even_if_not_yet_created(self):
+        # кэша ещё нет на диске, но браузер его создаст — путь должен остаться в списке
+        self._profile("Default")
+        got = cm.chromium_caches("Test Browser")
+        self.assertFalse(any(os.path.exists(p) for p in got))
+        self.assertEqual(len(got), 4)
+
+    def test_paths_are_absolute_and_unprotected(self):
+        # ни один путь не должен попасть под is_protected — иначе очистка их молча пропустит
+        self._profile("Default")
+        for p in cm.chromium_caches("Test Browser"):
+            self.assertTrue(os.path.isabs(p))
+            self.assertFalse(cm.is_protected(p), p)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
