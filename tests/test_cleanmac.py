@@ -1252,5 +1252,92 @@ class TestChromiumCaches(unittest.TestCase):
             self.assertFalse(cm.is_protected(p), p)
 
 
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+class TestReleaseConsistency(unittest.TestCase):
+    """Проверки, которые уже ловили реальные ошибки в выпущенных версиях."""
+
+    def _read(self, *rel):
+        with open(os.path.join(REPO_ROOT, *rel), encoding="utf-8") as f:
+            return f.read()
+
+    def test_version_constant_matches_file(self):
+        # Релиз 2.49.0 поднял файл VERSION, но не константу в CleanMac.py.
+        # Проверка обновлений сравнивает именно константу — и всем, у кого стояла
+        # свежая версия, вечно предлагала обновиться.
+        self.assertEqual(cm.VERSION, self._read("VERSION").strip())
+
+    def test_changelog_has_entry_for_current_version(self):
+        self.assertIn(f"## [{cm.VERSION}]", self._read("CHANGELOG.md"))
+
+    def test_readme_badge_matches_version(self):
+        self.assertIn(f"badge/version-{cm.VERSION}", self._read("README.md"))
+
+
+class TestAutopilotPackaging(unittest.TestCase):
+    """Автопилот живёт вне .app — его нельзя терять ни при установке, ни при удалении."""
+
+    def _read(self, *rel):
+        with open(os.path.join(REPO_ROOT, *rel), encoding="utf-8") as f:
+            return f.read()
+
+    def test_agent_plist_is_in_repo(self):
+        # Плист никогда не коммитился, поэтому пропавший автопилот нечем было
+        # восстановить: приложение показывало «недоступен», кнопки молчали.
+        self.assertTrue(os.path.exists(
+            os.path.join(REPO_ROOT, "autopilot", "com.macbook.optimizer.plist")))
+
+    def test_installer_exists_and_is_executable(self):
+        inst = os.path.join(REPO_ROOT, "autopilot", "install.sh")
+        self.assertTrue(os.path.exists(inst))
+        self.assertTrue(os.access(inst, os.X_OK), "install.sh должен быть исполняемым")
+
+    def test_plist_uses_home_placeholder(self):
+        # launchd не раскрывает ~ и $HOME — установщик подставляет реальный путь.
+        body = self._read("autopilot", "com.macbook.optimizer.plist")
+        self.assertIn("__HOME__", body)
+        self.assertNotIn("~/", body)
+
+    def test_cask_zap_removes_autopilot(self):
+        # После `brew uninstall` страж оставался в системе и продолжал
+        # просыпаться раз в минуту у пользователя, который приложение удалил.
+        cask = self._read("Casks", "cleanmac.rb")
+        for needed in ("~/mac-optimizer",
+                       "com.macbook.optimizer.plist",
+                       "launchctl"):
+            self.assertIn(needed, cask, f"в Casks/cleanmac.rb нет {needed}")
+
+    def test_optimize_guards_browsers_by_process_name(self):
+        # Сторож выводился из пути через basename: для "com.apple.Safari"
+        # получалась строка, которой в `ps -axo comm` нет никогда, и кэш
+        # сносился под работающим Safari.
+        sh = self._read("autopilot", "optimize.sh")
+        self.assertIn("CACHE_TARGETS", sh)
+        self.assertIn("Safari|", sh)
+        self.assertNotIn("appname=$(echo", sh)
+
+
+class TestWorkerSafety(unittest.TestCase):
+    """Падение фонового воркера должно быть видно, а не вешать интерфейс."""
+
+    def _src(self):
+        with open(os.path.join(REPO_ROOT, "CleanMac.py"), encoding="utf-8") as f:
+            return f.read()
+
+    def test_no_raw_threads_left(self):
+        # Голый threading.Thread(...).start() умирает молча: сообщение в очередь
+        # не приходит и интерфейс навсегда остаётся на «⏳ Идёт…».
+        import re
+        raw = re.findall(r"threading\.Thread\([^)]*\)\.start\(\)", self._src())
+        self.assertEqual(raw, [], f"остались незащищённые потоки: {raw}")
+
+    def test_spawn_catches_and_reports(self):
+        src = self._src()
+        self.assertIn("def _spawn(", src)
+        self.assertIn('self.q.put(("error"', src)
+        self.assertIn('if kind=="error"', src)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

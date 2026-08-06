@@ -1,0 +1,84 @@
+name: Release
+
+# Собирает CleanMac.dmg на macos-раннере и прикладывает к релизу по тегу v*.
+# Без этого релизы делались руками и отставали: на 06.08.2026 последним
+# опубликованным был v2.48.0 от 3 июля, тогда как исходники ушли далеко вперёд.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  macos-dmg:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Тесты перед сборкой
+        run: python3 tests/test_cleanmac.py
+
+      - name: Версия из тега совпадает с файлом VERSION
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          FILE=$(tr -d '[:space:]' < VERSION)
+          echo "тег=$TAG  VERSION=$FILE"
+          test "$TAG" = "$FILE" || { echo "::error::тег и VERSION разошлись"; exit 1; }
+
+      - name: Установить сборщик
+        run: python3 -m pip install --quiet pyinstaller
+
+      - name: Собрать DMG
+        # build_dmg.sh сам найдёт этот python (тот, где есть PyInstaller),
+        # проставит версию в Info.plist и поставит ad-hoc подпись.
+        run: bash build_dmg.sh
+
+      - name: Контрольная сумма (для Homebrew Cask)
+        run: |
+          shasum -a 256 CleanMac.dmg | tee CleanMac.dmg.sha256
+          echo "### Homebrew Cask" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "sha256 \"$(shasum -a 256 CleanMac.dmg | cut -d' ' -f1)\"" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CleanMac-dmg
+          path: |
+            CleanMac.dmg
+            CleanMac.dmg.sha256
+
+      - name: Приложить к релизу
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            CleanMac.dmg
+            CleanMac.dmg.sha256
+          body: |
+            Сборка собрана автоматически из тега `${{ github.ref_name }}`.
+
+            **Сборка не нотаризована в Apple** (нужен платный Developer ID).
+            При первом запуске скачанного `.dmg` macOS скажет, что не может
+            проверить программу. Лечится одной командой:
+
+            ```bash
+            xattr -dr com.apple.quarantine /Applications/CleanMac.app
+            ```
+
+            Совет «ПКМ → Открыть» на macOS 15 Sequoia и новее больше не работает.
+            Через Homebrew карантин снимается сам:
+
+            ```bash
+            brew install --cask https://raw.githubusercontent.com/Alex1986-rgb/CleanMac/main/Casks/cleanmac.rb
+            ```
+
+            Полный список изменений — в [CHANGELOG.md](https://github.com/Alex1986-rgb/CleanMac/blob/main/CHANGELOG.md).

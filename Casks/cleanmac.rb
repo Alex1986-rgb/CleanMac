@@ -13,7 +13,34 @@ cask "cleanmac" do
 
   app "CleanMac.app"
 
+  # Сборка не нотаризована (нужен Apple Developer ID). Homebrew сам снимает
+  # метку карантина при установке каска, поэтому через brew приложение
+  # запускается сразу — в отличие от .dmg, скачанного вручную.
+  caveats <<~EOS
+    Сборка пока не нотаризована в Apple.
+
+    Через Homebrew всё работает сразу. Но если вы поставите CleanMac из .dmg
+    вручную, macOS скажет «Apple не удалось подтвердить, что файл не содержит
+    вредоносного ПО». Лечится так:
+
+      xattr -dr com.apple.quarantine /Applications/CleanMac.app
+  EOS
+
+  # Автопилот — это LaunchAgent, живущий ОТДЕЛЬНО от .app: скрипты в
+  # ~/mac-optimizer, агент в ~/Library/LaunchAgents. Раньше zap чистил только
+  # ~/.config/cleanmac, и после `brew uninstall` страж оставался в системе:
+  # продолжал просыпаться раз в минуту и чистить кэши у пользователя, который
+  # приложение уже удалил.
+  uninstall launchctl: [
+    "com.macbook.optimizer",
+    "com.krylan.autoupdate",
+  ]
+
   zap trash: [
     "~/.config/cleanmac",
+    "~/mac-optimizer",
+    "~/Library/LaunchAgents/com.macbook.optimizer.plist",
+    "~/Library/LaunchAgents/com.krylan.autoupdate.plist",
+    "~/Library/Saved Application State/com.macbook.cleanmac.savedState",
   ]
 end

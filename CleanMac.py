@@ -72,7 +72,7 @@ from tkinter import messagebox, filedialog
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from krylan_core import human, ver_tuple, disk_advice, parse_brew_outdated, squarify  # noqa: E402
 
-VERSION = "2.52.0"
+VERSION = "2.53.0"
 BRAND   = "KRYLAN"
 SLOGAN  = "Дай устройству крылья"
 AUTHOR  = "Кырлан Александр Сергеевич"
@@ -1490,9 +1490,9 @@ class CleanMac(tk.Tk):
         self.bind("<FocusOut>", lambda e: setattr(self, "_visible", False))
         self.bind("<Unmap>",    lambda e: setattr(self, "_visible", False))
         self.bind("<Map>",      lambda e: setattr(self, "_visible", True))
-        threading.Thread(target=self._sampler, daemon=True).start()
-        threading.Thread(target=self._net_sampler, daemon=True).start()
-        threading.Thread(target=self._check_update, daemon=True).start()
+        self._spawn(self._sampler)
+        self._spawn(self._net_sampler)
+        self._spawn(self._check_update)
         self.after(80, self._poll); self.after(66, self._animate)
 
     # ---------- каркас ----------
@@ -1599,6 +1599,17 @@ class CleanMac(tk.Tk):
         cur = self.page or "dash"
         for w in self.winfo_children(): w.destroy()
         self.nav_btns = {}; self._build(); self.nav(cur)
+
+    def _render_advice(self):
+        """Строка рекомендаций под шапкой дашборда. Молчит, когда всё в порядке."""
+        lbl = getattr(self, "advice_lbl", None)
+        if not lbl or not lbl.winfo_exists(): return
+        rows = disk_advice(self.tgt.get("disk", 0), self.tgt.get("ram", 0), self.tgt.get("batt"))
+        hot = [(i, t) for i, t in rows if i in ("🔴", "🟡")]
+        if not hot:
+            lbl.configure(text="", fg=MUTED); return
+        lbl.configure(text="   ".join(f"{i} {t}" for i, t in hot[:2]),
+                      fg=(RED if any(i == "🔴" for i, _ in hot) else YELLOW))
 
     def _maybe_alert(self, disk, batt_health):
         now = time.time()
@@ -1815,6 +1826,13 @@ class CleanMac(tk.Tk):
         self.magic_prog=tk.Label(self.main, text="", bg=BG0, fg=GREEN,
                                  font=("SF Pro Text", 12, "bold"), anchor="w")
         self.magic_prog.pack(fill="x", padx=24, pady=(0,2))
+        # Живые рекомендации по метрикам (общая с Desktop-версией функция
+        # krylan_core.disk_advice). Раньше она была импортирована, покрыта
+        # тестами — и нигде на маке не показывалась.
+        self.advice_lbl=tk.Label(self.main, text="", bg=BG0, fg=MUTED,
+                                 font=("SF Pro Text", 11), anchor="w", justify="left")
+        self.advice_lbl.pack(fill="x", padx=24, pady=(0,2))
+        self._render_advice()
         self.cv = tk.Canvas(self.main, bg=BG0, highlightthickness=0)
         self.cv.pack(fill="both", expand=True, padx=14, pady=(0,12))
         # прокрутка дашборда колёсиком (чтобы дотянуться до нижних карточек и планеты)
@@ -1959,7 +1977,7 @@ class CleanMac(tk.Tk):
         self.smart_btn.pack(side="right", padx=18, pady=14)
         self.smart_list=tk.Frame(self.main, bg=GLASS); self.smart_list.pack(fill="both", expand=True, padx=24, pady=(8,16))
         self.smart_found={}
-        threading.Thread(target=self._smart_w, daemon=True).start()
+        self._spawn(self._smart_w)
 
     def _smart_w(self):
         found={}; total=0
@@ -1993,7 +2011,7 @@ class CleanMac(tk.Tk):
         if not self.smart_found: return
         tot=sum(s for items in self.smart_found.values() for _,s in items)
         if not messagebox.askyesno("Умная очистка", f"Переместить в Корзину ~{human(tot)}?"): return
-        self.smart_big.configure(text="Очищаю…"); threading.Thread(target=self._smart_clean_w, daemon=True).start()
+        self.smart_big.configure(text="Очищаю…"); self._spawn(self._smart_clean_w)
 
     def _smart_clean_w(self):
         freed=0
@@ -2080,7 +2098,7 @@ class CleanMac(tk.Tk):
         self.ap_log.configure(state="disabled")
 
     def _optimize_now(self):
-        threading.Thread(target=self._optimize_worker, daemon=True).start()
+        self._spawn(self._optimize_worker)
 
     def _optimize_worker(self):
         freed=0
@@ -2109,7 +2127,7 @@ class CleanMac(tk.Tk):
     def _boost_now(self):
         if getattr(self, "_boosting", False): return
         self._boosting = True
-        threading.Thread(target=self._boost_worker, daemon=True).start()
+        self._spawn(self._boost_worker)
 
     def _boost_worker(self):
         steps = []
@@ -2160,7 +2178,7 @@ class CleanMac(tk.Tk):
         self._optimizing = True
         try: self.magic_btn.configure(text="  ✨ Оптимизирую…  ")
         except Exception: pass
-        threading.Thread(target=self._optimize_all_w, daemon=True).start()
+        self._spawn(self._optimize_all_w)
 
     def _opt_progress(self, idx, total, label, detail=""):
         """Живой прогресс шага в UI-поток (не блокируя его)."""
@@ -2426,7 +2444,7 @@ class CleanMac(tk.Tk):
             "Дефрагментация SSD не выполняется — она бесполезна и вредна для SSD."):
             return
         self.status("🧊 Освобождаю место…")
-        threading.Thread(target=self._free_purgeable_w, daemon=True).start()
+        self._spawn(self._free_purgeable_w)
 
     def _free_purgeable_w(self):
         before=0
@@ -2470,7 +2488,7 @@ class CleanMac(tk.Tk):
         # из рабочего потока обращается к интерпретатору Tcl не из main loop и
         # может уронить приложение. Передаём готовый набор выбранных id воркеру.
         sel={cid for cid in self.cat_vars if self.cat_vars[cid].get()}
-        threading.Thread(target=self._analyze_worker, args=(sel,), daemon=True).start()
+        self._spawn(self._analyze_worker, sel)
 
     def _analyze_worker(self, sel):
         self.found={}; total=0
@@ -2494,7 +2512,7 @@ class CleanMac(tk.Tk):
         if not sel: messagebox.showinfo("CleanMac","Не выбрана категория."); return
         if not self.found: messagebox.showinfo("CleanMac","Сначала «Анализ»."); return
         if not messagebox.askyesno("Подтверждение","Переместить найденное в Корзину?"): return
-        self.total_lbl.configure(text="Очищаю…"); threading.Thread(target=self._clean_worker,args=(sel,),daemon=True).start()
+        self.total_lbl.configure(text="Очищаю…"); self._spawn(self._clean_worker, sel)
 
     def _clean_worker(self, sel):
         freed,moved=0,0
@@ -2629,7 +2647,7 @@ class CleanMac(tk.Tk):
     def _t_large(self):
         self._ptitle("Крупные файлы", "Файлы крупнее 100 МБ. Отметьте лишние → в Корзину.")
         tk.Label(self.tpanel, text="🔎 Сканирую…", bg=BG0, fg=MUTED, font=("SF Pro Text",11)).pack(anchor="w")
-        threading.Thread(target=self._large_w, daemon=True).start()
+        self._spawn(self._large_w)
 
     def _large_w(self):
         big,skip=[],{".Trash","Library"}
@@ -2672,7 +2690,7 @@ class CleanMac(tk.Tk):
         self._ptitle("🧰 Dev-мусор", "Проектные node_modules, target, __pycache__, Pods, .venv и т.п. "
                      "Безопасно — пересоздаются менеджером пакетов (npm install / cargo build / …).")
         tk.Label(self.tpanel, text="🔎 Ищу артефакты сборки…", bg=BG0, fg=MUTED, font=("SF Pro Text",11)).pack(anchor="w")
-        threading.Thread(target=self._devjunk_w, daemon=True).start()
+        self._spawn(self._devjunk_w)
 
     def _devjunk_w(self):
         rows=scan_dev_junk(HOME, top=200)
@@ -2791,7 +2809,7 @@ class CleanMac(tk.Tk):
                        "на IMAP вложение можно скачать заново."))
         tk.Label(self.tpanel, text=L("🔎 Сканирую…"), bg=BG0, fg=MUTED,
                  font=("SF Pro Text",11)).pack(anchor="w")
-        threading.Thread(target=self._mailatt_w, daemon=True).start()
+        self._spawn(self._mailatt_w)
 
     def _mailatt_w(self):
         rows = scan_mail_attachments(self._mail_bases(), min_mb=5, top=200)
@@ -2815,7 +2833,7 @@ class CleanMac(tk.Tk):
     def _t_dupes(self):
         self._ptitle("Дубликаты", "Одинаковые файлы в Downloads/Desktop/Documents.")
         tk.Label(self.tpanel, text="🔎 Сканирую…", bg=BG0, fg=MUTED, font=("SF Pro Text",11)).pack(anchor="w")
-        threading.Thread(target=self._dupes_w, daemon=True).start()
+        self._spawn(self._dupes_w)
 
     def _dupes_w(self):
         by_size={}
@@ -2903,7 +2921,7 @@ class CleanMac(tk.Tk):
     def _t_disk(self):
         self._ptitle("Карта диска", "Крупнейшие папки в домашней директории.")
         tk.Label(self.tpanel, text="🔎 Считаю размеры…", bg=BG0, fg=MUTED, font=("SF Pro Text",11)).pack(anchor="w")
-        threading.Thread(target=self._disk_w, daemon=True).start()
+        self._spawn(self._disk_w)
 
     def _disk_w(self):
         rows=[]
@@ -2924,10 +2942,9 @@ class CleanMac(tk.Tk):
         self._ptitle("Карта диска (Space Lens)", "Площадь блока = размер папки. Клик — открыть в Finder.")
         if not hasattr(self, "_disk_mode"): self._disk_mode="tree"
         bar=tk.Frame(self.tpanel, bg=BG0); bar.pack(fill="x")
-        def setmode(m,):
-            self._disk_mode=m; self._render_disk(rows)
+        # переключение режима делает lambda ниже (k=key); отдельный setmode и m=key
+        # были мёртвым кодом — ни то, ни другое никогда не вызывалось
         for key,label in [("tree","🟦 Treemap"),("bars","📊 Бары"),("sun","☀️ Sunburst")]:
-            m=key
             b=tk.Label(bar, text=label, bg=(BLUE if self._disk_mode==key else GLASS_HI), fg="white" if self._disk_mode==key else TEXT,
                        font=("SF Pro Text",11,"bold"), padx=10, pady=5, cursor="pointinghand")
             b.pack(side="left", padx=(0,6)); b.bind("<Button-1>", lambda e,k=key: (setattr(self,"_disk_mode",k), self._render_disk(rows)))
@@ -2990,7 +3007,7 @@ class CleanMac(tk.Tk):
         self._draw_crumbs()
         self._sun_status(cv, "Считаю размеры…")
         self._sun_seq = getattr(self, "_sun_seq", 0) + 1
-        threading.Thread(target=self._sun_w, args=(self._sun_path, self._sun_seq), daemon=True).start()
+        self._spawn(self._sun_w, self._sun_path, self._sun_seq)
 
     @staticmethod
     def _crumb_parts(path):
@@ -3144,14 +3161,14 @@ class CleanMac(tk.Tk):
         cv=getattr(self,"_sun_cv",None)
         if cv and cv.winfo_exists(): self._sun_status(cv, "Считаю размеры…")
         self._sun_seq = getattr(self, "_sun_seq", 0) + 1
-        threading.Thread(target=self._sun_w, args=(path, self._sun_seq), daemon=True).start()
+        self._spawn(self._sun_w, path, self._sun_seq)
 
     def _bench_start(self):
         try:
             self.bench_btn.configure(text="⏳ Тестирую…", bg=GLASS_HI)
             self.bench_lbl.configure(text="⏳ Идёт бенчмарк: пишу и читаю ~128 МБ во временный файл… пара секунд.", fg=TEXT)
         except Exception: pass
-        threading.Thread(target=self._bench_w, daemon=True).start()
+        self._spawn(self._bench_w)
 
     def _bench_w(self):
         res = disk_benchmark(size_mb=128)
@@ -3184,21 +3201,41 @@ class CleanMac(tk.Tk):
     # --- Обслуживание ---
     def _t_maintain(self):
         self._ptitle("Обслуживание", "Сервисные операции macOS. Для пунктов ★ потребуется пароль администратора.")
-        acts=[("⚡️ Освободить память (purge) ★", "purge", True),
-              ("🌐 Сбросить кэш DNS ★", "dscacheutil -flushcache; killall -HUP mDNSResponder", True),
-              ("🔍 Переиндексировать Spotlight ★", "mdutil -E /", True),
-              ("🔤 Очистить кэш шрифтов ★", "atsutil databases -remove", True),
-              ("👁 Сбросить кэш Quick Look", "qlmanage -r cache", False),
-              ("🧱 Перестроить Launch Services", "/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister -kill -r -domain local -domain system -domain user", False)]
-        for label,cmd,admin in acts:
-            b=tk.Label(self.tpanel, text=label, bg=GLASS, fg=TEXT, font=("SF Pro Text",12),
-                       padx=12, pady=9, cursor="pointinghand", anchor="w")
-            b.pack(fill="x", pady=3); b.bind("<Button-1>", lambda e,c=cmd,a=admin,l=label: self._maintain_run(l,c,a))
+        # 4-й элемент — предупреждение о ЦЕНЕ операции. Не всякое «обслуживание»
+        # бесплатно: переиндексация Spotlight стирает индекс всего тома, после чего
+        # mdworker часами грузит процессор и диск. На маке с 8 ГБ ОЗУ это ощущается
+        # как «стало хуже» — ровно то, чего оптимизатор делать не должен. Такие
+        # пункты помечены ⚠️, спрашивают подтверждение и честно называют цену.
+        acts=[("⚡️ Освободить память (purge) ★", "purge", True, None),
+              ("🌐 Сбросить кэш DNS ★", "dscacheutil -flushcache; killall -HUP mDNSResponder", True, None),
+              ("🔍 Переиндексировать Spotlight ★", "mdutil -E /", True,
+               "Индекс Spotlight будет стёрт и построен заново.\n\n"
+               "Пока идёт переиндексация — от 30 минут до нескольких часов, смотря сколько данных:\n"
+               "•  поиск Spotlight работать не будет;\n"
+               "•  mdworker сильно нагрузит процессор и диск, компьютер станет МЕДЛЕННЕЕ.\n\n"
+               "Это лечение сломанного поиска, а не ускорение. Продолжить?"),
+              ("🔤 Очистить кэш шрифтов ★", "atsutil databases -remove", True,
+               "Кэш шрифтов будет очищен.\n\n"
+               "Чтобы изменения вступили в силу, нужно выйти из учётной записи и войти снова. "
+               "До перезахода часть шрифтов может отображаться некорректно.\n\nПродолжить?"),
+              ("👁 Сбросить кэш Quick Look", "qlmanage -r cache", False, None),
+              ("🧱 Перестроить Launch Services", "/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister -kill -r -domain local -domain system -domain user", False, None)]
+        for label,cmd,admin,warn in acts:
+            b=tk.Label(self.tpanel, text=label+("   ⚠️" if warn else ""), bg=GLASS, fg=TEXT,
+                       font=("SF Pro Text",12), padx=12, pady=9, cursor="pointinghand", anchor="w")
+            b.pack(fill="x", pady=3)
+            b.bind("<Button-1>", lambda e,c=cmd,a=admin,l=label,w=warn: self._maintain_run(l,c,a,w))
+        tk.Label(self.tpanel, text="⚠️ — операция полезна не всегда и может временно замедлить мак. "
+                 "Перед запуском покажем, чем именно платите.",
+                 bg=BG0, fg=MUTED, font=("SF Pro Text",10), wraplength=620, justify="left"
+                 ).pack(anchor="w", pady=(8,0))
         self._mrez=tk.Label(self.tpanel, text="", bg=BG0, fg=MUTED, font=("SF Pro Text",12)); self._mrez.pack(anchor="w", pady=8)
 
-    def _maintain_run(self, label, cmd, admin):
+    def _maintain_run(self, label, cmd, admin, warn=None):
+        if warn and not messagebox.askyesno(label.replace("★","").strip(), warn, default="no"):
+            return
         self._mrez.configure(text="⏳ Выполняю: "+label.replace("★","").strip())
-        threading.Thread(target=self._maintain_w, args=(label,cmd,admin), daemon=True).start()
+        self._spawn(self._maintain_w, label,cmd,admin)
 
     def _maintain_w(self, label, cmd, admin):
         try:
@@ -3300,7 +3337,7 @@ class CleanMac(tk.Tk):
                      bg=BG0, fg=MUTED, font=("SF Pro Text",12), wraplength=560, justify="left").pack(anchor="w", pady=10)
             return
         tk.Label(self.tpanel, text="Сканирую обновления…", bg=BG0, fg=MUTED, font=("SF Pro Text",12)).pack(anchor="w")
-        threading.Thread(target=self._updater_w, daemon=True).start()
+        self._spawn(self._updater_w)
 
     def _updater_w(self):
         items = brew_outdated()
@@ -3326,7 +3363,7 @@ class CleanMac(tk.Tk):
         if not messagebox.askyesno("CleanMac", "Обновить все устаревшие пакеты и приложения Homebrew?\n"
                                    "Это может занять несколько минут."): return
         self.status("⬆️ Обновляю через Homebrew…")
-        threading.Thread(target=self._brew_upgrade_w, daemon=True).start()
+        self._spawn(self._brew_upgrade_w)
 
     def _brew_upgrade_w(self):
         brew=brew_path()
@@ -3405,7 +3442,7 @@ class CleanMac(tk.Tk):
                        "браузеров — запущенные пропускаются."))
         tk.Label(self.tpanel, text=L("🔎 Сканирую…"), bg=BG0, fg=MUTED,
                  font=("SF Pro Text",11)).pack(anchor="w")
-        threading.Thread(target=self._vacuum_w, daemon=True).start()
+        self._spawn(self._vacuum_w)
 
     def _vacuum_w(self):
         try:
@@ -3481,7 +3518,7 @@ class CleanMac(tk.Tk):
                      L("Установленные расширения Chrome / Edge / Brave. Только просмотр — не удаляем."))
         tk.Label(self.tpanel, text=L("🔎 Сканирую…"), bg=BG0, fg=MUTED,
                  font=("SF Pro Text",11)).pack(anchor="w")
-        threading.Thread(target=self._extensions_w, daemon=True).start()
+        self._spawn(self._extensions_w)
 
     def _extensions_w(self):
         try:
@@ -3524,7 +3561,7 @@ class CleanMac(tk.Tk):
     def _t_trash(self):
         self._ptitle("Корзина", "Считаю размер всех корзин (включая системную корзину тома)…")
         self._btn(self.tpanel, "♻️ Очистить Корзину (безвозвратно)", RED, self._do_trash).pack(anchor="w", pady=8)
-        threading.Thread(target=self._trash_scan, daemon=True).start()
+        self._spawn(self._trash_scan)
 
     def _trash_scan(self):
         sz = deep_trash_size()
@@ -3573,7 +3610,7 @@ class CleanMac(tk.Tk):
         bar=tk.Frame(self.main, bg=BG0); bar.pack(fill="x", padx=24, pady=(2,14))
         tk.Label(bar, text="Отметьте, что очистить", bg=BG0, fg=MUTED, font=("SF Pro Text",12)).pack(side="left")
         self._btn(bar, "🗑 Очистить выбранное", PURPLE, self._pv_clean).pack(side="right")
-        threading.Thread(target=self._pv_scan, daemon=True).start()
+        self._spawn(self._pv_scan)
 
     def _pv_scan(self):
         res={}
@@ -3608,7 +3645,7 @@ class CleanMac(tk.Tk):
         self.th_box=tk.Frame(self.main, bg=BG0); self.th_box.pack(fill="both", expand=True, padx=24, pady=(4,14))
         tk.Label(self.th_box, text="🔎 Сканирую точки автозапуска…", bg=BG0, fg=MUTED, font=("SF Pro Text",12)).pack(anchor="w")
         self.th_found=[]
-        threading.Thread(target=self._threats_scan, daemon=True).start()
+        self._spawn(self._threats_scan)
 
     def _threats_scan(self):
         suspicious, clean = scan_launch_agents()
@@ -3687,25 +3724,65 @@ class CleanMac(tk.Tk):
                      "• Автопилот: фоновая чистка и разгрузка памяти при пиках",
                      "• Очистка кэшей/логов → в Корзину (обратимо)",
                      "• Приватность, Защита, Карта диска, Деинсталлятор", "",
-                     "Распространяется как нотаризованный .dmg и через Homebrew",
-                     "(не App Store — песочница не позволяет чистильщикам быть в MAS)."]:
+                     "Распространяется как .dmg и через Homebrew — не в App Store",
+                     "(песочница не позволяет чистильщикам быть в MAS).", "",
+                     "⚠️ Сборка пока НЕ нотаризована в Apple: при первом запуске",
+                     "скачанного .dmg macOS скажет, что не может проверить программу.",
+                     "Снимается меткой карантина — кнопка ниже покажет, как."]:
             tk.Label(self.main, text=line, bg=BG0, fg=(TEXT if line.startswith("•") else MUTED),
                      font=("SF Pro Text",12), justify="left").pack(anchor="w", padx=24)
         row=tk.Frame(self.main, bg=BG0); row.pack(anchor="w", padx=24, pady=16)
         if not self.is_pro:
             self._btn(row,"⭐️ Купить Pro",PURPLE, lambda: run(["/usr/bin/open",BUY_URL])).pack(side="left", padx=(0,8))
         self._btn(row,"🔄 Обновить и перезапустить",GREEN, self._self_update).pack(side="left", padx=(0,8))
-        self._btn(row,"Проверить обновления",BLUE, lambda: threading.Thread(target=self._check_update,args=(True,),daemon=True).start()).pack(side="left", padx=(0,8))
+        self._btn(row,"Проверить обновления",BLUE, lambda: self._spawn(self._check_update, True)).pack(side="left", padx=(0,8))
         self._btn(row,"GitHub",GLASS_HI, lambda: run(["/usr/bin/open",f"https://github.com/{REPO}"])).pack(side="left")
+        self._btn(row,"🔓 Не открывается?",YELLOW, self._gatekeeper_help).pack(side="left", padx=(8,0))
         self._btn(row, ("🌐 EN" if LANG=="ru" else "🌐 RU"), GREEN,
                   lambda: self.set_lang("en" if LANG=="ru" else "ru")).pack(side="left", padx=(8,0))
         self._btn(row, ("☀️ Светлая" if THEME=="dark" else "🌙 Тёмная"), PURPLE,
                   lambda: self.set_theme("light" if THEME=="dark" else "dark")).pack(side="left", padx=(8,0))
 
+    def _gatekeeper_help(self):
+        """Памятка по «Apple не удалось подтвердить…» — с диагностикой этой копии.
+
+        Сборка не нотаризована, поэтому скачанный .dmg получает метку
+        com.apple.quarantine и macOS отказывается запускать приложение. Отказ
+        выглядит глухо: процесс убивается сигналом 9 ещё до появления окна —
+        ни crash-репорта, ни строки в `log show`. Совет «ПКМ → Открыть» из
+        старых инструкций на macOS 15 Sequoia и новее уже не работает: Apple
+        убрала этот обход.
+        """
+        app = "/Applications/CleanMac.app"
+        quarantined = None
+        if os.path.exists(app):
+            quarantined = "com.apple.quarantine" in run(["xattr", app], 10)
+        if quarantined is None:
+            state = "Приложение не найдено в /Applications (запущено из исходников — Gatekeeper не мешает)."
+        elif quarantined:
+            state = "❗️ На этой копии метка карантина СТОИТ — она и блокирует запуск."
+        else:
+            state = "✅ На этой копии метки карантина нет — Gatekeeper запуск не блокирует."
+        cmd = f"xattr -dr com.apple.quarantine {app}"
+        if messagebox.askyesno("Не открывается после установки?",
+                f"{state}\n\n"
+                "Причина: сборка пока не нотаризована в Apple (нужен платный Developer ID).\n\n"
+                "Способ 1 — одна команда в Терминале:\n"
+                f"    {cmd}\n\n"
+                "Способ 2 — Системные настройки → Конфиденциальность и безопасность → "
+                "внизу «Всё равно открыть».\n\n"
+                "Совет «ПКМ → Открыть» на macOS 15 Sequoia и новее уже НЕ работает.\n\n"
+                "Скопировать команду в буфер обмена?"):
+            try:
+                self.clipboard_clear(); self.clipboard_append(cmd)
+                self.status("Команда скопирована в буфер обмена")
+            except Exception:
+                pass
+
     # ---------- обновления ----------
     def _self_update(self):
         self.status("🔄 Обновляю из GitHub…")
-        threading.Thread(target=self._self_update_w, daemon=True).start()
+        self._spawn(self._self_update_w)
 
     def _self_update_w(self):
         repo = os.path.dirname(os.path.abspath(__file__))
@@ -3828,11 +3905,36 @@ class CleanMac(tk.Tk):
             self.after(85 if active else 600, self._animate)
 
     # ---------- очередь ----------
+    def _spawn(self, fn, *args, label=None):
+        """Запустить фоновую задачу так, чтобы её падение было видно.
+
+        Раньше воркеры стартовали голым threading.Thread(target=...). Если такой
+        воркер бросал исключение до своего self.q.put(...), поток тихо умирал:
+        сообщение в очередь не приходило, и интерфейс навсегда оставался на
+        «⏳ Идёт…» — без ошибки, без подсказки, без возможности повторить.
+        Теперь исключение ловится и уходит в очередь как ("error", ...).
+        """
+        name = label or getattr(fn, "__name__", "задача").strip("_").replace("_w", "")
+        def guard():
+            try:
+                fn(*args)
+            except Exception as e:
+                if getattr(self, "_alive", False):
+                    self.q.put(("error", name, f"{e.__class__.__name__}: {e}"))
+        t = threading.Thread(target=guard, daemon=True); t.start(); return t
+
     def _poll(self):
         try:
             while True:
                 kind,a,b=self.q.get_nowait()
-                if kind=="stats":
+                if kind=="error":
+                    # Воркер упал: снимаем «идёт…» и честно говорим, что именно сломалось.
+                    self.status(f"⚠️ Ошибка в задаче «{a}»")
+                    messagebox.showerror("CleanMac",
+                        f"Задача «{a}» завершилась с ошибкой:\n\n{b}\n\n"
+                        "Ничего не удалено. Можно повторить — если повторяется, "
+                        f"сообщите об ошибке: https://github.com/{REPO}/issues")
+                elif kind=="stats":
                     self.tgt.update({"cpu":a["cpu"],"ram":a["ram"],"swap":a["swap"],"disk":a["disk"],
                                      "health":a["health"],"batt":a["batt"]["pct"]})
                     self.swap_mb=a["swap_mb"]; self.batt=a["batt"]; self.procs=a["procs"]; self.vm=a["vm"]
@@ -3842,6 +3944,7 @@ class CleanMac(tk.Tk):
                     # сеть обновляется отдельным _net_sampler (раз в секунду, реальное время)
                     self.status(f'Здоровье {int(a["health"])} · CPU {int(a["cpu"])}% · ОЗУ {int(a["ram"])}% · бат {a["batt"]["pct"]}%')
                     self._maybe_alert(a["disk"], a["batt"].get("health", 100))
+                    self._render_advice()
                 elif kind=="catsize":
                     lbl=self.cat_size_lbl.get(a)
                     if lbl: lbl.configure(text=("—" if a is None else "пропуск" if b=="skip" else ("—" if b is None else human(b))))

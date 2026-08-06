@@ -1,0 +1,59 @@
+name: CI
+
+# Гоняем тесты и статический разбор на каждый push и PR.
+# Раньше CI не было вовсе: enable-ci.sh ссылался на этот файл, но в репозитории
+# его не существовало — скрипт падал на `git add .github/workflows/ci.yml`.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.9", "3.12"]   # 3.9 — системный python из Command Line Tools
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Тесты macOS-флагмана
+        run: python3 tests/test_cleanmac.py
+
+      - name: Статический разбор
+        run: |
+          python3 -m pip install --quiet pyflakes
+          python3 -m pyflakes CleanMac.py krylan_core.py menubar.py
+
+      - name: Импорт без GUI не должен падать
+        # CleanMac.py защищён guard'ом __main__, поэтому импортируется без окна.
+        run: python3 -c "import CleanMac; print('версия', CleanMac.VERSION)"
+
+  shellcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Синтаксис bash-скриптов
+        run: for f in $(git ls-files '*.sh'); do bash -n "$f" || exit 1; done
+
+  consistency:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Версия в коде совпадает с файлом VERSION
+        # Уже ловило реальную ошибку: релиз 2.49.0 поднял файл VERSION, но не
+        # константу в CleanMac.py, и проверка обновлений вечно предлагала
+        # обновиться тем, у кого уже стоит свежая версия.
+        run: |
+          FILE=$(tr -d '[:space:]' < VERSION)
+          CODE=$(sed -n 's/^VERSION *= *"\(.*\)".*/\1/p' CleanMac.py | head -1)
+          echo "VERSION=$FILE  CleanMac.py=$CODE"
+          test "$FILE" = "$CODE" || { echo "::error::версии разошлись"; exit 1; }
+          grep -q "^## \[$FILE\]" CHANGELOG.md || { echo "::error::нет записи [$FILE] в CHANGELOG.md"; exit 1; }
