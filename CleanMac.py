@@ -72,7 +72,7 @@ from tkinter import messagebox, filedialog
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from krylan_core import human, ver_tuple, disk_advice, parse_brew_outdated, squarify  # noqa: E402
 
-VERSION = "2.48.0"
+VERSION = "2.50.0"
 BRAND   = "KRYLAN"
 SLOGAN  = "Дай устройству крылья"
 AUTHOR  = "Кырлан Александр Сергеевич"
@@ -81,6 +81,8 @@ BUY_URL = "https://alex1986-rgb.gumroad.com/l/cleanmac"   # ссылка на Pr
 HOME  = os.path.expanduser("~")
 TRASH = os.path.join(HOME, ".Trash")
 OPT   = os.path.join(HOME, "mac-optimizer")
+# Исходники стража (ставятся в OPT установщиком autopilot/install.sh).
+AP_SRC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "autopilot")
 CFG   = os.path.join(HOME, ".config", "cleanmac")
 LIC   = os.path.join(CFG, "license")
 LANG_FILE = os.path.join(CFG, "lang")
@@ -1975,18 +1977,48 @@ class CleanMac(tk.Tk):
                             padx=12, pady=10); self.ap_log.pack(fill="both", expand=True, padx=24, pady=(0,16))
         self._ap_refresh()
 
+    def _ap_install(self):
+        """Разложить страж в ~/mac-optimizer и поставить LaunchAgent.
+
+        Скрипты автопилота живут в репозитории (autopilot/), а работает страж
+        из ~/mac-optimizer. Если этот каталог почистили или приложение
+        переехало, ctl.sh пропадал и автопилот молча становился «недоступен» —
+        поэтому ставим его сами, а не только сообщаем о поломке.
+        """
+        inst=os.path.join(AP_SRC,"install.sh")
+        if not os.path.exists(inst): return False
+        run(["/bin/bash",inst], t=60)
+        return os.path.exists(os.path.join(OPT,"ctl.sh"))
+
     def _ap(self, action):
         ctl=os.path.join(OPT,"ctl.sh")
+        if not os.path.exists(ctl) and action=="start":
+            if not self._ap_install():
+                messagebox.showerror("Автопилот",
+                    "Не удалось установить страж.\nОжидался установщик: "
+                    + os.path.join(AP_SRC, "install.sh")
+                    + "\nПапка autopilot/ должна лежать рядом с CleanMac.py.")
+                return
+            self._ap_refresh(); return
         if os.path.exists(ctl): run(["/bin/bash",ctl,action]); time.sleep(1)
         self._ap_refresh()
 
     def _ap_refresh(self):
-        ctl=os.path.join(OPT,"ctl.sh"); st="недоступен"
-        if os.path.exists(ctl):
+        ctl=os.path.join(OPT,"ctl.sh")
+        if not os.path.exists(ctl):
+            st="⚪️ НЕ УСТАНОВЛЕН" if os.path.exists(os.path.join(AP_SRC,"install.sh")) \
+               else "🔴 НЕДОСТУПЕН (нет папки autopilot/)"
+        else:
             out=run(["/bin/bash",ctl,"status"]); st="🟢 РАБОТАЕТ" if "🟢" in out or "Работает" in out else "🔴 ОСТАНОВЛЕН"
         self.ap_state.configure(text="Автопилот: "+st, fg=(GREEN if "🟢" in st else RED))
         log=os.path.join(OPT,"optimize.log"); self.ap_log.configure(state="normal"); self.ap_log.delete("1.0","end")
-        self.ap_log.insert("end", (open(log).read()[-2500:] if os.path.exists(log) else "(журнал пуст — пиков не было)"))
+        if os.path.exists(log):
+            body=open(log).read()[-2500:]
+        elif "НЕ УСТАНОВЛЕН" in st:
+            body="Страж ещё не установлен. Нажмите «Включить» — файлы\nразложатся в ~/mac-optimizer и агент запустится."
+        else:
+            body="(журнал пуст — пиков не было)"
+        self.ap_log.insert("end", body)
         self.ap_log.configure(state="disabled")
 
     def _optimize_now(self):
