@@ -72,7 +72,7 @@ from tkinter import messagebox, filedialog
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from krylan_core import human, ver_tuple, disk_advice, parse_brew_outdated, squarify  # noqa: E402
 
-VERSION = "2.56.0"
+VERSION = "2.57.0"
 BRAND   = "KRYLAN"
 SLOGAN  = "Дай устройству крылья"
 AUTHOR  = "Кырлан Александр Сергеевич"
@@ -282,6 +282,7 @@ TR = {
     # --- состав памяти (пончик на дашборде) ---
     "занято":"used","Активная":"Active","Связанная":"Wired","Сжатая":"Compressed",
     "Неактивная":"Inactive","Свободная":"Free",
+    "диск":"disk","Занято":"Used","Свободно":"Free",
     # ведущие/хвостовые пробелы значимы — ключ должен совпадать байт в байт
     "  Артефактов сборки не найдено.":"  No build artifacts found.",
     "  Дубликатов не найдено.":"  No duplicates found.",
@@ -2139,6 +2140,10 @@ class CleanMac(tk.Tk):
         # а self.vm присваивался и не читался: и рисовалка, и данные лежали
         # мёртвым грузом. Пончик без подписей — украшение, поэтому рядом легенда.
         self._mem_donut(c, 74, H-96, 42, 13)
+        # ===== занятость диска — пончик в правом нижнем углу =====
+        # Кольцо «ДИСК» в орбите показывает только процент. Пончик добавляет то,
+        # ради чего на него смотрят: сколько гигабайт занято и сколько осталось.
+        self._disk_donut(c, W-74, H-96, 42, 13)
         # ===== ЦЕНТР: вращающаяся планета-устройство =====
         self._globe(c, cx, cy, gr, fr)
         # характеристики устройства — под планетой (на «земле»)
@@ -2174,6 +2179,25 @@ class CleanMac(tk.Tk):
             c.create_text(lx + 13, ly + 6, anchor="w", fill=MUTED, font=("SF Pro Text", 9),
                           text=f"{L(VM_LABELS[k])} {human(v)}")
             ly += 15
+
+    def _disk_donut(self, c, cx, cy, r, w):
+        """Пончик занятости диска + легенда СЛЕВА (угол правый — иначе уедет за край)."""
+        total = getattr(self, "disk_total", 0) or 0
+        free = getattr(self, "disk_free", 0) or 0
+        if total <= 0:
+            return
+        used = max(0, total - free)
+        self._donut(c, cx, cy, r, w,
+                    [(used / total, col_for(used / total * 100, inv=True)), (free / total, GREEN)],
+                    center_top=f"{used * 100 // total}%", center_bot=L("диск"))
+        rx = cx - r - 16
+        ry = cy - 14
+        for label, val, color in ((L("Занято"), used, col_for(used / total * 100, inv=True)),
+                                  (L("Свободно"), free, GREEN)):
+            c.create_text(rx - 11, ry + 6, anchor="e", fill=MUTED, font=("SF Pro Text", 9),
+                          text=f"{label} {human(val)}")
+            c.create_oval(rx - 7, ry + 3, rx, ry + 10, fill=color, outline="")
+            ry += 15
 
     def _battery(self, c, x,y,w,h,frac,charging):
         col = GREEN if charging or frac>.4 else (YELLOW if frac>.2 else RED)

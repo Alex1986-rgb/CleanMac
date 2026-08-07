@@ -1514,6 +1514,40 @@ class TestMemoryDonut(unittest.TestCase):
     def test_every_key_has_a_colour(self):
         self.assertEqual(sorted(cm.CleanMac.VM_COLORS), sorted(cm.VM_KEYS))
 
+    # --- пончик диска (README обещал «пончики памяти И диска») ---
+
+    def _disk_stub(self, total, free):
+        s = type("D", (), {"_donut": cm.CleanMac._donut,
+                           "_disk_donut": cm.CleanMac._disk_donut})()
+        s.disk_total, s.disk_free = total, free
+        return s
+
+    def test_disk_silent_without_data(self):
+        for total, free in ((0, 0), (0, 100)):
+            self.cv.delete("all")
+            self._disk_stub(total, free)._disk_donut(self.cv, 686, 524, 42, 13)
+            self.assertEqual(len(self.cv.find_all()), 0)
+
+    def test_disk_two_segments(self):
+        self._disk_stub(200 * 1024**3, 50 * 1024**3)._disk_donut(self.cv, 686, 524, 42, 13)
+        arcs = [i for i in self.cv.find_all() if self.cv.type(i) == "arc"]
+        self.assertEqual(len(arcs), 4)          # 2 сегмента × (свечение + линия)
+
+    def test_disk_percent_and_sizes(self):
+        self._disk_stub(200 * 1024**3, 50 * 1024**3)._disk_donut(self.cv, 686, 524, 42, 13)
+        texts = [self.cv.itemcget(i, "text")
+                 for i in self.cv.find_all() if self.cv.type(i) == "text"]
+        self.assertIn("75%", texts)                                  # занято 150 из 200
+        self.assertTrue(any("50.0 ГБ" in t for t in texts), texts)   # свободно
+
+    def test_disk_legend_goes_left_and_fits(self):
+        # Пончик в правом углу — легенда обязана уходить влево, иначе уедет за край
+        self._disk_stub(200 * 1024**3, 50 * 1024**3)._disk_donut(self.cv, 686, 524, 42, 13)
+        xs = []
+        for i in self.cv.find_all(): xs += self.cv.coords(i)[0::2]
+        self.assertLessEqual(max(xs), 760)
+        self.assertLess(min(xs), 686 - 42)      # что-то нарисовано левее пончика
+
 
 class TestSharedCore(unittest.TestCase):
     """krylan_core объявлен единым источником истины — значит копия обязана совпадать."""
