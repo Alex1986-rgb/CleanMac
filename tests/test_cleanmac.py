@@ -1339,6 +1339,230 @@ class TestWorkerSafety(unittest.TestCase):
         self.assertIn('if kind=="error"', src)
 
 
+class TestMetricParsers(unittest.TestCase):
+    """Разбор вывода системных команд.
+
+    Самое коварное место программы: при сбое разбора функция возвращала
+    правдоподобный ноль, а ноль в метрике выглядит как здоровая система.
+    Так дважды прошли незамеченными «swap 0» при раздутом свопе и «пика нет»
+    на захлёбывающемся маке. Строки ниже — настоящий вывод команд.
+    """
+
+    # --- top ---
+    TOP = ("Processes: 611 total, 2 running, 609 sleeping\n"
+           "Load Avg: 4.05, 4.95, 3.83\n"
+           "CPU usage: 12.50% user, 7.25% sys, 80.25% idle\n")
+
+    def test_cpu_is_user_plus_sys(self):
+        self.assertAlmostEqual(cm.parse_top_cpu(self.TOP), 19.75)
+
+    def test_cpu_never_exceeds_100(self):
+        self.assertLessEqual(cm.parse_top_cpu("CPU usage: 80.00% user, 60.00% sys, 0% idle"), 100)
+
+    def test_cpu_missing_line_is_zero(self):
+        for bad in ("", None, "Processes: 611 total\n"):
+            self.assertEqual(cm.parse_top_cpu(bad), 0)
+
+    # --- memory_pressure ---
+    def test_memory_used_is_inverse_of_free(self):
+        out = "System-wide memory free percentage: 39%\n"
+        self.assertAlmostEqual(cm.parse_memory_pressure(out), 61.0)
+
+    def test_memory_missing_is_zero(self):
+        for bad in ("", None, "File I/O:\nPageins: 100\n"):
+            self.assertEqual(cm.parse_memory_pressure(bad), 0)
+
+    # --- vm_stat ---
+    VM = ("Mach Virtual Memory Statistics: (page size of 16384 bytes)\n"
+          "Pages free:                          4544.\n"
+          "Pages active:                       85960.\n"
+          "Pages inactive:                     82732.\n"
+          "Pages speculative:                   2300.\n"
+          "Pages wired down:                  101365.\n"
+          "Pages occupied by compressor:      200000.\n")
+
+    def test_vm_uses_page_size_from_output(self):
+        # На Apple Silicon страница 16 КБ, на Intel — 4 КБ. Зашитая константа
+        # врала бы вчетверо на половине маков.
+        vm = cm.parse_vm_stat(self.VM)
+        self.assertEqual(vm["active"], 85960 * 16384)
+        vm4 = cm.parse_vm_stat(self.VM.replace("page size of 16384", "page size of 4096"))
+        self.assertEqual(vm4["active"], 85960 * 4096)
+
+    def test_vm_free_includes_speculative(self):
+        self.assertEqual(cm.parse_vm_stat(self.VM)["free"], (4544 + 2300) * 16384)
+
+    def test_vm_all_keys_present_on_garbage(self):
+        vm = cm.parse_vm_stat("мусор")
+        self.assertEqual(sorted(vm), sorted(cm.VM_KEYS))
+        self.assertTrue(all(v == 0 for v in vm.values()))
+
+    def test_vm_labels_cover_all_keys(self):
+        self.assertEqual(sorted(cm.VM_LABELS), sorted(cm.VM_KEYS))
+
+    # --- pmset ---
+    BATT = ("Now drawing from 'Battery Power'\n"
+            " -InternalBattery-0 (id=12345)\t87%; discharging; 3:41 remaining present: true\n")
+
+    def test_batt_discharging(self):
+        b = cm.parse_pmset_batt(self.BATT)
+        self.assertEqual(b["pct"], 87)
+        self.assertFalse(b["charging"])
+        self.assertEqual(b["tleft"], "3:41")
+
+    def test_batt_charging(self):
+        b = cm.parse_pmset_batt(" -InternalBattery-0 (id=1)\t100%; charged; 0:00 remaining present: true")
+        self.assertEqual(b["pct"], 100)
+        self.assertTrue(b["charging"])
+
+    def test_batt_desktop_without_battery(self):
+        # На маке без батареи строки с процентом нет — нули, а не исключение
+        b = cm.parse_pmset_batt("Now drawing from 'AC Power'\n")
+        self.assertEqual((b["pct"], b["charging"], b["tleft"]), (0, False, ""))
+
+    # --- ps ---
+    PS = ("%CPU    RSS COMM\n"
+          "53.3  51200 /Applications/Happ.app/Contents/PlugIns/Tunnel\n"
+          "21.8  93184 /Applications/Claude.app/Contents/MacOS/Claude\n"
+          " 0.0    512 short\n")
+
+    def test_procs_parsed_and_limited(self):
+        rows = cm.parse_ps_procs(self.PS, 2)
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[0], (53.3, 51200 * 1024, "Tunnel"))
+
+    def test_procs_name_is_basename_and_trimmed(self):
+        long_name = "/x/" + "a" * 40
+        rows = cm.parse_ps_procs(f"%CPU RSS COMM\n1.0 1024 {long_name}\n", 1)
+        self.assertEqual(rows[0][2], "a" * 22)
+
+    def test_procs_skips_broken_lines(self):
+        rows = cm.parse_ps_procs("%CPU RSS COMM\nмусор\n1.0 2048 ok\n", 5)
+        self.assertEqual([r[2] for r in rows], ["ok"])
+
+    def test_procs_empty_is_empty_list(self):
+        for bad in ("", None, "%CPU RSS COMM\n"):
+            self.assertEqual(cm.parse_ps_procs(bad), [])
+
+
+class TestSharedCore(unittest.TestCase):
+    """krylan_core объявлен единым источником истины — значит копия обязана совпадать."""
+
+    MAIN = os.path.join(REPO_ROOT, "krylan_core.py")
+    VENDORED = os.path.join(REPO_ROOT, "krylan-desktop", "krylan_core.py")
+
+    def test_vendored_copy_is_identical(self):
+        # Копия успела разойтись: 2 функции из 6, при том что в шапке файла
+        # написано «единый источник истины, чтобы логика не расходилась».
+        # Desktop не мог пользоваться ver_tuple/disk_advice/squarify вообще.
+        with open(self.MAIN, encoding="utf-8") as f: main = f.read()
+        with open(self.VENDORED, encoding="utf-8") as f: vend = f.read()
+        self.assertEqual(main, vend,
+                         "krylan-desktop/krylan_core.py разошёлся с krylan_core.py — "
+                         "скопируйте основной файл поверх вендорного")
+
+    def test_core_exports_what_cleanmac_imports(self):
+        import re
+        with open(os.path.join(REPO_ROOT, "CleanMac.py"), encoding="utf-8") as f:
+            m = re.search(r"from krylan_core import ([^\n#]+)", f.read())
+        self.assertIsNotNone(m, "CleanMac перестал импортировать krylan_core")
+        for name in (n.strip() for n in m.group(1).split(",")):
+            self.assertTrue(hasattr(cm, name), f"krylan_core не отдаёт {name}")
+
+
+class TestAutopilotSummary(unittest.TestCase):
+    """Сводка по журналу автопилота — ответ на «он вообще работает?»."""
+
+    LOG = (
+        "2026-08-07 02:04:34  ⚠️ ПИК: swap 1733M — 21% ОЗУ. Топ: Claude (205M); \n"
+        "2026-08-07 02:04:38  🧹 Очищено кэшей: ~37M\n"
+        "2026-08-07 02:04:41  🔻 Закрыты фоновые браузеры: Microsoft Edge; Safari;\n"
+        "2026-08-07 02:04:44  ✅ Итог: swap 1733M → 1661M, давление 2 → 1\n"
+        "2026-08-07 03:15:26  ⚠️ ПИК: macOS предупреждает (уровень 2), swap 1753M. Топ: X (1M); \n"
+        "2026-08-07 03:15:30  🧹 Очищено кэшей: ~19M\n"
+        "2026-08-07 03:15:33  🚫 Пользователь отменил закрытие браузеров (Microsoft Edge;)\n"
+        "2026-08-07 03:15:38  ✅ Итог: swap 1753M → 1750M, давление 2 → 2\n"
+        "2026-08-07 03:23:17  ⏸ Браузеры не трогаю: вы за компьютером (простой 0s < 900s)\n"
+    )
+
+    def _now(self):
+        import datetime
+        return datetime.datetime(2026, 8, 7, 4, 0, 0)
+
+    def test_counts(self):
+        s = cm.parse_autopilot_log(self.LOG, hours=24, now=self._now())
+        self.assertEqual(s["peaks"], 2)
+        self.assertEqual(s["cleaned_mb"], 56)          # 37 + 19
+        self.assertEqual(s["closed"], 1)
+        self.assertEqual(s["declined"], 1)
+        self.assertEqual(s["held"], 1)
+
+    def test_swap_is_first_before_and_last_after(self):
+        s = cm.parse_autopilot_log(self.LOG, hours=24, now=self._now())
+        self.assertEqual((s["swap_before"], s["swap_after"]), (1733, 1750))
+
+    def test_window_cuts_old_entries(self):
+        # окно в час — попадает только последнее срабатывание
+        s = cm.parse_autopilot_log(self.LOG, hours=1, now=self._now())
+        self.assertEqual(s["peaks"], 1)
+        self.assertEqual(s["cleaned_mb"], 19)
+
+    def test_quiet_log_says_so(self):
+        s = cm.parse_autopilot_log("", hours=24, now=self._now())
+        self.assertEqual(s["peaks"], 0)
+        self.assertIn("не вмешивался", cm.format_autopilot_summary(s))
+
+    def test_garbage_lines_ignored(self):
+        s = cm.parse_autopilot_log("мусор\n\nне дата  ⚠️ ПИК: x\n", hours=24, now=self._now())
+        self.assertEqual(s["peaks"], 0)
+
+    def test_summary_mentions_what_happened(self):
+        txt = cm.format_autopilot_summary(
+            cm.parse_autopilot_log(self.LOG, hours=24, now=self._now()))
+        for expect in ("вмешался 2", "закрывались 1", "отменили 1", "за маком"):
+            self.assertIn(expect, txt)
+
+
+class TestLocalizationCoverage(unittest.TestCase):
+    """README обещает EN-локализацию. Значит она должна быть настоящей."""
+
+    def _ui_strings(self):
+        import re
+        with open(os.path.join(REPO_ROOT, "CleanMac.py"), encoding="utf-8") as f:
+            src = f.read()
+        # тело файла после словаря TR — сам словарь не считаем
+        body = src[src.index("\n}\ndef L(") + 3:]
+        return {s for s in re.findall(r'text=L\(["\']([^"\']+)["\']\)', body)
+                if re.search(r"[А-Яа-я]", s)}
+
+    def test_every_wrapped_string_has_translation(self):
+        # Раньше переводилось 16 строк из 61: переключатель языка был, а
+        # интерфейс оставался русским. Новая строка без перевода = провал теста.
+        missing = sorted(self._ui_strings() - set(cm.TR))
+        self.assertEqual(missing, [], f"нет перевода для: {missing}")
+
+    def test_no_empty_or_identical_translations(self):
+        bad = [k for k, v in cm.TR.items() if not v or v == k]
+        self.assertEqual(bad, [], f"пустой или совпадающий перевод: {bad}")
+
+    def test_L_returns_source_in_russian(self):
+        old = cm.LANG
+        try:
+            cm.LANG = "ru"
+            self.assertEqual(cm.L("Дашборд"), "Дашборд")
+            cm.LANG = "en"
+            self.assertEqual(cm.L("Дашборд"), "Dashboard")
+            self.assertEqual(cm.L("нет такого ключа"), "нет такого ключа")
+        finally:
+            cm.LANG = old
+
+    def test_tool_group_labels_translatable(self):
+        for _, glabel, chips in cm.CleanMac.TOOL_GROUPS:
+            self.assertIn(glabel, cm.TR, f"семейство «{glabel}» без перевода")
+            for _, chip in chips:
+                self.assertIn(chip, cm.TR, f"чип «{chip}» без перевода")
+
+
 class TestToolGroups(unittest.TestCase):
     """Инструменты сгруппированы — но ни один не должен потеряться при перекладке."""
 
@@ -1403,6 +1627,18 @@ class TestAutopilotThresholds(unittest.TestCase):
         # а не у чистки кэшей — кэши можно чистить и при работающем человеке
         close_at = sh.index("close_browsers.on")
         self.assertIn("IDLE_MIN_CLOSE", sh[close_at - 400:close_at + 400])
+
+    def test_closing_asks_before_acting(self):
+        # Браузер просто исчезал: человек возвращался к маку и обнаруживал
+        # закрытые окна, не понимая, что произошло.
+        sh = self._sh()
+        self.assertIn("GRACE_SEC", sh)
+        self.assertIn("display dialog", sh)
+        self.assertIn("giving up after", sh)   # никого нет рядом — соглашаемся сами
+        self.assertIn("Отменить", sh)
+
+    def test_decline_is_logged(self):
+        self.assertIn("отменил закрытие браузеров", self._sh())
 
     def test_warn_level_alone_is_not_a_peak(self):
         # Уровень 2 на 8-гигабайтном маке держится почти постоянно: за ночь он

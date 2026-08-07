@@ -72,7 +72,7 @@ from tkinter import messagebox, filedialog
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from krylan_core import human, ver_tuple, disk_advice, parse_brew_outdated, squarify  # noqa: E402
 
-VERSION = "2.55.0"
+VERSION = "2.56.0"
 BRAND   = "KRYLAN"
 SLOGAN  = "Дай устройству крылья"
 AUTHOR  = "Кырлан Александр Сергеевич"
@@ -205,6 +205,92 @@ TR = {
     "  Больших старых файлов не найдено.":"  No big old files found.",
     "Размер ≥":"Size ≥","Возраст ≥":"Age ≥",
     "МБ":"MB","дн":"days",
+
+    # --- Семейства инструментов ---
+    "🔍 Найти и освободить":"🔍 Find & free up","🧩 Приложения":"🧩 Applications",
+    "🌐 Браузеры":"🌐 Browsers","🩺 Система":"🩺 System",
+    "📦 Крупные файлы":"📦 Large files","🕒 Старые загрузки":"🕒 Old downloads",
+    "👯 Дубликаты":"👯 Duplicates","📸 Скриншоты":"📸 Screenshots",
+    "📧 Вложения Почты":"📧 Mail attachments","🧰 Dev-мусор":"🧰 Dev junk",
+    "🗺 Карта диска":"🗺 Disk map","♻️ Корзина":"♻️ Trash",
+    "🧩 Деинсталлятор":"🧩 Uninstaller","🧹 Остатки":"🧹 Leftovers",
+    "⚙️ Автозагрузка":"⚙️ Login items","📦 Апдейтер":"📦 Updater",
+    "🌐 Следы браузеров":"🌐 Browser traces","🧩 Расширения":"🧩 Extensions",
+    "🗜 Сжать базы":"🗜 Compact databases","🩺 Обслуживание":"🩺 Maintenance",
+    "🔥 Шредер":"🔥 Shredder","📜 История":"📜 History",
+
+    # --- Дашборд ---
+    "В РЕАЛЬНОМ ВРЕМЕНИ":"REAL TIME","♥ ПУЛЬС СИСТЕМЫ":"♥ SYSTEM PULSE",
+    "СИСТЕМА · РЕАЛЬНОЕ ВРЕМЯ":"SYSTEM · REAL TIME","🌐 ИНТЕРНЕТ":"🌐 INTERNET",
+    "✨ Оптимизировать  ":"✨ Optimize  ","  ✨ Оптимизировать  ":"  ✨ Optimize  ",
+    "✨ Оптимизирую…  ":"✨ Optimizing…  ","✓ Оптимизировано  ":"✓ Optimized  ",
+    "✨ Готово — Mac оптимизирован":"✨ Done — Mac optimized",
+    "Выполнено на этом Mac:":"Done on this Mac:",
+    "Пропущено (неприменимо на этом Mac):":"Skipped (not applicable on this Mac):",
+    "Чисто! Нечего освобождать.":"Clean! Nothing to free up.",
+    "можно освободить безопасно":"can be freed safely",
+    "оцениваю объём…":"estimating size…",
+
+    # --- Общие состояния ---
+    "Анализирую…":"Analyzing…","Очищаю…":"Cleaning…","Сканирую…":"Scanning…",
+    "🔎 Считаю размеры…":"🔎 Calculating sizes…","⏳ Тестирую…":"⏳ Testing…",
+    "Сканирую обновления…":"Scanning for updates…",
+    "🔎 Ищу артефакты сборки…":"🔎 Looking for build artifacts…",
+    "🔎 Сканирую точки автозапуска…":"🔎 Scanning startup items…",
+    "Ничего не найдено.":"Nothing found.","Файлы не выбраны.":"No files selected.",
+    "Дубликатов не найдено.":"No duplicates found.",
+    "Скриншотов не найдено.":"No screenshots found.",
+    "Старых загрузок не найдено.":"No old downloads found.",
+    "Артефактов сборки не найдено.":"No build artifacts found.",
+    "✅ Все приложения обновлены.":"✅ All apps are up to date.",
+    "✅ Осиротевших данных не найдено.":"✅ No orphaned data found.",
+    "✅ Подозрительных объектов не обнаружено":"✅ No suspicious items detected",
+    "✅ Готово: ":"✅ Done: ","Открыть →":"Open →","Удалить…":"Delete…",
+    "↑ вверх":"↑ up","Старше:":"Older than:",
+    "Отметьте, что очистить":"Check what to clean",
+
+    # --- Автопилот ---
+    "Фоновый страж следит за памятью и при пике сам чистит и разгружает.":
+        "A background guard watches memory and cleans up on a peak by itself.",
+    "Журнал автопилота:":"Autopilot log:",
+    "⚪️ НЕ УСТАНОВЛЕН":"⚪️ NOT INSTALLED","🟢 РАБОТАЕТ":"🟢 RUNNING",
+    "🔴 ОСТАНОВЛЕН":"🔴 STOPPED","Включить":"Enable","Выключить":"Disable",
+    "  Разрешить автопилоту закрывать фоновые браузеры при пике памяти":
+        "  Allow the autopilot to close background browsers on a memory peak",
+    "⚡️ Оптимизировать сейчас":"⚡️ Optimize now",
+    "🧊 Освободить место на диске":"🧊 Free up disk space",
+
+    # --- Очистка ---
+    "Один проход по всем безопасным категориям. Всё уходит в Корзину.":
+        "One pass over all safe categories. Everything goes to the Trash.",
+    "Пока пусто. После первой очистки здесь появится журнал.":
+        "Empty for now. The log appears after the first cleanup.",
+    "Пользовательские данные в порядке — дублей и крупных файлов не найдено.":
+        "User data is fine — no duplicates or large files found.",
+    "По всем параметрам — найдено для вашего ревью (не удалено):":
+        "Across all checks — found for your review (nothing deleted):",
+    "Очистка следов работы → в Корзину (обратимо). Браузеры должны быть закрыты.":
+        "Clearing activity traces → Trash (reversible). Browsers must be closed.",
+
+    # --- Инструменты ---
+    "🏁 Бенчмарк диска":"🏁 Disk benchmark",
+    "⏳ Идёт бенчмарк: пишу и читаю ~128 МБ во временный файл… пара секунд.":
+        "⏳ Benchmark running: writing and reading ~128 MB to a temp file… a couple of seconds.",
+    "Homebrew не найден. Установите с brew.sh, чтобы обновлять приложения отсюда.":
+        "Homebrew not found. Install it from brew.sh to update apps from here.",
+    "🔓 Не открывается?":"🔓 Won't open?","🔄 Обновления":"🔄 Updates",
+    # ведущие/хвостовые пробелы значимы — ключ должен совпадать байт в байт
+    "  Артефактов сборки не найдено.":"  No build artifacts found.",
+    "  Дубликатов не найдено.":"  No duplicates found.",
+    "  Ничего не найдено.":"  Nothing found.",
+    "  Старых загрузок не найдено.":"  No old downloads found.",
+    "  ✓ Оптимизировано  ":"  ✓ Optimized  ",
+    "  ✨ Оптимизирую…  ":"  ✨ Optimizing…  ",
+    "«Анализ» посчитает объём, «Очистить» переместит в Корзину.":
+        "“Analyze” measures the size, “Clean” moves items to the Trash.",
+    "Эвристический поиск известного рекламного/нежелательного ПО в точках автозапуска. Не заменяет антивирус.":
+        "Heuristic search for known adware/unwanted software in startup items. "
+        "Not a replacement for an antivirus.",
 }
 def L(s):
     return TR.get(s, s) if LANG=="en" else s
@@ -1109,32 +1195,69 @@ def shred_file(path):
         return False
 
 # ---------- метрики ----------
-def stat_cpu():
-    for ln in run(["/usr/bin/top", "-l", "1", "-n", "0"], 5).splitlines():
+# ---------- разбор вывода системных команд ----------
+# Парсеры отделены от вызова команд намеренно. Дважды подряд ошибка пряталась
+# именно здесь и оставалась незамеченной, потому что при сбое разбора функция
+# возвращала правдоподобный ноль: «swap 0» при раздутом свопе, «пика нет» при
+# захлёбывающемся маке. Ноль в метрике выглядит как здоровая система, поэтому
+# такие сбои не видны глазом — их ловят только тесты на реальных строках вывода.
+
+def parse_top_cpu(out):
+    """Загрузка CPU в процентах (user + sys) из `top -l 1 -n 0`."""
+    for ln in (out or "").splitlines():
         if ln.startswith("CPU usage"):
             p = ln.replace("CPU usage:", "").split(",")
             try: return min(100, float(p[0].split("%")[0]) + float(p[1].split("%")[0].strip()))
             except Exception: return 0
     return 0
 
-def stat_mem():
-    for ln in run(["memory_pressure"], 5).splitlines():
+def parse_memory_pressure(out):
+    """Занятая память в процентах из `memory_pressure`.
+
+    Возвращает 0, если строку не нашли. Помним: этот показатель считает сжатое
+    и вытесняемое доступным, поэтому под свопом почти не падает — как
+    единственный сигнал нехватки памяти он не годится (см. autopilot/optimize.sh).
+    """
+    for ln in (out or "").splitlines():
         if "free percentage" in ln:
             try: return 100 - float(ln.split(":")[1].strip().rstrip("%"))
             except Exception: return 0
     return 0
 
-def stat_vm():
-    """Состав памяти (байты): wired/active/compressed/inactive/free."""
-    out = run(["vm_stat"]); ps = 16384
+# Ключи состава памяти: стабильные идентификаторы, подписи берутся из VM_LABELS
+# при отрисовке. Раньше ключами были русские подписи, и диаграмму памяти было
+# невозможно перевести на английский, не сломав обращения к словарю.
+VM_KEYS = ("active", "wired", "compressed", "inactive", "free")
+VM_LABELS = {"active": "Активная", "wired": "Связанная", "compressed": "Сжатая",
+             "inactive": "Неактивная", "free": "Свободная"}
+_VM_FIELDS = {"active": ("Pages active",), "wired": ("Pages wired down",),
+              "compressed": ("Pages occupied by compressor",),
+              "inactive": ("Pages inactive",),
+              "free": ("Pages free", "Pages speculative")}
+
+def parse_vm_stat(out):
+    """Состав памяти в байтах из `vm_stat`.
+
+    Размер страницы берём из самого вывода: на Apple Silicon он 16 КБ, на Intel
+    4 КБ — зашитая константа врала бы вчетверо на половине маков.
+    """
+    out = out or ""
     m = re.search(r"page size of (\d+)", out)
-    if m: ps = int(m.group(1))
-    def g(k):
-        mm = re.search(k + r":\s+(\d+)", out); return int(mm.group(1))*ps if mm else 0
-    free = g("Pages free") + g("Pages speculative")
-    return {"Активная": g("Pages active"), "Связанная": g("Pages wired down"),
-            "Сжатая": g("Pages occupied by compressor"),
-            "Неактивная": g("Pages inactive"), "Свободная": free}
+    ps = int(m.group(1)) if m else 16384
+    def pages(name):
+        mm = re.search(re.escape(name) + r":\s+(\d+)", out)
+        return int(mm.group(1)) if mm else 0
+    return {k: sum(pages(f) for f in fields) * ps for k, fields in _VM_FIELDS.items()}
+
+def stat_cpu():
+    return parse_top_cpu(run(["/usr/bin/top", "-l", "1", "-n", "0"], 5))
+
+def stat_mem():
+    return parse_memory_pressure(run(["memory_pressure"], 5))
+
+def stat_vm():
+    """Состав памяти (байты): active/wired/compressed/inactive/free."""
+    return parse_vm_stat(run(["vm_stat"]))
 
 _SWAP_UNIT = {"K": 1/1024, "M": 1.0, "G": 1024.0, "T": 1024.0*1024}
 
@@ -1227,17 +1350,90 @@ def disk_benchmark(path=None, size_mb=128):
         except Exception: pass
 
 _bc = {"health": 0, "cycles": 0, "cond": "—", "t": 0}
-def stat_batt():
+def parse_pmset_batt(out):
+    """Заряд, состояние зарядки и остаток времени из `pmset -g batt`.
+
+    Формат строки:
+      ` -InternalBattery-0 (id=…)\t87%; discharging; 3:41 remaining present: true`
+    На маке без батареи (десктоп) строки с процентом нет — возвращаем нули,
+    а не падаем.
+    """
     pct, charging, tleft = 0, False, ""
-    for ln in run(["pmset", "-g", "batt"]).splitlines():
-        if "%" in ln:
-            seg = ln.split(";")
-            try: pct = int(seg[0].split("\t")[-1].strip().rstrip("%"))
-            except Exception: pass
-            charging = "discharging" not in ln
-            for s in seg:
-                if "remaining" in s: tleft = s.strip().split(" ")[0]
-            break
+    for ln in (out or "").splitlines():
+        if "%" not in ln: continue
+        seg = ln.split(";")
+        m = re.search(r"(\d+)%", seg[0])
+        if m: pct = int(m.group(1))
+        charging = "discharging" not in ln
+        for s in seg:
+            if "remaining" in s: tleft = s.strip().split(" ")[0]
+        break
+    return {"pct": pct, "charging": charging, "tleft": tleft}
+
+def parse_ps_procs(out, n=5):
+    """Топ процессов из `ps -axo %cpu,rss,comm -r` → [(cpu%, байты, имя)]."""
+    rows = []
+    for ln in (out or "").splitlines()[1:]:
+        p = ln.split(None, 2)
+        if len(p) < 3: continue
+        try: rows.append((float(p[0]), int(p[1])*1024, p[2].split("/")[-1][:22]))
+        except Exception: pass
+    return rows[:n]
+
+def parse_autopilot_log(text, hours=24, now=None):
+    """Сводка работы автопилота за последние `hours` часов.
+
+    Журнал — это простыня из четырёх типов строк на каждое срабатывание.
+    Читать её, чтобы понять «а он вообще работает?», невозможно. Собираем
+    цифры: сколько раз вмешался, сколько кэша убрал, трогал ли браузеры,
+    сколько раз промолчал из-за того, что человек за компьютером.
+    """
+    import datetime
+    now = now or datetime.datetime.now()
+    since = now - datetime.timedelta(hours=hours)
+    peaks = cleaned_mb = closed = declined = held = 0
+    swap_before = swap_after = None
+    last = None
+    for ln in (text or "").splitlines():
+        m = re.match(r"(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)\s+(.*)", ln)
+        if not m: continue
+        try: ts = datetime.datetime.strptime(m.group(1), "%Y-%m-%d %H:%M:%S")
+        except ValueError: continue
+        if ts < since: continue
+        body = m.group(2)
+        last = ts
+        if "ПИК:" in body: peaks += 1
+        elif body.startswith("🧹"):
+            c = re.search(r"~(\d+)M", body)
+            if c: cleaned_mb += int(c.group(1))
+        elif body.startswith("🔻"): closed += 1
+        elif body.startswith("🚫"): declined += 1
+        elif body.startswith("⏸"): held += 1
+        elif "Итог:" in body:
+            s = re.search(r"swap (\d+)M → (\d+)M", body)
+            if s:
+                if swap_before is None: swap_before = int(s.group(1))
+                swap_after = int(s.group(2))
+    return {"hours": hours, "peaks": peaks, "cleaned_mb": cleaned_mb,
+            "closed": closed, "declined": declined, "held": held,
+            "swap_before": swap_before, "swap_after": swap_after, "last": last}
+
+def format_autopilot_summary(s):
+    """Человеческая строка из сводки parse_autopilot_log."""
+    if not s["peaks"]:
+        return f"За {s['hours']} ч автопилот не вмешивался — нехватки памяти не было."
+    parts = [f"За {s['hours']} ч: вмешался {s['peaks']} раз"]
+    if s["cleaned_mb"]: parts.append(f"кэша убрано ~{human(s['cleaned_mb']*1024*1024)}")
+    if s["closed"]:     parts.append(f"браузеры закрывались {s['closed']} раз")
+    if s["declined"]:   parts.append(f"вы отменили {s['declined']}")
+    if s["held"]:       parts.append(f"{s['held']} раз не трогал — вы были за маком")
+    if s["swap_before"] is not None and s["swap_after"] is not None:
+        parts.append(f"swap {s['swap_before']}М → {s['swap_after']}М")
+    return " · ".join(parts)
+
+def stat_batt():
+    b = parse_pmset_batt(run(["pmset", "-g", "batt"]))
+    pct, charging, tleft = b["pct"], b["charging"], b["tleft"]
     if time.time() - _bc["t"] > 25:
         sp = run(["system_profiler", "SPPowerDataType"])
         m = re.search(r"Maximum Capacity:\s*(\d+)", sp); _bc["health"] = int(m.group(1)) if m else _bc["health"]
@@ -1251,13 +1447,7 @@ def stat_batt():
     return {"pct": pct, "charging": charging, "tleft": tleft, **_bc}
 
 def stat_procs(n=5):
-    rows = []
-    for ln in run(["/bin/ps", "-axo", "%cpu,rss,comm", "-r"]).splitlines()[1:]:
-        p = ln.split(None, 2)
-        if len(p) < 3: continue
-        try: rows.append((float(p[0]), int(p[1])*1024, p[2].split("/")[-1][:22]))
-        except Exception: pass
-    return rows[:n]
+    return parse_ps_procs(run(["/bin/ps", "-axo", "%cpu,rss,comm", "-r"]), n)
 
 # ---------- категории очистки ----------
 def chromium_caches(*app_support_rel):
@@ -1809,7 +1999,7 @@ class CleanMac(tk.Tk):
         tk.Label(left, text=L("Дашборд"), bg=BG0, fg=TEXT, font=("SF Pro Display", 26, "bold")).pack(side="left")
         self.live_dot=tk.Label(left, text="●", bg=BG0, fg=GREEN, font=("SF Pro Text", 13))
         self.live_dot.pack(side="left", padx=(14,4), pady=(8,0))
-        tk.Label(left, text="В РЕАЛЬНОМ ВРЕМЕНИ", bg=BG0, fg=MUTED,
+        tk.Label(left, text=L("В РЕАЛЬНОМ ВРЕМЕНИ"), bg=BG0, fg=MUTED,
                  font=("SF Pro Text", 10, "bold")).pack(side="left", pady=(9,0))
         # яркость: компактная кнопка-цикл 25 → 50 → 75 → 100 %
         cur=get_brightness()
@@ -1915,13 +2105,13 @@ class CleanMac(tk.Tk):
         orbit=max(orbit, gr+gauge_r+20)
         # часы — верх-центр (HUD)
         c.create_text(cx, 20, fill=CYAN, font=("SF Mono",22,"bold"), text=time.strftime("%H:%M"))
-        c.create_text(cx, 40, fill=MUTED, font=("SF Pro Text",9,"bold"), text="СИСТЕМА · РЕАЛЬНОЕ ВРЕМЯ")
+        c.create_text(cx, 40, fill=MUTED, font=("SF Pro Text",9,"bold"), text=L("СИСТЕМА · РЕАЛЬНОЕ ВРЕМЯ"))
         # интернет — верх-право
-        c.create_text(W-22, 18, anchor="e", fill=MUTED, font=("SF Pro Text",10,"bold"), text="🌐 ИНТЕРНЕТ")
+        c.create_text(W-22, 18, anchor="e", fill=MUTED, font=("SF Pro Text",10,"bold"), text=L("🌐 ИНТЕРНЕТ"))
         c.create_text(W-22, 40, anchor="e", fill=GREEN, font=("SF Pro Display",14,"bold"), text=f"↓ {human(self.net_down)}/с")
         c.create_text(W-22, 60, anchor="e", fill=BLUE, font=("SF Pro Display",14,"bold"), text=f"↑ {human(self.net_up)}/с")
         # кардиограмма «пульс системы» — верх-лево (ЭКГ, цвет по здоровью)
-        c.create_text(22, 13, anchor="w", fill=MUTED, font=("SF Pro Text",9,"bold"), text="♥ ПУЛЬС СИСТЕМЫ")
+        c.create_text(22, 13, anchor="w", fill=MUTED, font=("SF Pro Text",9,"bold"), text=L("♥ ПУЛЬС СИСТЕМЫ"))
         self._ekg(c, 22, 22, max(140, cx-150), 42, fr, RED)
         # ===== метрики-гейджи вокруг планеты =====
         sval=human(self.swap_mb*1024*1024).replace(" ","")
@@ -1966,12 +2156,12 @@ class CleanMac(tk.Tk):
     def show_smart(self):
         tk.Label(self.main, text=L("Умная очистка"), bg=BG0, fg=TEXT, font=("SF Pro Display",28,"bold")
                  ).pack(anchor="w", padx=24, pady=(16,2))
-        tk.Label(self.main, text="Один проход по всем безопасным категориям. Всё уходит в Корзину.",
+        tk.Label(self.main, text=L("Один проход по всем безопасным категориям. Всё уходит в Корзину."),
                  bg=BG0, fg=MUTED, font=("SF Pro Text",11)).pack(anchor="w", padx=24, pady=(0,10))
         top=tk.Frame(self.main, bg=GLASS); top.pack(fill="x", padx=24, pady=6)
-        self.smart_big=tk.Label(top, text="Сканирую…", bg=GLASS, fg=GREEN, font=("SF Pro Display",30,"bold"))
+        self.smart_big=tk.Label(top, text=L("Сканирую…"), bg=GLASS, fg=GREEN, font=("SF Pro Display",30,"bold"))
         self.smart_big.pack(side="left", padx=20, pady=16)
-        self.smart_sub=tk.Label(top, text="оцениваю объём…", bg=GLASS, fg=MUTED, font=("SF Pro Text",12))
+        self.smart_sub=tk.Label(top, text=L("оцениваю объём…"), bg=GLASS, fg=MUTED, font=("SF Pro Text",12))
         self.smart_sub.pack(side="left", pady=16)
         self.smart_btn=self._btn(top, "🧹 Очистить всё", GREEN, self._smart_clean)
         self.smart_btn.pack(side="right", padx=18, pady=14)
@@ -1997,21 +2187,21 @@ class CleanMac(tk.Tk):
 
     def _render_smart(self, found, total):
         self.smart_found={c:v[1] for c,v in found.items()}
-        self.smart_big.configure(text=human(total)); self.smart_sub.configure(text="можно освободить безопасно")
+        self.smart_big.configure(text=human(total)); self.smart_sub.configure(text=L("можно освободить безопасно"))
         for w in self.smart_list.winfo_children(): w.destroy()
         for cid,(title,items,ct) in sorted(found.items(), key=lambda x:-x[1][2]):
             r=tk.Frame(self.smart_list, bg=GLASS); r.pack(fill="x", padx=14, pady=5)
             tk.Label(r, text="🧩  "+title, bg=GLASS, fg=TEXT, font=("SF Pro Text",12), anchor="w").pack(side="left")
             tk.Label(r, text=human(ct), bg=GLASS, fg=GREEN, font=("SF Pro Text",12,"bold")).pack(side="right")
         if not found:
-            tk.Label(self.smart_list, text="Чисто! Нечего освобождать.", bg=GLASS, fg=MUTED,
+            tk.Label(self.smart_list, text=L("Чисто! Нечего освобождать."), bg=GLASS, fg=MUTED,
                      font=("SF Pro Text",13)).pack(anchor="w", padx=14, pady=14)
 
     def _smart_clean(self):
         if not self.smart_found: return
         tot=sum(s for items in self.smart_found.values() for _,s in items)
         if not messagebox.askyesno("Умная очистка", f"Переместить в Корзину ~{human(tot)}?"): return
-        self.smart_big.configure(text="Очищаю…"); self._spawn(self._smart_clean_w)
+        self.smart_big.configure(text=L("Очищаю…")); self._spawn(self._smart_clean_w)
 
     def _smart_clean_w(self):
         freed=0
@@ -2024,7 +2214,7 @@ class CleanMac(tk.Tk):
     def show_autopilot(self):
         tk.Label(self.main, text=L("Автопилот"), bg=BG0, fg=TEXT, font=("SF Pro Display",28,"bold")
                  ).pack(anchor="w", padx=24, pady=(16,2))
-        tk.Label(self.main, text="Фоновый страж следит за памятью и при пике сам чистит и разгружает.",
+        tk.Label(self.main, text=L("Фоновый страж следит за памятью и при пике сам чистит и разгружает."),
                  bg=BG0, fg=MUTED, font=("SF Pro Text",11)).pack(anchor="w", padx=24, pady=(0,14))
         card=tk.Frame(self.main, bg=GLASS); card.pack(fill="x", padx=24, pady=6)
         self.ap_state=tk.Label(card, text="…", bg=GLASS, fg=TEXT, font=("SF Pro Display",16,"bold"))
@@ -2038,7 +2228,7 @@ class CleanMac(tk.Tk):
         # Переключатель закрытия браузеров (по умолчанию ВЫКЛ)
         opt=tk.Frame(self.main, bg=BG0); opt.pack(fill="x", padx=24, pady=(2,4))
         self.ap_close_var=tk.BooleanVar(value=os.path.exists(os.path.join(OPT,"close_browsers.on")))
-        tk.Checkbutton(opt, text="  Разрешить автопилоту закрывать фоновые браузеры при пике памяти",
+        tk.Checkbutton(opt, text=L("  Разрешить автопилоту закрывать фоновые браузеры при пике памяти"),
                        variable=self.ap_close_var, command=self._toggle_close_browsers,
                        bg=BG0, fg=TEXT, selectcolor=GLASS, activebackground=BG0, activeforeground=TEXT,
                        font=("SF Pro Text",11), anchor="w").pack(side="left")
@@ -2047,7 +2237,13 @@ class CleanMac(tk.Tk):
                  bg=BG0, fg=MUTED, font=("SF Pro Text",10), wraplength=600, justify="left"
                  ).pack(anchor="w", padx=24, pady=(0,6))
 
-        tk.Label(self.main, text="Журнал автопилота:", bg=BG0, fg=MUTED, font=("SF Pro Text",11)
+        # Сводка за сутки — ответ на вопрос «он вообще работает?» без чтения
+        # четырёх строк журнала на каждое срабатывание.
+        self.ap_summary=tk.Label(self.main, text="", bg=GLASS, fg=TEXT,
+                                 font=("SF Pro Text",12,"bold"), anchor="w", justify="left",
+                                 padx=14, pady=11, wraplength=620)
+        self.ap_summary.pack(fill="x", padx=24, pady=(10,0))
+        tk.Label(self.main, text=L("Журнал автопилота:"), bg=BG0, fg=MUTED, font=("SF Pro Text",11)
                  ).pack(anchor="w", padx=24, pady=(10,2))
         self.ap_log=tk.Text(self.main, bg=GLASS, fg=TEXT, font=("SF Mono",11), relief="flat",
                             padx=12, pady=10); self.ap_log.pack(fill="both", expand=True, padx=24, pady=(0,16))
@@ -2087,7 +2283,18 @@ class CleanMac(tk.Tk):
         else:
             out=run(["/bin/bash",ctl,"status"]); st="🟢 РАБОТАЕТ" if "🟢" in out or "Работает" in out else "🔴 ОСТАНОВЛЕН"
         self.ap_state.configure(text="Автопилот: "+st, fg=(GREEN if "🟢" in st else RED))
-        log=os.path.join(OPT,"optimize.log"); self.ap_log.configure(state="normal"); self.ap_log.delete("1.0","end")
+        log=os.path.join(OPT,"optimize.log")
+        # сводка за сутки — читаем весь журнал, а не хвост: срабатывание
+        # растянуто на несколько строк и хвост мог бы обрезать его посередине
+        if getattr(self, "ap_summary", None) and self.ap_summary.winfo_exists():
+            try:
+                with open(log, encoding="utf-8", errors="replace") as f:
+                    s = parse_autopilot_log(f.read())
+                self.ap_summary.configure(text=format_autopilot_summary(s),
+                                          fg=(YELLOW if s["peaks"] else MUTED))
+            except Exception:
+                self.ap_summary.configure(text="Журнала пока нет — автопилот ещё не срабатывал.", fg=MUTED)
+        self.ap_log.configure(state="normal"); self.ap_log.delete("1.0","end")
         if os.path.exists(log):
             body=open(log).read()[-2500:]
         elif "НЕ УСТАНОВЛЕН" in st:
@@ -2176,7 +2383,7 @@ class CleanMac(tk.Tk):
         if getattr(self, "_optimizing", False):
             return
         self._optimizing = True
-        try: self.magic_btn.configure(text="  ✨ Оптимизирую…  ")
+        try: self.magic_btn.configure(text=L("  ✨ Оптимизирую…  "))
         except Exception: pass
         self._spawn(self._optimize_all_w)
 
@@ -2364,9 +2571,9 @@ class CleanMac(tk.Tk):
         + найденные категории для ревью со ссылками на инструменты."""
         freed = res.get("freed", 0); steps = res.get("steps", [])
         skipped = res.get("skipped", []); review = res.get("review", [])
-        try: self.magic_btn.configure(text="  ✓ Оптимизировано  ")
+        try: self.magic_btn.configure(text=L("  ✓ Оптимизировано  "))
         except Exception: pass
-        self.after(2400, lambda: self.magic_btn.configure(text="  ✨ Оптимизировать  ")
+        self.after(2400, lambda: self.magic_btn.configure(text=L("  ✨ Оптимизировать  "))
                    if getattr(self, "magic_btn", None) and self.magic_btn.winfo_exists() else None)
         if getattr(self, "magic_prog", None) and self.magic_prog.winfo_exists():
             self.magic_prog.configure(text=f"✓ Готово · освобождено ~{human(freed)} · шагов {len(steps)}")
@@ -2374,11 +2581,11 @@ class CleanMac(tk.Tk):
         # Модальное окно-сводка (без подтверждений на безопасных шагах — они уже сделаны).
         win = tk.Toplevel(self); win.title("Оптимизация завершена"); win.configure(bg=BG0)
         win.transient(self); win.resizable(False, False)
-        tk.Label(win, text="✨ Готово — Mac оптимизирован", bg=BG0, fg=GREEN,
+        tk.Label(win, text=L("✨ Готово — Mac оптимизирован"), bg=BG0, fg=GREEN,
                  font=("SF Pro Display", 18, "bold")).pack(anchor="w", padx=22, pady=(18,2))
         tk.Label(win, text=f"Освобождено ~{human(freed)} · выполнено шагов: {len(steps)}",
                  bg=BG0, fg=TEXT, font=("SF Pro Text", 12)).pack(anchor="w", padx=22, pady=(0,10))
-        tk.Label(win, text="Выполнено на этом Mac:", bg=BG0, fg=TEXT,
+        tk.Label(win, text=L("Выполнено на этом Mac:"), bg=BG0, fg=TEXT,
                  font=("SF Pro Text", 11, "bold")).pack(anchor="w", padx=22, pady=(2,4))
         card=tk.Frame(win, bg=GLASS); card.pack(fill="x", padx=18, pady=4)
         for s in steps:
@@ -2386,26 +2593,26 @@ class CleanMac(tk.Tk):
                      anchor="w", justify="left", wraplength=460).pack(anchor="w", padx=14, pady=2)
         # Прозрачность: что неприменимо к этому устройству и почему.
         if skipped:
-            tk.Label(win, text="Пропущено (неприменимо на этом Mac):", bg=BG0, fg=MUTED,
+            tk.Label(win, text=L("Пропущено (неприменимо на этом Mac):"), bg=BG0, fg=MUTED,
                      font=("SF Pro Text", 11, "bold")).pack(anchor="w", padx=22, pady=(12,4))
             sc=tk.Frame(win, bg=GLASS); sc.pack(fill="x", padx=18, pady=4)
             for s in skipped:
                 tk.Label(sc, text="– "+s, bg=GLASS, fg=MUTED, font=("SF Pro Text", 11),
                          anchor="w", justify="left", wraplength=460).pack(anchor="w", padx=14, pady=2)
         if review:
-            tk.Label(win, text="По всем параметрам — найдено для вашего ревью (не удалено):",
+            tk.Label(win, text=L("По всем параметрам — найдено для вашего ревью (не удалено):"),
                      bg=BG0, fg=MUTED, font=("SF Pro Text", 11, "bold")).pack(anchor="w", padx=22, pady=(12,4))
             rc=tk.Frame(win, bg=GLASS); rc.pack(fill="x", padx=18, pady=4)
             for tool_key, text in review:
                 row=tk.Frame(rc, bg=GLASS); row.pack(fill="x", padx=12, pady=4)
                 tk.Label(row, text=text, bg=GLASS, fg=TEXT, font=("SF Pro Text", 11),
                          anchor="w").pack(side="left", fill="x", expand=True)
-                op=tk.Label(row, text="Открыть →", bg=BLUE, fg="white",
+                op=tk.Label(row, text=L("Открыть →"), bg=BLUE, fg="white",
                             font=("SF Pro Text", 10, "bold"), padx=10, pady=3, cursor="pointinghand")
                 op.pack(side="right")
                 op.bind("<Button-1>", lambda e, k=tool_key, w=win: (w.destroy(), self._open_tool(k)))
         else:
-            tk.Label(win, text="Пользовательские данные в порядке — дублей и крупных файлов не найдено.",
+            tk.Label(win, text=L("Пользовательские данные в порядке — дублей и крупных файлов не найдено."),
                      bg=BG0, fg=MUTED, font=("SF Pro Text", 11)).pack(anchor="w", padx=22, pady=(12,4))
         tk.Label(win, text="Очищенное обратимо — лежит в Корзине. Дубли, крупные и старые файлы "
                  "не удалялись автоматически: решение за вами.",
@@ -2462,7 +2669,7 @@ class CleanMac(tk.Tk):
     def show_cleaner(self):
         tk.Label(self.main, text=L("Очистка"), bg=BG0, fg=TEXT, font=("SF Pro Display",28,"bold")
                  ).pack(anchor="w", padx=24, pady=(16,2))
-        tk.Label(self.main, text="«Анализ» посчитает объём, «Очистить» переместит в Корзину.",
+        tk.Label(self.main, text=L("«Анализ» посчитает объём, «Очистить» переместит в Корзину."),
                  bg=BG0, fg=MUTED, font=("SF Pro Text",11)).pack(anchor="w", padx=24, pady=(0,12))
         wrap=tk.Frame(self.main, bg=GLASS); wrap.pack(fill="both", expand=True, padx=24, pady=(0,10))
         self.cat_vars={}; self.cat_size_lbl={}
@@ -2482,7 +2689,7 @@ class CleanMac(tk.Tk):
         return RoundedButton(parent, text, color, cmd)
 
     def run_analyze(self):
-        self.total_lbl.configure(text="Анализирую…")
+        self.total_lbl.configure(text=L("Анализирую…"))
         for cid in self.cat_vars: self.cat_size_lbl[cid].configure(text="…")
         # Снимаем значения Tk-переменных в ГЛАВНОМ потоке: чтение BooleanVar.get()
         # из рабочего потока обращается к интерпретатору Tcl не из main loop и
@@ -2512,7 +2719,7 @@ class CleanMac(tk.Tk):
         if not sel: messagebox.showinfo("CleanMac","Не выбрана категория."); return
         if not self.found: messagebox.showinfo("CleanMac","Сначала «Анализ»."); return
         if not messagebox.askyesno("Подтверждение","Переместить найденное в Корзину?"): return
-        self.total_lbl.configure(text="Очищаю…"); self._spawn(self._clean_worker, sel)
+        self.total_lbl.configure(text=L("Очищаю…")); self._spawn(self._clean_worker, sel)
 
     def _clean_worker(self, sel):
         freed,moved=0,0
@@ -2533,7 +2740,7 @@ class CleanMac(tk.Tk):
         gwrap=tk.Frame(self.main, bg=BG0); gwrap.pack(fill="x", padx=22, pady=(0,2))
         self.tool_gbtns={}
         for gkey,glabel,_ in self.TOOL_GROUPS:
-            gb=tk.Label(gwrap, text=glabel, bg=GLASS, fg=TEXT, font=("SF Pro Text",12,"bold"),
+            gb=tk.Label(gwrap, text=L(glabel), bg=GLASS, fg=TEXT, font=("SF Pro Text",12,"bold"),
                         padx=14, pady=9, cursor="pointinghand")
             gb.pack(side="left", padx=(0,6))
             gb.bind("<Button-1>", lambda e,k=gkey: self._tool_group(k))
@@ -2675,7 +2882,7 @@ class CleanMac(tk.Tk):
     # --- Крупные файлы ---
     def _t_large(self):
         self._ptitle("Крупные файлы", "Файлы крупнее 100 МБ. Отметьте лишние → в Корзину.")
-        tk.Label(self.tpanel, text="🔎 Сканирую…", bg=BG0, fg=MUTED, font=("SF Pro Text",11)).pack(anchor="w")
+        tk.Label(self.tpanel, text=L("🔎 Сканирую…"), bg=BG0, fg=MUTED, font=("SF Pro Text",11)).pack(anchor="w")
         self._spawn(self._large_w)
 
     def _large_w(self):
@@ -2710,7 +2917,7 @@ class CleanMac(tk.Tk):
         for s,fp,age in shown:
             agetxt = f"{age//365} г" if age>=365 else (f"{age} дн" if age>0 else "сегодня")
             self._checkrow(inner, fp, f"{fp.replace(HOME,'~')}   ·   {agetxt}", s, preselect=(age>=180))
-        if not shown: tk.Label(inner, text="  Ничего не найдено.", bg=GLASS, fg=MUTED).pack(anchor="w", padx=8, pady=8)
+        if not shown: tk.Label(inner, text=L("  Ничего не найдено."), bg=GLASS, fg=MUTED).pack(anchor="w", padx=8, pady=8)
         self._actionbar(f"Показано: {len(shown)} (~{human(sum(s for s,_,_ in shown))}) · старые отмечены",
                         lambda: self._trash_sel(lambda: self._tool('large')))
 
@@ -2718,7 +2925,7 @@ class CleanMac(tk.Tk):
     def _t_devjunk(self):
         self._ptitle("🧰 Dev-мусор", "Проектные node_modules, target, __pycache__, Pods, .venv и т.п. "
                      "Безопасно — пересоздаются менеджером пакетов (npm install / cargo build / …).")
-        tk.Label(self.tpanel, text="🔎 Ищу артефакты сборки…", bg=BG0, fg=MUTED, font=("SF Pro Text",11)).pack(anchor="w")
+        tk.Label(self.tpanel, text=L("🔎 Ищу артефакты сборки…"), bg=BG0, fg=MUTED, font=("SF Pro Text",11)).pack(anchor="w")
         self._spawn(self._devjunk_w)
 
     def _devjunk_w(self):
@@ -2734,7 +2941,7 @@ class CleanMac(tk.Tk):
         for s,fp,kind in rows:
             self._checkrow(inner, fp, f"{fp.replace(HOME,'~')}   ·   {kind}", s, preselect=False)
         if not rows:
-            tk.Label(inner, text="  Артефактов сборки не найдено.", bg=GLASS, fg=MUTED).pack(anchor="w", padx=8, pady=8)
+            tk.Label(inner, text=L("  Артефактов сборки не найдено."), bg=GLASS, fg=MUTED).pack(anchor="w", padx=8, pady=8)
         self._actionbar(f"Найдено: {len(rows)} (~{human(sum(s for s,_,_ in rows))})",
                         lambda: self._trash_sel(lambda: self._tool('devjunk')))
 
@@ -2742,7 +2949,7 @@ class CleanMac(tk.Tk):
     def _t_olddl(self):
         self._ptitle("Старые загрузки", "Файлы в ~/Downloads старше выбранного срока. Отметьте лишние → в Корзину.")
         if not hasattr(self, "_olddl_days"): self._olddl_days = 90
-        tk.Label(self.tpanel, text="🔎 Сканирую…", bg=BG0, fg=MUTED, font=("SF Pro Text",11)).pack(anchor="w")
+        tk.Label(self.tpanel, text=L("🔎 Сканирую…"), bg=BG0, fg=MUTED, font=("SF Pro Text",11)).pack(anchor="w")
         days = self._olddl_days
         threading.Thread(target=lambda: self._olddl_w(days), daemon=True).start()
 
@@ -2757,7 +2964,7 @@ class CleanMac(tk.Tk):
         self._ptitle("Старые загрузки",
                      f"Файлы в ~/Downloads старше {days} дн. Возраст — по дате изменения. Отметьте лишние → в Корзину.")
         bar = tk.Frame(self.tpanel, bg=BG0); bar.pack(fill="x", pady=(0,4))
-        tk.Label(bar, text="Старше:", bg=BG0, fg=MUTED, font=("SF Pro Text",11)).pack(side="left", padx=(0,6))
+        tk.Label(bar, text=L("Старше:"), bg=BG0, fg=MUTED, font=("SF Pro Text",11)).pack(side="left", padx=(0,6))
         for d in (30, 90, 180, 365):
             lbl = {30:"30 дн", 90:"90 дн", 180:"6 мес", 365:"1 год"}[d]
             sel = (d == days)
@@ -2770,7 +2977,7 @@ class CleanMac(tk.Tk):
             agetxt = f"{age//365} г" if age >= 365 else (f"{age} дн" if age > 0 else "сегодня")
             self._checkrow(inner, fp, f"{fp.replace(HOME,'~')}   ·   {agetxt}", s)
         if not rows:
-            tk.Label(inner, text="  Старых загрузок не найдено.", bg=GLASS, fg=MUTED).pack(anchor="w", padx=8, pady=8)
+            tk.Label(inner, text=L("  Старых загрузок не найдено."), bg=GLASS, fg=MUTED).pack(anchor="w", padx=8, pady=8)
         self._actionbar(f"Найдено: {len(rows)} (~{human(sum(s for s,_,_ in rows))})",
                         lambda: self._trash_sel(lambda: self._tool('olddl')))
 
@@ -2861,7 +3068,7 @@ class CleanMac(tk.Tk):
     # --- Дубликаты ---
     def _t_dupes(self):
         self._ptitle("Дубликаты", "Одинаковые файлы в Downloads/Desktop/Documents.")
-        tk.Label(self.tpanel, text="🔎 Сканирую…", bg=BG0, fg=MUTED, font=("SF Pro Text",11)).pack(anchor="w")
+        tk.Label(self.tpanel, text=L("🔎 Сканирую…"), bg=BG0, fg=MUTED, font=("SF Pro Text",11)).pack(anchor="w")
         self._spawn(self._dupes_w)
 
     def _dupes_w(self):
@@ -2897,7 +3104,7 @@ class CleanMac(tk.Tk):
                      font=("SF Pro Text",10,"bold")).pack(anchor="w", padx=8, pady=(6,0))
             for i,fp in enumerate(same):
                 self._checkrow(inner, fp, "    "+fp.replace(HOME,"~"), s, preselect=(i>0))
-        if not groups: tk.Label(inner, text="  Дубликатов не найдено.", bg=GLASS, fg=MUTED).pack(anchor="w", padx=8, pady=8)
+        if not groups: tk.Label(inner, text=L("  Дубликатов не найдено."), bg=GLASS, fg=MUTED).pack(anchor="w", padx=8, pady=8)
         self._actionbar(f"Групп: {len(groups)} · освободить ~{human(wasted)}",
                         lambda: self._trash_sel(lambda: self._tool('dupes')))
 
@@ -2921,7 +3128,7 @@ class CleanMac(tk.Tk):
                 ap=os.path.join(base,f)
                 r=tk.Frame(inner, bg=GLASS); r.pack(fill="x", padx=8, pady=1)
                 tk.Label(r, text=f[:-4], bg=GLASS, fg=TEXT, font=("SF Pro Text",11), anchor="w").pack(side="left", fill="x", expand=True)
-                btn=tk.Label(r, text="Удалить…", bg=RED, fg="white", font=("SF Pro Text",10,"bold"),
+                btn=tk.Label(r, text=L("Удалить…"), bg=RED, fg="white", font=("SF Pro Text",10,"bold"),
                              padx=10, pady=3, cursor="pointinghand")
                 btn.pack(side="right"); btn.bind("<Button-1>", lambda e,p=ap: self._uninstall(p))
 
@@ -2949,7 +3156,7 @@ class CleanMac(tk.Tk):
     # --- Карта диска ---
     def _t_disk(self):
         self._ptitle("Карта диска", "Крупнейшие папки в домашней директории.")
-        tk.Label(self.tpanel, text="🔎 Считаю размеры…", bg=BG0, fg=MUTED, font=("SF Pro Text",11)).pack(anchor="w")
+        tk.Label(self.tpanel, text=L("🔎 Считаю размеры…"), bg=BG0, fg=MUTED, font=("SF Pro Text",11)).pack(anchor="w")
         self._spawn(self._disk_w)
 
     def _disk_w(self):
@@ -2977,7 +3184,7 @@ class CleanMac(tk.Tk):
             b=tk.Label(bar, text=label, bg=(BLUE if self._disk_mode==key else GLASS_HI), fg="white" if self._disk_mode==key else TEXT,
                        font=("SF Pro Text",11,"bold"), padx=10, pady=5, cursor="pointinghand")
             b.pack(side="left", padx=(0,6)); b.bind("<Button-1>", lambda e,k=key: (setattr(self,"_disk_mode",k), self._render_disk(rows)))
-        self.bench_btn=tk.Label(bar, text="🏁 Бенчмарк диска", bg=GREEN, fg="white",
+        self.bench_btn=tk.Label(bar, text=L("🏁 Бенчмарк диска"), bg=GREEN, fg="white",
                                 font=("SF Pro Text",11,"bold"), padx=10, pady=5, cursor="pointinghand")
         self.bench_btn.pack(side="right"); self.bench_btn.bind("<Button-1>", lambda e: self._bench_start())
         self.bench_lbl=tk.Label(self.tpanel, text="🏁 Тест скорости SSD/HDD: запись и чтение ~128 МБ во временный файл "
@@ -3063,7 +3270,7 @@ class CleanMac(tk.Tk):
         for w in bar.winfo_children(): w.destroy()
         path=getattr(self,"_sun_path",HOME)
         up=os.path.dirname(path.rstrip("/"))
-        upbtn=tk.Label(bar, text="↑ вверх", bg=(GLASS_HI if (up and up!=path) else GLASS),
+        upbtn=tk.Label(bar, text=L("↑ вверх"), bg=(GLASS_HI if (up and up!=path) else GLASS),
                        fg=(TEXT if (up and up!=path) else MUTED), font=("SF Pro Text",10,"bold"),
                        padx=8, pady=3, cursor=("pointinghand" if (up and up!=path) else "arrow"))
         upbtn.pack(side="left", padx=(0,8))
@@ -3178,7 +3385,7 @@ class CleanMac(tk.Tk):
         cv.create_text(cx, cy+10, fill=CYAN, font=("SF Pro Text",10),
                        text=human(total), tags=("sun_center",))
         if up and up != tree["path"]:
-            cv.create_text(cx, cy+r0-12, fill=MUTED, font=("SF Pro Text",9), text="↑ вверх",
+            cv.create_text(cx, cy+r0-12, fill=MUTED, font=("SF Pro Text",9), text=L("↑ вверх"),
                            tags=("sun_center",))
             cv.tag_bind("sun_center","<Button-1>", lambda e,p=up: self._sun_navigate(p))
 
@@ -3194,8 +3401,8 @@ class CleanMac(tk.Tk):
 
     def _bench_start(self):
         try:
-            self.bench_btn.configure(text="⏳ Тестирую…", bg=GLASS_HI)
-            self.bench_lbl.configure(text="⏳ Идёт бенчмарк: пишу и читаю ~128 МБ во временный файл… пара секунд.", fg=TEXT)
+            self.bench_btn.configure(text=L("⏳ Тестирую…"), bg=GLASS_HI)
+            self.bench_lbl.configure(text=L("⏳ Идёт бенчмарк: пишу и читаю ~128 МБ во временный файл… пара секунд."), fg=TEXT)
         except Exception: pass
         self._spawn(self._bench_w)
 
@@ -3212,7 +3419,7 @@ class CleanMac(tk.Tk):
 
     def _render_bench(self, res):
         if not hasattr(self, "bench_btn"): return
-        try: self.bench_btn.configure(text="🏁 Бенчмарк диска", bg=GREEN)
+        try: self.bench_btn.configure(text=L("🏁 Бенчмарк диска"), bg=GREEN)
         except Exception: pass
         if not res or "error" in (res or {}):
             self.bench_lbl.configure(
@@ -3305,7 +3512,7 @@ class CleanMac(tk.Tk):
             self._checkrow(inner, fp, label, sz, preselect=(age>30))
             total+=sz; n+=1
         if not n:
-            tk.Label(inner, text="Скриншотов не найдено.", bg=GLASS, fg=MUTED,
+            tk.Label(inner, text=L("Скриншотов не найдено."), bg=GLASS, fg=MUTED,
                      font=("SF Pro Text",12)).pack(anchor="w", padx=10, pady=10)
         self._actionbar(f"Скриншотов: {n} · ~{human(total)} (старше 30 дн. отмечены)",
                         lambda: self._trash_sel(lambda: self._tool("shots")))
@@ -3316,7 +3523,7 @@ class CleanMac(tk.Tk):
         self._shred_files = []
         self._btn(self.tpanel, "➕ Выбрать файлы…", BLUE, self._shred_pick).pack(anchor="w", pady=(2,6))
         self._shred_box = tk.Frame(self.tpanel, bg=GLASS); self._shred_box.pack(fill="both", expand=True, pady=(0,8))
-        tk.Label(self._shred_box, text="Файлы не выбраны.", bg=GLASS, fg=MUTED,
+        tk.Label(self._shred_box, text=L("Файлы не выбраны."), bg=GLASS, fg=MUTED,
                  font=("SF Pro Text",12)).pack(anchor="w", padx=10, pady=10)
         self._shred_action = tk.Frame(self.tpanel, bg=BG0); self._shred_action.pack(fill="x")
         tk.Label(self.tpanel,
@@ -3331,7 +3538,7 @@ class CleanMac(tk.Tk):
         for w in self._shred_box.winfo_children(): w.destroy()
         for w in self._shred_action.winfo_children(): w.destroy()
         if not self._shred_files:
-            tk.Label(self._shred_box, text="Файлы не выбраны.", bg=GLASS, fg=MUTED,
+            tk.Label(self._shred_box, text=L("Файлы не выбраны."), bg=GLASS, fg=MUTED,
                      font=("SF Pro Text",12)).pack(anchor="w", padx=10, pady=10); return
         total = 0
         for p in self._shred_files:
@@ -3362,10 +3569,10 @@ class CleanMac(tk.Tk):
     def _t_updater(self):
         self._ptitle("Апдейтер", "Устаревшие приложения и пакеты Homebrew. Обновление — безопасно, официальными источниками.")
         if brew_path() is None:
-            tk.Label(self.tpanel, text="Homebrew не найден. Установите с brew.sh, чтобы обновлять приложения отсюда.",
+            tk.Label(self.tpanel, text=L("Homebrew не найден. Установите с brew.sh, чтобы обновлять приложения отсюда."),
                      bg=BG0, fg=MUTED, font=("SF Pro Text",12), wraplength=560, justify="left").pack(anchor="w", pady=10)
             return
-        tk.Label(self.tpanel, text="Сканирую обновления…", bg=BG0, fg=MUTED, font=("SF Pro Text",12)).pack(anchor="w")
+        tk.Label(self.tpanel, text=L("Сканирую обновления…"), bg=BG0, fg=MUTED, font=("SF Pro Text",12)).pack(anchor="w")
         self._spawn(self._updater_w)
 
     def _updater_w(self):
@@ -3375,7 +3582,7 @@ class CleanMac(tk.Tk):
     def _render_updater(self, items):
         for w in self.tpanel.winfo_children()[2:]: w.destroy()   # убрать «Сканирую…»
         if not items:
-            tk.Label(self.tpanel, text="✅ Все приложения обновлены.", bg=BG0, fg=GREEN,
+            tk.Label(self.tpanel, text=L("✅ Все приложения обновлены."), bg=BG0, fg=GREEN,
                      font=("SF Pro Text",13,"bold")).pack(anchor="w", pady=8); return
         inner=self._scrollarea()
         for name,cur,new,kind in items:
@@ -3405,13 +3612,13 @@ class CleanMac(tk.Tk):
     def _t_leftovers(self):
         self._ptitle("Остатки удалённых программ",
                      "Данные в ~/Library от приложений, которых уже нет. Только bundle-id-папки; Apple не трогается.")
-        tk.Label(self.tpanel, text="Сканирую…", bg=BG0, fg=MUTED, font=("SF Pro Text",12)).pack(anchor="w")
+        tk.Label(self.tpanel, text=L("Сканирую…"), bg=BG0, fg=MUTED, font=("SF Pro Text",12)).pack(anchor="w")
         threading.Thread(target=lambda: self.q.put(("leftovers", orphaned_leftovers(), None)), daemon=True).start()
 
     def _render_leftovers(self, items):
         for w in self.tpanel.winfo_children()[2:]: w.destroy()
         if not items:
-            tk.Label(self.tpanel, text="✅ Осиротевших данных не найдено.", bg=BG0, fg=GREEN,
+            tk.Label(self.tpanel, text=L("✅ Осиротевших данных не найдено."), bg=BG0, fg=GREEN,
                      font=("SF Pro Text",13,"bold")).pack(anchor="w", pady=8); return
         total=sum(s for _,s in items)
         inner=self._scrollarea()
@@ -3426,7 +3633,7 @@ class CleanMac(tk.Tk):
         total = total_freed()
         self._ptitle("История очисток", f"Освобождено за всё время: ~{human(total)} · записей: {len(hist)}")
         if not hist:
-            tk.Label(self.tpanel, text="Пока пусто. После первой очистки здесь появится журнал.",
+            tk.Label(self.tpanel, text=L("Пока пусто. После первой очистки здесь появится журнал."),
                      bg=BG0, fg=MUTED, font=("SF Pro Text",12)).pack(anchor="w", pady=8)
             return
         names={"clean":"Очистка","smart":"Умная очистка","autopilot":"Автопилот","purge":"Освобождение места"}
@@ -3625,7 +3832,7 @@ class CleanMac(tk.Tk):
     def show_privacy(self):
         tk.Label(self.main, text=L("Приватность"), bg=BG0, fg=TEXT, font=("SF Pro Display",28,"bold")
                  ).pack(anchor="w", padx=24, pady=(16,2))
-        tk.Label(self.main, text="Очистка следов работы → в Корзину (обратимо). Браузеры должны быть закрыты.",
+        tk.Label(self.main, text=L("Очистка следов работы → в Корзину (обратимо). Браузеры должны быть закрыты."),
                  bg=BG0, fg=MUTED, font=("SF Pro Text",11)).pack(anchor="w", padx=24, pady=(0,10))
         wrap=tk.Frame(self.main, bg=GLASS); wrap.pack(fill="x", padx=24, pady=(0,8))
         self.pv_vars={}; self.pv_lbl={}; self.pv_found={}
@@ -3637,7 +3844,7 @@ class CleanMac(tk.Tk):
             if skip: tk.Label(r, text=f"(если {skip} закрыт)", bg=GLASS, fg=MUTED, font=("SF Pro Text",9)).pack(side="left", padx=6)
             sl=tk.Label(r, text="…", bg=GLASS, fg=PURPLE, font=("SF Pro Text",11,"bold")); sl.pack(side="right"); self.pv_lbl[pid]=sl
         bar=tk.Frame(self.main, bg=BG0); bar.pack(fill="x", padx=24, pady=(2,14))
-        tk.Label(bar, text="Отметьте, что очистить", bg=BG0, fg=MUTED, font=("SF Pro Text",12)).pack(side="left")
+        tk.Label(bar, text=L("Отметьте, что очистить"), bg=BG0, fg=MUTED, font=("SF Pro Text",12)).pack(side="left")
         self._btn(bar, "🗑 Очистить выбранное", PURPLE, self._pv_clean).pack(side="right")
         self._spawn(self._pv_scan)
 
@@ -3669,10 +3876,10 @@ class CleanMac(tk.Tk):
     def show_threats(self):
         tk.Label(self.main, text=L("Защита"), bg=BG0, fg=TEXT, font=("SF Pro Display",28,"bold")
                  ).pack(anchor="w", padx=24, pady=(16,2))
-        tk.Label(self.main, text="Эвристический поиск известного рекламного/нежелательного ПО в точках автозапуска. Не заменяет антивирус.",
+        tk.Label(self.main, text=L("Эвристический поиск известного рекламного/нежелательного ПО в точках автозапуска. Не заменяет антивирус."),
                  bg=BG0, fg=MUTED, font=("SF Pro Text",11), wraplength=640, justify="left").pack(anchor="w", padx=24, pady=(0,8))
         self.th_box=tk.Frame(self.main, bg=BG0); self.th_box.pack(fill="both", expand=True, padx=24, pady=(4,14))
-        tk.Label(self.th_box, text="🔎 Сканирую точки автозапуска…", bg=BG0, fg=MUTED, font=("SF Pro Text",12)).pack(anchor="w")
+        tk.Label(self.th_box, text=L("🔎 Сканирую точки автозапуска…"), bg=BG0, fg=MUTED, font=("SF Pro Text",12)).pack(anchor="w")
         self.th_found=[]
         self._spawn(self._threats_scan)
 
@@ -3698,7 +3905,7 @@ class CleanMac(tk.Tk):
         for w in self.th_box.winfo_children(): w.destroy()
         self.th_found=[]
         if not suspicious:
-            tk.Label(self.th_box, text="✅ Подозрительных объектов не обнаружено", bg=BG0, fg=GREEN,
+            tk.Label(self.th_box, text=L("✅ Подозрительных объектов не обнаружено"), bg=BG0, fg=GREEN,
                      font=("SF Pro Display",17,"bold")).pack(anchor="w", pady=10)
             tk.Label(self.th_box, text=f"Проверены LaunchAgents, LaunchDaemons и папки приложений. "
                      f"Чистых записей автозапуска: {len(clean)} (включая системные Apple).",

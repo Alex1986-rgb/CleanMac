@@ -39,6 +39,7 @@ FREE_PCT_PEAK=15                  # запасной сигнал, если sysc
 # захлопывал фоновый браузер прямо посреди работы: он пропускает лишь активное
 # окно, поэтому Chrome умирал, пока пользователь печатал в Edge.
 IDLE_MIN_CLOSE=900                # 15 минут без клавиатуры и мыши
+GRACE_SEC=30                      # столько ждём отмены, прежде чем закрыть
 
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S')  $1" >> "$LOG"; }
 notify() {
@@ -152,15 +153,51 @@ if [ -f "$DIR/close_browsers.on" ] && [ "$idle" -lt "$IDLE_MIN_CLOSE" ] 2>/dev/n
   log "⏸ Браузеры не трогаю: вы за компьютером (простой ${idle}s < ${IDLE_MIN_CLOSE}s)"
 elif [ -f "$DIR/close_browsers.on" ]; then
   frontmost=$(osascript -e 'tell application "System Events" to name of first process whose frontmost is true' 2>/dev/null)
+  targets=""
   for app in "Microsoft Edge" "Google Chrome" "Safari" "Yandex"; do
-    if /bin/ps -axo comm | grep -qi "$app" ; then
-      # не трогаем активное окно, с которым работает пользователь
-      if [ "$app" != "$frontmost" ]; then
-        osascript -e "quit app \"$app\"" 2>/dev/null && closed="$closed $app;"
-      fi
+    # не трогаем активное окно, с которым работает пользователь
+    if /bin/ps -axo comm | grep -qi "$app" && [ "$app" != "$frontmost" ]; then
+      targets="$targets$app;"
     fi
   done
-  [ -n "$closed" ] && log "🔻 Закрыты фоновые браузеры:$closed"
+  if [ -n "$targets" ]; then
+    # Даём шанс отменить. Раньше браузер просто исчезал: человек возвращался к
+    # маку и обнаруживал закрытые окна, не понимая, что произошло. Диалог с
+    # таймаутом сам соглашается через GRACE секунд, если никого нет рядом, —
+    # то есть в обычном сценарии «отошёл и не вернулся» поведение прежнее.
+    ans=$(osascript <<OSA 2>/dev/null
+with timeout of $((GRACE_SEC + 15)) seconds
+  tell application "System Events"
+    activate
+    set r to display dialog "Не хватает памяти: $reason.
+
+Закрыть фоновые браузеры? ${targets}
+Активное окно не трогаем, вкладки восстановятся при следующем запуске." ¬
+      buttons {"Отменить", "Закрыть"} default button "Закрыть" ¬
+      with title "🪽 KRYLAN · Автопилот" giving up after $GRACE_SEC
+    if gave up of r then return "timeout"
+    return button returned of r
+  end tell
+end timeout
+OSA
+)
+    case "$ans" in
+      "Отменить")
+        # Отдельный флаг отказа не нужен: swap не изменился, значит на следующем
+        # прогоне сработает COOLDOWN_STUCK и диалог не вернётся ещё час.
+        log "🚫 Пользователь отменил закрытие браузеров ($targets)"
+        ;;
+      *)
+        [ "$ans" = "timeout" ] && log "⏱ Никто не ответил за ${GRACE_SEC}с — закрываю"
+        old_ifs="$IFS"; IFS=';'
+        for app in $targets; do
+          [ -n "$app" ] && osascript -e "quit app \"$app\"" 2>/dev/null && closed="$closed $app;"
+        done
+        IFS="$old_ifs"
+        [ -n "$closed" ] && log "🔻 Закрыты фоновые браузеры:$closed"
+        ;;
+    esac
+  fi
 else
   log "ℹ️ Закрытие браузеров отключено (нет close_browsers.on) — браузеры не тронуты"
 fi
