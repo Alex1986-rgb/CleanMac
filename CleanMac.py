@@ -279,6 +279,9 @@ TR = {
     "Homebrew не найден. Установите с brew.sh, чтобы обновлять приложения отсюда.":
         "Homebrew not found. Install it from brew.sh to update apps from here.",
     "🔓 Не открывается?":"🔓 Won't open?","🔄 Обновления":"🔄 Updates",
+    # --- состав памяти (пончик на дашборде) ---
+    "занято":"used","Активная":"Active","Связанная":"Wired","Сжатая":"Compressed",
+    "Неактивная":"Inactive","Свободная":"Free",
     # ведущие/хвостовые пробелы значимы — ключ должен совпадать байт в байт
     "  Артефактов сборки не найдено.":"  No build artifacts found.",
     "  Дубликатов не найдено.":"  No duplicates found.",
@@ -2131,6 +2134,11 @@ class CleanMac(tk.Tk):
             c.create_oval(ex-2,ey-2,ex+2,ey+2, fill=CYAN, outline=CYAN)        # узел у планеты
             c.create_oval(lx-2,ly-2,lx+2,ly+2, fill=_blend(color,BG0,0.2), outline=color)  # узел у гейджа
             self._ring(c, gxp,gyp,gauge_r, min(1,frac), color, 8, 15, label, val)
+        # ===== состав памяти — пончик в левом нижнем углу =====
+        # README обещал «пончики памяти и диска», но _donut ни разу не вызывался,
+        # а self.vm присваивался и не читался: и рисовалка, и данные лежали
+        # мёртвым грузом. Пончик без подписей — украшение, поэтому рядом легенда.
+        self._mem_donut(c, 74, H-96, 42, 13)
         # ===== ЦЕНТР: вращающаяся планета-устройство =====
         self._globe(c, cx, cy, gr, fr)
         # характеристики устройства — под планетой (на «земле»)
@@ -2141,6 +2149,31 @@ class CleanMac(tk.Tk):
         c.create_text(cx, H-16, fill=MUTED, font=("SF Pro Text",9),
                       text=f'{di["model"]} · macOS {di["os"]}')
         c.configure(scrollregion=(0,0,W,H))
+
+    # Цвета сегментов состава памяти. Порядок фиксирован VM_KEYS, чтобы
+    # сегменты не прыгали местами между перерисовками.
+    VM_COLORS = {"active": BLUE, "wired": PURPLE, "compressed": YELLOW,
+                 "inactive": CYAN, "free": GREEN}
+
+    def _mem_donut(self, c, cx, cy, r, w):
+        """Пончик состава памяти + легенда справа. Молчит, пока нет данных."""
+        vm = getattr(self, "vm", None) or {}
+        total = sum(vm.get(k, 0) for k in VM_KEYS)
+        if total <= 0:
+            return
+        segs = [(vm.get(k, 0) / total, self.VM_COLORS[k]) for k in VM_KEYS]
+        used = total - vm.get("free", 0)
+        self._donut(c, cx, cy, r, w, segs,
+                    center_top=f"{used * 100 // total}%", center_bot=L("занято"))
+        lx = cx + r + 16
+        ly = cy - r + 2
+        for k in VM_KEYS:
+            v = vm.get(k, 0)
+            if v <= 0: continue
+            c.create_oval(lx, ly + 3, lx + 7, ly + 10, fill=self.VM_COLORS[k], outline="")
+            c.create_text(lx + 13, ly + 6, anchor="w", fill=MUTED, font=("SF Pro Text", 9),
+                          text=f"{L(VM_LABELS[k])} {human(v)}")
+            ly += 15
 
     def _battery(self, c, x,y,w,h,frac,charging):
         col = GREEN if charging or frac>.4 else (YELLOW if frac>.2 else RED)

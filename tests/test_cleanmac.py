@@ -1445,6 +1445,76 @@ class TestMetricParsers(unittest.TestCase):
             self.assertEqual(cm.parse_ps_procs(bad), [])
 
 
+class TestMemoryDonut(unittest.TestCase):
+    """Пончик состава памяти.
+
+    README обещал «пончики памяти и диска», но `_donut` не вызывался ни разу,
+    а `self.vm` присваивался и не читался — и рисовалка, и данные лежали
+    мёртвым грузом. Проверяем через объекты холста, а не на глаз.
+    """
+
+    def setUp(self):
+        try:
+            import tkinter as tk
+            self.root = tk.Tk(); self.root.withdraw()
+            self.cv = tk.Canvas(self.root, width=760, height=620)
+        except Exception as e:               # на раннере без графической сессии
+            self.skipTest(f"Tk недоступен: {e}")
+        self.stub = type("S", (), {"VM_COLORS": cm.CleanMac.VM_COLORS,
+                                   "_donut": cm.CleanMac._donut,
+                                   "_mem_donut": cm.CleanMac._mem_donut})()
+
+    def tearDown(self):
+        try: self.root.destroy()
+        except Exception: pass
+
+    SAMPLE = {"active": 1400, "wired": 1700, "compressed": 2900,
+              "inactive": 1300, "free": 200}
+
+    def test_silent_without_data(self):
+        for empty in ({}, None, {k: 0 for k in cm.VM_KEYS}):
+            self.cv.delete("all")
+            self.stub.vm = empty
+            self.stub._mem_donut(self.cv, 74, 524, 42, 13)
+            self.assertEqual(len(self.cv.find_all()), 0, f"нарисовал что-то при {empty}")
+
+    def test_draws_segment_per_key(self):
+        self.stub.vm = dict(self.SAMPLE)
+        self.stub._mem_donut(self.cv, 74, 524, 42, 13)
+        arcs = [i for i in self.cv.find_all() if self.cv.type(i) == "arc"]
+        # каждый сегмент рисуется дважды: подложка-свечение и сама линия
+        self.assertEqual(len(arcs), len(cm.VM_KEYS) * 2)
+
+    def test_legend_shows_every_nonzero_key(self):
+        self.stub.vm = dict(self.SAMPLE)
+        self.stub._mem_donut(self.cv, 74, 524, 42, 13)
+        texts = " ".join(self.cv.itemcget(i, "text")
+                         for i in self.cv.find_all() if self.cv.type(i) == "text")
+        for k in cm.VM_KEYS:
+            self.assertIn(cm.VM_LABELS[k], texts, f"нет подписи для {k}")
+
+    def test_center_shows_used_percent(self):
+        self.stub.vm = dict(self.SAMPLE)
+        self.stub._mem_donut(self.cv, 74, 524, 42, 13)
+        texts = [self.cv.itemcget(i, "text")
+                 for i in self.cv.find_all() if self.cv.type(i) == "text"]
+        total = sum(self.SAMPLE.values())
+        used = total - self.SAMPLE["free"]
+        self.assertIn(f"{used * 100 // total}%", texts)
+
+    def test_stays_inside_canvas(self):
+        self.stub.vm = dict(self.SAMPLE)
+        self.stub._mem_donut(self.cv, 74, 524, 42, 13)
+        xs, ys = [], []
+        for i in self.cv.find_all():
+            co = self.cv.coords(i); xs += co[0::2]; ys += co[1::2]
+        self.assertGreaterEqual(min(xs), 0)
+        self.assertLessEqual(max(ys), 620)
+
+    def test_every_key_has_a_colour(self):
+        self.assertEqual(sorted(cm.CleanMac.VM_COLORS), sorted(cm.VM_KEYS))
+
+
 class TestSharedCore(unittest.TestCase):
     """krylan_core объявлен единым источником истины — значит копия обязана совпадать."""
 
