@@ -45,6 +45,17 @@ jobs:
         # CleanMac.py защищён guard'ом __main__, поэтому импортируется без окна.
         run: python3 -c "import CleanMac; print('версия', CleanMac.VERSION)"
 
+  swift:
+    # krylan-swift не трогали с 30 июня и никто не замечал бы, если бы он
+    # перестал собираться: локально Xcode нет, а руками туда никто не заходит.
+    # `swiftc -typecheck` ловит расхождения без полной сборки.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Проверка типов Swift-исходников
+        working-directory: krylan-swift
+        run: swiftc -typecheck Sources/*.swift
+
   shellcheck:
     runs-on: ubuntu-latest
     steps:

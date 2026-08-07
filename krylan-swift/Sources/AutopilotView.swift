@@ -315,6 +315,20 @@ struct AutopilotView: View {
 
             Text(lastRunText)
                 .font(.caption).foregroundStyle(Brand.muted)
+
+            #if os(macOS)
+            // На macOS фоновые BGTask недоступны: registerBackgroundTask и
+            // scheduleNextRefresh — пустые заглушки (см. #else ниже по файлу).
+            // Без этой оговорки переключатель показывал «Включён», а в фоне
+            // не выполнялось ничего — тот же молчаливый обман, что был в
+            // кнопках «Автопилота» настольного CleanMac.
+            Text("На macOS фоновая проверка недоступна: система не даёт "
+                 + "приложению просыпаться сама. Автопилот сработает, только "
+                 + "когда окно открыто, — или используйте CleanMac для Mac.")
+                .font(.caption)
+                .foregroundStyle(Brand.yellow)
+                .fixedSize(horizontal: false, vertical: true)
+            #endif
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
