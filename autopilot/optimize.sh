@@ -28,9 +28,17 @@ COOLDOWN_STUCK=3600               # если прошлое вмешательс
 # К этому моменту мак уже давно захлёбывался. Поэтому доля swap считается
 # ОТ ОБЪЁМА ОЗУ: 25% — это ~2 ГБ на 8-гигабайтной машине, вмешательство
 # происходит в разы раньше.
-PRESSURE_PEAK=2                   # вердикт macOS: 2 = warn, 4 = critical
-SWAP_PEAK_PCT=25                  # swap занял четверть ОЗУ — это уже трэшинг
+PRESSURE_CRIT=4                   # вердикт macOS: 4 = critical, действуем сразу
+PRESSURE_WARN=2                   # 2 = предупреждение; само по себе НЕ повод
+SWAP_WARN_PCT=25                  # ...но вместе с четвертью ОЗУ в swap — повод
+SWAP_PEAK_PCT=40                  # столько swap — трэшинг независимо от вердикта
 FREE_PCT_PEAK=15                  # запасной сигнал, если sysctl недоступен
+
+# Порог простоя для ЗАКРЫТИЯ браузеров. Чистка кэшей идёт всегда, а вот окна
+# закрываются, только если человека нет за компьютером. Без этого агент
+# захлопывал фоновый браузер прямо посреди работы: он пропускает лишь активное
+# окно, поэтому Chrome умирал, пока пользователь печатал в Edge.
+IDLE_MIN_CLOSE=900                # 15 минут без клавиатуры и мыши
 
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S')  $1" >> "$LOG"; }
 notify() {
@@ -57,15 +65,19 @@ cat > "$STATE" <<EOF
 EOF
 
 # ---------- детектор пика ----------
+# Одного «уровня 2» мало: на 8-гигабайтном маке macOS держит его почти постоянно.
+# По журналу за ночь это дало 25 «пиков», в том числе при swap 1469 МБ (18% ОЗУ) —
+# никакой это не трэшинг. Требуем либо критический уровень, либо предупреждение
+# ВМЕСТЕ с заметным swap, либо просто очень большой swap.
 peak=0
 reason=""
-if [ "$pressure" -ge "$PRESSURE_PEAK" ] 2>/dev/null; then
-  peak=1; reason="macOS сообщает о нехватке памяти (уровень $pressure), swap ${swap_used}M"
-fi
-if [ "$swap_pct" -ge "$SWAP_PEAK_PCT" ] 2>/dev/null; then
+if [ "$pressure" -ge "$PRESSURE_CRIT" ] 2>/dev/null; then
+  peak=1; reason="macOS: критическая нехватка памяти (уровень $pressure), swap ${swap_used}M"
+elif [ "$pressure" -ge "$PRESSURE_WARN" ] 2>/dev/null && [ "$swap_pct" -ge "$SWAP_WARN_PCT" ] 2>/dev/null; then
+  peak=1; reason="macOS предупреждает (уровень $pressure) и swap ${swap_used}M — ${swap_pct}% ОЗУ"
+elif [ "$swap_pct" -ge "$SWAP_PEAK_PCT" ] 2>/dev/null; then
   peak=1; reason="swap ${swap_used}M — ${swap_pct}% от ${ram_mb}M ОЗУ"
-fi
-if [ "$free_pct" -lt "$FREE_PCT_PEAK" ] 2>/dev/null; then
+elif [ "$free_pct" -lt "$FREE_PCT_PEAK" ] 2>/dev/null; then
   peak=1; reason="свободно всего ${free_pct}% памяти"
 fi
 
@@ -132,7 +144,13 @@ find "$HOME/Library/Logs" -type f -mtime +14 -delete 2>/dev/null
 # Включается только если пользователь создал флаг-файл (через настройку в CleanMac):
 #   touch ~/mac-optimizer/close_browsers.on
 closed=""
-if [ -f "$DIR/close_browsers.on" ]; then
+# Простой пользователя в секундах (HIDIdleTime отдаётся в наносекундах).
+idle=$(ioreg -c IOHIDSystem 2>/dev/null | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}')
+[ -z "$idle" ] && idle=0
+
+if [ -f "$DIR/close_browsers.on" ] && [ "$idle" -lt "$IDLE_MIN_CLOSE" ] 2>/dev/null; then
+  log "⏸ Браузеры не трогаю: вы за компьютером (простой ${idle}s < ${IDLE_MIN_CLOSE}s)"
+elif [ -f "$DIR/close_browsers.on" ]; then
   frontmost=$(osascript -e 'tell application "System Events" to name of first process whose frontmost is true' 2>/dev/null)
   for app in "Microsoft Edge" "Google Chrome" "Safari" "Yandex"; do
     if /bin/ps -axo comm | grep -qi "$app" ; then

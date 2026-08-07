@@ -1392,6 +1392,27 @@ class TestAutopilotThresholds(unittest.TestCase):
         # агент закрывал бы окна каждые 5 минут круглые сутки.
         self.assertIn("COOLDOWN_STUCK", self._sh())
 
+    def test_browsers_closed_only_when_user_is_away(self):
+        # Главная жалоба: браузер перезапускался прямо во время работы. Агент
+        # пропускал только активное окно, поэтому фоновый Chrome закрывался,
+        # пока человек печатал в Edge. Закрытие теперь под простоем.
+        sh = self._sh()
+        self.assertIn("IDLE_MIN_CLOSE", sh)
+        self.assertIn("HIDIdleTime", sh)
+        # проверка простоя должна стоять именно у закрытия браузеров,
+        # а не у чистки кэшей — кэши можно чистить и при работающем человеке
+        close_at = sh.index("close_browsers.on")
+        self.assertIn("IDLE_MIN_CLOSE", sh[close_at - 400:close_at + 400])
+
+    def test_warn_level_alone_is_not_a_peak(self):
+        # Уровень 2 на 8-гигабайтном маке держится почти постоянно: за ночь он
+        # дал 25 «пиков», в том числе при swap 18% ОЗУ. Нужен либо критический
+        # уровень, либо предупреждение вместе с заметным swap.
+        sh = self._sh()
+        self.assertIn("PRESSURE_CRIT", sh)
+        self.assertIn("PRESSURE_WARN", sh)
+        self.assertIn("SWAP_WARN_PCT", sh)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
