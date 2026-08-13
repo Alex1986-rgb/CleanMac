@@ -73,7 +73,7 @@ from tkinter import messagebox, filedialog
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from krylan_core import human, ver_tuple, disk_advice, parse_brew_outdated, squarify  # noqa: E402
 
-VERSION = "2.59.0"
+VERSION = "2.59.1"
 BRAND   = "KRYLAN"
 SLOGAN  = "Дай устройству крылья"
 AUTHOR  = "Кырлан Александр Сергеевич"
@@ -1277,6 +1277,13 @@ def _cpu_ticks():
         try:
             lib = ctypes.CDLL(ctypes.util.find_library("c"), use_errno=True)
             lib.mach_host_self.restype = ctypes.c_uint
+            # argtypes задаём явно: без них ctypes конвертирует порт и flavour
+            # как c_int по умолчанию. Сейчас работает (порты Mach маленькие),
+            # но полагаться на это незачем.
+            lib.host_statistics.argtypes = [ctypes.c_uint, ctypes.c_int,
+                                            ctypes.POINTER(_HostCpuLoadInfo),
+                                            ctypes.POINTER(ctypes.c_uint)]
+            lib.host_statistics.restype = ctypes.c_int
             _cpu_ticks.host = lib.mach_host_self()
             _cpu_ticks.lib = lib
         except Exception:
@@ -1295,11 +1302,21 @@ def _cpu_ticks():
     except Exception:
         return None
 
+_TICK_MOD = 1 << 32          # natural_t — 32 бита (mach/arm/vm_types.h)
+
 def cpu_from_ticks(prev, cur):
-    """Загрузка в процентах по двум замерам тиков. Чистая функция."""
+    """Загрузка в процентах по двум замерам тиков. Чистая функция.
+
+    Разности считаем по модулю 2^32. Счётчики ядра — `natural_t`, то есть
+    32-битные, и при HZ=100 переполняются примерно через 16 месяцев аптайма.
+    Без модульной арифметики после переполнения разность оказывалась
+    отрицательной, функция возвращала None — и сэмплер уходил на дорогой
+    откат к `top`, ровно от которого мы и избавлялись.
+    """
     if not prev or not cur: return None
-    dbusy, dtotal = cur[0] - prev[0], cur[1] - prev[1]
-    if dtotal <= 0 or dbusy < 0: return None
+    dbusy = (cur[0] - prev[0]) % _TICK_MOD
+    dtotal = (cur[1] - prev[1]) % _TICK_MOD
+    if dtotal <= 0: return None          # два замера без прошедшего времени
     return max(0.0, min(100.0, dbusy / dtotal * 100))
 
 _cpu_prev = None

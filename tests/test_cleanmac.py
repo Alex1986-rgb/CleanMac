@@ -1581,9 +1581,20 @@ class TestCpuTicks(unittest.TestCase):
         # два замера подряд без прошедшего времени: делить не на что
         self.assertIsNone(cm.cpu_from_ticks((100, 1000), (100, 1000)))
 
-    def test_counter_reset_returns_none(self):
-        # счётчик уехал назад — не выдаём отрицательную загрузку
-        self.assertIsNone(cm.cpu_from_ticks((500, 5000), (100, 5100)))
+    def test_survives_32bit_overflow(self):
+        # natural_t — 32 бита, при HZ=100 счётчики переполняются примерно через
+        # 16 месяцев аптайма. Раньше разность выходила отрицательной, функция
+        # возвращала None и сэмплер уходил на дорогой откат к top — ровно то,
+        # от чего избавлялись. Модульная арифметика переживает переход.
+        mod = 1 << 32
+        prev = (mod - 40, mod - 100)          # почти у предела
+        cur = (10, 0)                          # перевалили: busy +50, total +100
+        self.assertAlmostEqual(cm.cpu_from_ticks(prev, cur), 50.0)
+
+    def test_overflow_of_total_only(self):
+        # busy переполняется позже total (при загрузке ниже 100%) — считаем и так
+        mod = 1 << 32
+        self.assertAlmostEqual(cm.cpu_from_ticks((1000, mod - 100), (1030, 0)), 30.0)
 
     def test_kernel_call_works_here(self):
         # На этой машине Mach-вызов должен отвечать; если нет — сработает откат
@@ -1673,6 +1684,28 @@ class TestTabSnapshots(unittest.TestCase):
     def test_empty_snapshot_never_overwrites(self):
         # Пустой снимок затёр бы предыдущий полезный.
         self.assertIn('[ -z "$urls" ] && return 1', self._read("autopilot", "tabs.sh"))
+
+    def test_never_launches_a_closed_browser(self):
+        # `tell application "X"` по правилам Apple events САМ поднимает
+        # приложение, если оно закрыто. Оптимизатор, открывающий браузер,
+        # который пользователь закрыл, — худшее, что он может сделать.
+        sh = self._read("autopilot", "tabs.sh")
+        self.assertIn('is running then', sh)
+
+    def test_snapshot_reader_tolerates_bom_and_crlf(self):
+        # Файл могли править руками. BOM превращал строку-заголовок в «URL»,
+        # open спотыкался на ней и ронял весь возврат — а stderr задавлен,
+        # так что снаружи это выглядело как «просто не сработало».
+        sh = self._read("autopilot", "tabs.sh")
+        self.assertIn(r"u=${u#$'\xEF\xBB\xBF'}", sh)
+        self.assertIn(r"u=${u%$'\r'}", sh)
+
+    def test_count_prints_single_zero(self):
+        # grep -c печатает «0» и выходит с кодом 1, поэтому наивное
+        # `grep -c … || echo 0` выдавало ноль дважды.
+        sh = self._read("autopilot", "tabs.sh")
+        code = "\n".join(l for l in sh.splitlines() if not l.lstrip().startswith("#"))
+        self.assertNotIn("grep -cE '^[a-z]+://' \"$f\" || echo 0", code)
 
     def test_app_exposes_restore_button(self):
         src = self._read("CleanMac.py")
