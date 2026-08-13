@@ -17,7 +17,7 @@ UID_=$(id -u)
 
 mkdir -p "$DIR" "$LA"
 
-for f in optimize.sh ctl.sh dashboard.sh; do
+for f in optimize.sh ctl.sh dashboard.sh tabs.sh; do
   install -m 755 "$SRC/$f" "$DIR/$f"
   echo "  ✓ $DIR/$f"
 done

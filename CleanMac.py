@@ -72,7 +72,7 @@ from tkinter import messagebox, filedialog
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from krylan_core import human, ver_tuple, disk_advice, parse_brew_outdated, squarify  # noqa: E402
 
-VERSION = "2.57.0"
+VERSION = "2.58.0"
 BRAND   = "KRYLAN"
 SLOGAN  = "Дай устройству крылья"
 AUTHOR  = "Кырлан Александр Сергеевич"
@@ -259,6 +259,7 @@ TR = {
         "  Allow the autopilot to close background browsers on a memory peak",
     "⚡️ Оптимизировать сейчас":"⚡️ Optimize now",
     "🧊 Освободить место на диске":"🧊 Free up disk space",
+    "↩️ Вернуть вкладки":"↩️ Restore tabs",
 
     # --- Очистка ---
     "Один проход по всем безопасным категориям. Всё уходит в Корзину.":
@@ -2281,6 +2282,7 @@ class CleanMac(tk.Tk):
         row=tk.Frame(self.main, bg=BG0); row.pack(fill="x", padx=24, pady=8)
         self._btn(row, "⚡️ Оптимизировать сейчас", BLUE, self._optimize_now).pack(side="left")
         self._btn(row, "🧊 Освободить место на диске", GREEN, self._free_purgeable).pack(side="left", padx=8)
+        self._btn(row, "↩️ Вернуть вкладки", PURPLE, self._restore_tabs).pack(side="left")
 
         # Переключатель закрытия браузеров (по умолчанию ВЫКЛ)
         opt=tk.Frame(self.main, bg=BG0); opt.pack(fill="x", padx=24, pady=(2,4))
@@ -2360,6 +2362,40 @@ class CleanMac(tk.Tk):
             body="(журнал пуст — пиков не было)"
         self.ap_log.insert("end", body)
         self.ap_log.configure(state="disabled")
+
+    def _restore_tabs(self):
+        """Открыть заново вкладки, снятые перед закрытием браузера.
+
+        Автопилот освобождает память единственным доступным способом — закрывает
+        фоновые браузеры. Если в браузере выключено восстановление сессии (а
+        включается оно только внутри самого браузера, ключ под HMAC-подписью),
+        человек возвращается к пустому окну и собирает вкладки руками. Поэтому
+        снимок делается перед закрытием, а эта кнопка его возвращает.
+        """
+        sh = os.path.join(OPT, "tabs.sh")
+        if not os.path.exists(sh):
+            messagebox.showinfo("CleanMac",
+                "Снимки вкладок появятся после установки автопилота "
+                "(вкладка «Автопилот» → «Включить»).")
+            return
+        listing = run(["/bin/bash", sh, "list"], 20).strip()
+        if not listing or "снимков нет" in listing:
+            messagebox.showinfo("CleanMac",
+                "Сохранённых вкладок нет.\n\nСнимок делается автоматически "
+                "перед тем, как автопилот закроет браузер.")
+            return
+        # Восстанавливаем те браузеры, что есть в снимках, спросив по одному:
+        # открывать десятки вкладок без предупреждения — снова сюрприз.
+        for line in listing.splitlines():
+            app = line.split("  ")[0].strip()
+            if not app: continue
+            if not messagebox.askyesno("Вернуть вкладки", f"{line.strip()}\n\nОткрыть заново?"):
+                continue
+            out = run(["/bin/bash", sh, "restore", app], 30).strip()
+            if out.isdigit():
+                self.status(f"↩️ Открыто вкладок ({app}): {out}")
+            else:
+                messagebox.showwarning("CleanMac", f"Не удалось вернуть вкладки {app}:\n{out}")
 
     def _optimize_now(self):
         self._spawn(self._optimize_worker)

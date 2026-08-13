@@ -1549,6 +1549,61 @@ class TestMemoryDonut(unittest.TestCase):
         self.assertLess(min(xs), 686 - 42)      # что-то нарисовано левее пончика
 
 
+class TestTabSnapshots(unittest.TestCase):
+    """Снимок вкладок перед закрытием браузера.
+
+    Автопилот освобождает память единственным доступным способом — закрывает
+    фоновые браузеры. Восстановление сессии в браузере может быть выключено, а
+    включается оно только внутри самого браузера (ключ под HMAC), поэтому без
+    снимка закрытие означает потерю работы, а не экономию памяти.
+    """
+
+    def _read(self, *rel):
+        with open(os.path.join(REPO_ROOT, *rel), encoding="utf-8") as f:
+            return f.read()
+
+    def test_script_exists_and_executable(self):
+        p = os.path.join(REPO_ROOT, "autopilot", "tabs.sh")
+        self.assertTrue(os.path.exists(p))
+        self.assertTrue(os.access(p, os.X_OK))
+
+    def test_installer_deploys_it(self):
+        # Скрипт нужен обоим агентам; если установщик его не разложит,
+        # снимки молча не будут делаться.
+        self.assertIn("tabs.sh", self._read("autopilot", "install.sh"))
+
+    def test_no_pipefail_grep_q_trap(self):
+        # `ps | grep -q` под `set -o pipefail` ВСЕГДА возвращает ошибку: grep -q
+        # закрывает канал на первом совпадении, ps получает SIGPIPE. Из-за этого
+        # проверка «браузер запущен» давала ложное «нет» при 24 живых процессах
+        # Edge, и снимок не делался ни разу. Нужен pgrep — без конвейера.
+        import re
+        sh = self._read("autopilot", "tabs.sh")
+        self.assertIn("pipefail", sh, "тест устарел: pipefail убрали")
+        # Комментарии не считаем — в них этот конвейер как раз и объясняется.
+        code = "\n".join(l for l in sh.splitlines() if not l.lstrip().startswith("#"))
+        self.assertIsNone(re.search(r"ps[^\n|]*\|\s*grep\s+-q", code),
+                          "конвейер ps|grep -q под pipefail всегда «падает»")
+        self.assertIn("pgrep -f", code)
+
+    def test_snapshot_saved_before_quit(self):
+        # Порядок критичен: сняли, потом закрыли. Наоборот снимать уже нечего.
+        opt = self._read("autopilot", "optimize.sh")
+        save_at = opt.index("tabs.sh")
+        quit_at = opt.index('quit app \\"$app\\"')
+        self.assertLess(save_at, quit_at, "снимок делается после закрытия — поздно")
+
+    def test_empty_snapshot_never_overwrites(self):
+        # Пустой снимок затёр бы предыдущий полезный.
+        self.assertIn('[ -z "$urls" ] && return 1', self._read("autopilot", "tabs.sh"))
+
+    def test_app_exposes_restore_button(self):
+        src = self._read("CleanMac.py")
+        self.assertIn("_restore_tabs", src)
+        self.assertIn("↩️ Вернуть вкладки", src)
+        self.assertIn('"↩️ Вернуть вкладки":"↩️ Restore tabs"', src)
+
+
 class TestHonestDocs(unittest.TestCase):
     """Обещания в документации должны совпадать с реальностью.
 

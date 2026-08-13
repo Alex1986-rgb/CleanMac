@@ -191,7 +191,17 @@ OSA
         [ "$ans" = "timeout" ] && log "⏱ Никто не ответил за ${GRACE_SEC}с — закрываю"
         old_ifs="$IFS"; IFS=';'
         for app in $targets; do
-          [ -n "$app" ] && osascript -e "quit app \"$app\"" 2>/dev/null && closed="$closed $app;"
+          [ -n "$app" ] || continue
+          # Снимок вкладок ДО закрытия. Восстановление сессии в браузере может
+          # быть выключено (и правится только в самом браузере, ключ под HMAC),
+          # поэтому без снимка закрытие означает потерю работы, а не экономию
+          # памяти. Возврат — «↩️ Вернуть вкладки» в CleanMac или
+          #   bash ~/mac-optimizer/tabs.sh restore "Microsoft Edge"
+          if [ -x "$DIR/tabs.sh" ]; then
+            saved=$("$DIR/tabs.sh" save "$app" 2>/dev/null) \
+              && log "💾 Запомнил вкладок ($app): $saved"
+          fi
+          osascript -e "quit app \"$app\"" 2>/dev/null && closed="$closed $app;"
         done
         IFS="$old_ifs"
         [ -n "$closed" ] && log "🔻 Закрыты фоновые браузеры:$closed"
