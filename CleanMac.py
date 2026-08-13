@@ -73,7 +73,7 @@ from tkinter import messagebox, filedialog
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from krylan_core import human, ver_tuple, disk_advice, parse_brew_outdated, squarify  # noqa: E402
 
-VERSION = "2.59.1"
+VERSION = "2.60.0"
 BRAND   = "KRYLAN"
 SLOGAN  = "Дай устройству крылья"
 AUTHOR  = "Кырлан Александр Сергеевич"
@@ -340,6 +340,25 @@ def run(cmd, t=8):
         return subprocess.run(cmd, capture_output=True, text=True, timeout=t).stdout
     except Exception:
         return ""
+
+def run_ok(cmd, t=8):
+    """(вывод, получилось) — в отличие от run() смотрит код возврата.
+
+    run() отдаёт только stdout и глотает всё остальное. Из-за этого шаг
+    «⚡️ Разгрузка памяти (purge)» числился выполненным, хотя без пароля purge
+    отвечает «Unable to purge disk buffers: Operation not permitted» и ничего
+    не делает. Кнопка бодро писала «✨ Готово — Mac оптимизирован» при swap
+    14,6 ГБ из 15 — а это худшее, что оптимизатор может сделать с доверием.
+    Такие шаги обязаны попадать в «Пропущено» с причиной.
+    """
+    try:
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=t)
+        err = (p.stderr or "").strip()
+        # purge — особый случай: он печатает отказ в stderr, но выходит нулём.
+        ok = p.returncode == 0 and "not permitted" not in err.lower()
+        return (p.stdout or "") + err, ok
+    except Exception as e:
+        return f"{e.__class__.__name__}: {e}", False
 
 def _lighten(hexc, amt=0.16):
     r,g,b = int(hexc[1:3],16), int(hexc[3:5],16), int(hexc[5:7],16)
@@ -1125,18 +1144,35 @@ def find_broken_files(bases=None, max_per_base=4000):
 # Декларативный план «волшебной кнопки»: список безопасных шагов по порядку.
 # Каждый элемент — (ключ, человекочитаемая подпись). Чистые данные → тестируется,
 # а воркер просто исполняет их по очереди и шлёт прогресс в UI-поток.
+# План «✨ Оптимизировать». Пересобран после разбора: кнопка должна делать работу
+# КОМФОРТНОЙ, а не длинной. Что убрано и почему:
+#
+#   purge          — без пароля отвечает «Operation not permitted» и не делает
+#                    ничего; даже с паролем сбрасывает лишь чистый файловый кэш,
+#                    который ядро и так вытесняет. Анонимную память и swap не
+#                    трогает. Заменён на «разгрузку памяти» закрытием браузеров —
+#                    единственный рычаг, реально возвращающий гигабайты на 8 ГБ.
+#   killall Dock   — Dock моргает, свёрнутые окна пропадают из панели. Выгода
+#                    измеряется мегабайтами, испуг — гарантирован.
+#   сброс DNS      — не даёт ни памяти, ни места, зато дёргает Bonjour и AirDrop.
+#   lsregister     — 1–3 минуты молотилки на уже захлёбывающейся машине без
+#                    видимого результата.
+#
+# Все три остались в «Инструменты → 🩺 Обслуживание», где их запускают осознанно
+# и по конкретному поводу.
 OPTIMIZE_STEPS = [
+    ("memfree",     "⚡️ Разгрузка памяти: фоновые браузеры (вкладки сохраняются)"),
     ("caches",      "🧽 Кэши и логи приложений → Корзина"),
-    ("syscache",    "👁 Системные кэши · Quick Look · кэш шрифтов"),
     ("snapshots",   "🧊 Локальные снимки APFS (очищаемое место)"),
-    ("memory",      "⚡️ Разгрузка памяти (purge)"),
+    ("syscache",    "👁 Кэш миниатюр Quick Look"),
     ("emptydirs",   "📂 Пустые папки → Корзина"),
-    ("broken",      "🧩 Битые и нулевые файлы → Корзина"),
+    # Область — только ~/Library/Caches и ~/Library/Logs (см. find_broken_files),
+    # поэтому нулевые файлы здесь безопасны: это артефакты прерванных записей,
+    # а не lock-файлы живых приложений. Подпись уточнена — места это почти не
+    # освобождает, обещать «оптимизацию» такими шагами нельзя.
+    ("broken",      "🧩 Битые ссылки и нулевые файлы в кэшах → Корзина"),
     ("orphans",     "🧹 Остатки удалённых приложений → Корзина"),
     ("brewcleanup", "🍺 Homebrew: чистка старых версий формул"),
-    ("launchsvc",   "🗂 Перестройка БД Launch Services («Открыть с помощью»)"),
-    ("dockicons",   "🚀 Сброс кэша иконок · перезапуск Dock"),
-    ("dns",         "🌐 Сброс кэша DNS"),
     ("trim",        "💽 SSD/TRIM: обслуживается системой автоматически"),
 ]
 
@@ -2506,58 +2542,37 @@ class CleanMac(tk.Tk):
                 if app_running(app) and app!=front: run(["osascript","-e",f'quit app "{as_escape(app)}"'])
         self.q.put(("optimized", freed, None))
 
-    # ===== 1 КЛИК «УСКОРИТЬ» — всё безопасное разом (лучше BoostSpeed: без дефрага/реестра) =====
-    def _boost_now(self):
-        if getattr(self, "_boosting", False): return
-        self._boosting = True
-        self._spawn(self._boost_worker)
-
-    def _boost_worker(self):
-        steps = []
-        # 1) Безопасные кэши и логи → Корзина (обратимо)
-        freed = 0
-        for cid,_,paths,skip,mode in CATEGORIES:
-            if skip and app_running(skip): continue       # не трогаем кэш открытого браузера
-            for p in paths:
-                if not os.path.exists(p): continue
-                if mode=="subitems" and os.path.isdir(p):
-                    for nm in os.listdir(p):
-                        fp=os.path.join(p,nm)
-                        if os.path.islink(fp): continue   # не трогаем симлинки пользователя
-                        s=path_size(fp)
-                        if to_trash(fp): freed+=s
-                else:
-                    s=path_size(p)
-                    if to_trash(p): freed+=s
-        steps.append(f"🧽 Кэши и логи → Корзина: {human(freed)}")
-
-        # 2) Освободить «очищаемое» место (локальные снимки APFS) — безопасно
-        purged = 0
-        try:
-            before = shutil.disk_usage(HOME).free
-            run(["tmutil","thinlocalsnapshots","/","999999999999","4"], 120)
-            purged = max(0, shutil.disk_usage(HOME).free - before)
-        except Exception: pass
-        if purged: steps.append(f"🧊 Освобождено места: {human(purged)}")
-
-        # 3) Сбросить кэш миниатюр Quick Look (без пароля)
-        run(["qlmanage","-r","cache"], 30)
-        steps.append("👁 Кэш Quick Look сброшен")
-
-        # 4) Разгрузить неактивную память (purge — без админа на свежих macOS; иначе тихо пропустим)
-        run(["/usr/sbin/purge"], 30)
-        steps.append("⚡️ Память разгружена")
-
-        record_cleanup(freed + purged, "boost")
-        self._boosting = False
-        self.q.put(("boosted", freed + purged, steps))
+    # Поток «🚀 Ускорить» удалён целиком: кнопку убрали из интерфейса ещё
+    # раньше, а _boost_now/_boost_worker остались мёртвым кодом — и в них
+    # жила та же неправда, что и в волшебной кнопке: `run(["/usr/sbin/purge"])`
+    # с безусловной припиской «⚡️ Память разгружена». Всё полезное из этого
+    # потока делает «✨ Оптимизировать».
 
     # ===== ✨ ВОЛШЕБНАЯ КНОПКА: одним кликом — ВСЁ безопасное, без диалогов =====
     def _optimize_all(self):
-        """Запуск авто-оптимизации в фоне. Без messagebox-подтверждений —
-        идея «установил → нажал → оптимизировано». Повторный клик игнорируется."""
+        """Запуск авто-оптимизации в фоне. Повторный клик игнорируется.
+
+        Единственное подтверждение — про закрытие браузеров. Остальные шаги
+        безвредны и обратимы (всё в Корзину), их спрашивать незачем: идея
+        «установил → нажал → оптимизировано». А вот закрытый браузер человек
+        замечает сразу, и делать это молча нельзя, даже когда вкладки
+        сохраняются: именно из-за неожиданных закрытий и терялось доверие.
+        """
         if getattr(self, "_optimizing", False):
             return
+        front = run(["osascript", "-e",
+                     'tell application "System Events" to name of first process '
+                     'whose frontmost is true'], 10).strip()
+        targets = [a for a in self.MEM_BROWSERS if app_running(a) and a != front]
+        self._opt_close_browsers = False
+        if targets:
+            self._opt_close_browsers = messagebox.askyesno(
+                "Оптимизировать",
+                "Больше всего памяти на этом Mac держат браузеры.\n\n"
+                f"Закрыть фоновые: {', '.join(targets)}?\n"
+                f"Активное окно ({front or 'текущее'}) не тронем, вкладки сохраним — "
+                "их можно вернуть кнопкой «↩️ Вернуть вкладки».\n\n"
+                "«Нет» — почистим только диск, память не освободится.")
         self._optimizing = True
         try: self.magic_btn.configure(text=L("  ✨ Оптимизирую…  "))
         except Exception: pass
@@ -2567,8 +2582,58 @@ class CleanMac(tk.Tk):
         """Живой прогресс шага в UI-поток (не блокируя его)."""
         self.q.put(("optprog", (idx, total, label, detail), None))
 
+    # Браузеры, которые умеет закрывать шаг разгрузки памяти.
+    MEM_BROWSERS = ("Microsoft Edge", "Google Chrome", "Safari", "Yandex")
+
+    def _free_memory_step(self):
+        """Вернуть память, закрыв фоновые браузеры. Вкладки снимаются заранее.
+
+        Почему не purge: без пароля он отвечает «Operation not permitted», а с
+        паролем сбрасывает лишь чистый файловый кэш, который ядро и так
+        вытесняет — анонимную память приложений и swap он не трогает. На маке с
+        8 ГБ, где Edge держит 35 процессов, единственный настоящий рычаг —
+        закрыть браузер: тогда система получает обратно анонимную память и
+        начинает ужимать swap.
+
+        Активное окно не трогаем: человек в нём работает.
+        """
+        if not getattr(self, "_opt_close_browsers", False):
+            return {"ok": False, "note": "вы отказались закрывать браузеры — память не освобождалась"}
+        front = run(["osascript", "-e",
+                     'tell application "System Events" to name of first process '
+                     'whose frontmost is true'], 10).strip()
+        targets = [a for a in self.MEM_BROWSERS if app_running(a) and a != front]
+        if not targets:
+            return {"ok": False, "note": "нечего закрывать — фоновых браузеров нет"}
+        swap_before = stat_swap()[0]
+        saved, closed = [], []
+        tabs = os.path.join(OPT, "tabs.sh")
+        for app in targets:
+            # Снимок ДО закрытия — иначе снимать будет уже нечего.
+            if os.path.exists(tabs):
+                out, ok = run_ok(["/bin/bash", tabs, "save", app], 30)
+                if ok and out.strip().isdigit():
+                    saved.append(f"{app}: {out.strip()}")
+            if run_ok(["osascript", "-e", f'quit app "{as_escape(app)}"'], 30)[1]:
+                closed.append(app)
+        if not closed:
+            return {"ok": False, "note": "браузеры не откликнулись на запрос закрытия"}
+        time.sleep(3)                      # даём системе ужать swap
+        swap_after = stat_swap()[0]
+        note = "закрыты " + ", ".join(closed)
+        if swap_before > swap_after:
+            note += f"; swap {int(swap_before)}М → {int(swap_after)}М"
+        if saved:
+            note += f"; вкладки сохранены ({', '.join(saved)})"
+        return {"ok": True, "note": note, "closed": closed}
+
     def _optimize_all_w(self):
         steps = optimize_plan(); n = len(steps); done = []; skipped = []; freed = 0
+        # Замер памяти до/после. Кнопка молчала про память, хотя боль именно в
+        # ней: человек видел «✨ Готово — Mac оптимизирован», открывал Монитор
+        # системы и не находил разницы. swap и уровень давления читаются без
+        # пароля, так что честный замер ничего не стоит.
+        mem_before = {"swap": stat_swap()[0], "ram": stat_mem()}
         for i, (key, label) in enumerate(steps, 1):
             self._opt_progress(i, n, label)
             try:
@@ -2592,10 +2657,20 @@ class CleanMac(tk.Tk):
                     done.append(f"{label}: {human(got)}")
 
                 elif key == "syscache":
-                    # системные кэши без пароля: Quick Look + кэш шрифтов пользователя
-                    run(["qlmanage", "-r", "cache"], 30)
-                    run(["atsutil", "databases", "-removeUser"], 30)
-                    done.append(label)
+                    # Только Quick Look. `atsutil databases -removeUser` убран:
+                    # выгода — десятки мегабайт, цена — медленный следующий вход
+                    # в систему, пока пересобирается кэш шрифтов.
+                    out, ok = run_ok(["qlmanage", "-r", "cache"], 30)
+                    (done if ok else skipped).append(label if ok else f"{label}: {out.strip()[:60]}")
+
+                elif key == "memfree":
+                    # Главный рычаг памяти на 8 ГБ. purge тут бесполезен (см.
+                    # комментарий у OPTIMIZE_STEPS), а закрытие фоновых браузеров
+                    # возвращает системе анонимную память — после него macOS
+                    # начинает ужимать swap. Вкладки снимаются заранее, поэтому
+                    # это больше не потеря работы.
+                    res = self._free_memory_step()
+                    (done if res["ok"] else skipped).append(f"{label}: {res['note']}")
 
                 elif key == "snapshots":
                     got = 0
@@ -2606,10 +2681,6 @@ class CleanMac(tk.Tk):
                     except Exception: pass
                     freed += got
                     done.append(f"{label}: {human(got)}" if got else label)
-
-                elif key == "memory":
-                    run(["/usr/sbin/purge"], 30)
-                    done.append(label)
 
                 elif key == "emptydirs":
                     cnt = 0
@@ -2646,26 +2717,11 @@ class CleanMac(tk.Tk):
                         freed += got
                         done.append(f"{label}: {human(got)}" if got else label)
 
-                elif key == "launchsvc":
-                    # Перестраивает БД Launch Services: убирает дубли в «Открыть с помощью». Без sudo.
-                    lsreg = ("/System/Library/Frameworks/CoreServices.framework/"
-                             "Versions/A/Frameworks/LaunchServices.framework/"
-                             "Versions/A/Support/lsregister")
-                    if os.path.exists(lsreg):
-                        run([lsreg, "-kill", "-r", "-domain", "local",
-                             "-domain", "system", "-domain", "user"], 120)
-                        done.append(label)
-                    else:
-                        skipped.append(f"{label}: lsregister недоступен в этой системе")
-
-                elif key == "dockicons":
-                    # Перезапуск Dock сбрасывает кэш иконок Dock. Безопасно, Dock сам поднимется.
-                    run(["killall", "Dock"], 15)
-                    done.append(label)
-
-                elif key == "dns":
-                    run(["/bin/bash", "-c", "dscacheutil -flushcache; killall -HUP mDNSResponder"], 30)
-                    done.append(label)
+                # Ветки launchsvc / dockicons / dns удалены вместе с шагами:
+                # перестройка Launch Services молотит 1–3 минуты без видимого
+                # результата, killall Dock моргает и уносит свёрнутые окна из
+                # панели, сброс DNS не даёт ни памяти, ни места. Всё три доступны
+                # в «Инструменты → 🩺 Обслуживание», где запускаются осознанно.
 
                 elif key == "trim":
                     # Информационный шаг: на macOS TRIM для SSD включён системой автоматически.
@@ -2680,8 +2736,11 @@ class CleanMac(tk.Tk):
 
         record_cleanup(freed, "magic")
         self._optimizing = False
+        mem_after = {"swap": stat_swap()[0], "ram": stat_mem()}
         self.q.put(("optimized_all", {"freed": freed, "steps": done,
-                                       "skipped": skipped, "review": review}, None))
+                                       "skipped": skipped, "review": review,
+                                       "mem_before": mem_before, "mem_after": mem_after,
+                                       "hogs": stat_procs(3)}, None))
 
     def _optimize_scan_review(self):
         """Безопасный обзор пользовательских данных для ревью (НЕ удаляет).
@@ -2757,10 +2816,37 @@ class CleanMac(tk.Tk):
         # Модальное окно-сводка (без подтверждений на безопасных шагах — они уже сделаны).
         win = tk.Toplevel(self); win.title("Оптимизация завершена"); win.configure(bg=BG0)
         win.transient(self); win.resizable(False, False)
-        tk.Label(win, text=L("✨ Готово — Mac оптимизирован"), bg=BG0, fg=GREEN,
+        # Заголовок зависит от результата. «✨ Готово — Mac оптимизирован» при
+        # swap 14,6 ГБ из 15 — главный убийца доверия: человек открывает Монитор
+        # системы и видит, что ничего не изменилось.
+        mb = res.get("mem_before") or {}; ma = res.get("mem_after") or {}
+        swap_delta = (mb.get("swap") or 0) - (ma.get("swap") or 0)
+        if freed > 0 or swap_delta > 64:
+            head, head_col = L("✨ Готово — Mac оптимизирован"), GREEN
+        else:
+            head, head_col = "Готово, но освободить почти нечего", YELLOW
+        tk.Label(win, text=head, bg=BG0, fg=head_col,
                  font=("SF Pro Display", 18, "bold")).pack(anchor="w", padx=22, pady=(18,2))
         tk.Label(win, text=f"Освобождено ~{human(freed)} · выполнено шагов: {len(steps)}",
-                 bg=BG0, fg=TEXT, font=("SF Pro Text", 12)).pack(anchor="w", padx=22, pady=(0,10))
+                 bg=BG0, fg=TEXT, font=("SF Pro Text", 12)).pack(anchor="w", padx=22, pady=(0,4))
+        # Память — отдельной строкой и всегда, даже если не изменилась.
+        if mb.get("swap") is not None and ma.get("swap") is not None:
+            if swap_delta > 64:
+                mtxt = f"⚡️ Память: swap {int(mb['swap'])}М → {int(ma['swap'])}М (вернули {int(swap_delta)}М)"
+                mcol = GREEN
+            else:
+                mtxt = (f"⚡️ Память: swap {int(ma['swap'])}М — не изменился. "
+                        "Освободить ОЗУ можно только закрыв тяжёлые программы.")
+                mcol = MUTED
+            tk.Label(win, text=mtxt, bg=BG0, fg=mcol, font=("SF Pro Text", 11, "bold"),
+                     wraplength=470, justify="left").pack(anchor="w", padx=22, pady=(0,6))
+        # Кто держит память сейчас — подсказка, а не отчёт.
+        hogs = res.get("hogs") or []
+        if hogs:
+            tk.Label(win, text="Больше всех памяти держат: " +
+                     ", ".join(f"{n} {human(b)}" for _, b, n in hogs),
+                     bg=BG0, fg=MUTED, font=("SF Pro Text", 10),
+                     wraplength=470, justify="left").pack(anchor="w", padx=22, pady=(0,10))
         tk.Label(win, text=L("Выполнено на этом Mac:"), bg=BG0, fg=TEXT,
                  font=("SF Pro Text", 11, "bold")).pack(anchor="w", padx=22, pady=(2,4))
         card=tk.Frame(win, bg=GLASS); card.pack(fill="x", padx=18, pady=4)
@@ -4405,11 +4491,9 @@ class CleanMac(tk.Tk):
                     record_cleanup(a, "autopilot")
                     messagebox.showinfo("CleanMac", f"Оптимизация выполнена.\nОсвобождено кэша: {human(a)}.")
                     if self.page=="autopilot": self._ap_refresh()
-                elif kind=="boosted":
-                    steps="\n".join("• "+s for s in (b or []))
-                    messagebox.showinfo("CleanMac",
-                        f"🚀 Готово! Компьютер ускорен.\n\nОсвобождено всего: ~{human(a)}\n\n{steps}\n\n"
-                        "Всё обратимо: очищенное — в Корзине. Дефрагментация SSD не делалась (она вредна).")
+                # Ветка "boosted" убрана вместе с потоком «🚀 Ускорить»:
+                # он был мёртвым кодом и обещал «Компьютер ускорен» после purge,
+                # который без пароля ничего не делает.
                 elif kind=="optprog":
                     idx, total, label, detail = a
                     txt = f"✨ Шаг {idx}/{total}: {label}" + (f" — {detail}" if detail else "")

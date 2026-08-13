@@ -514,10 +514,13 @@ class TestOptimizePlan(unittest.TestCase):
         self.assertEqual(a, b)
 
     def test_keys_and_order(self):
+        # План пересобран: рычаг памяти идёт первым (боль машины — RAM и swap),
+        # а purge / killall Dock / сброс DNS / lsregister из кнопки убраны —
+        # см. TestMagicButton и комментарий у OPTIMIZE_STEPS.
         keys = [k for k, _ in cm.optimize_plan()]
-        self.assertEqual(keys, ["caches", "syscache", "snapshots", "memory",
+        self.assertEqual(keys, ["memfree", "caches", "snapshots", "syscache",
                                 "emptydirs", "broken", "orphans", "brewcleanup",
-                                "launchsvc", "dockicons", "dns", "trim"])
+                                "trim"])
 
     def test_no_unsafe_steps(self):
         # план НЕ содержит удаления дублей/крупных/приложений/очистки Корзины,
@@ -528,10 +531,19 @@ class TestOptimizePlan(unittest.TestCase):
             self.assertNotIn(bad, keys)
 
     def test_safe_new_steps_present(self):
-        # новые безопасные шаги ускорения присутствуют в авто-наборе
+        # Безопасные шаги, дающие реальный результат, в наборе остались.
+        # launchsvc/dockicons/dns отсюда убраны намеренно — они переехали в
+        # «Инструменты → Обслуживание», где запускаются по конкретному поводу.
         keys = {k for k, _ in cm.optimize_plan()}
-        for good in ("brewcleanup", "launchsvc", "dockicons", "trim"):
+        for good in ("memfree", "brewcleanup", "snapshots", "trim"):
             self.assertIn(good, keys)
+
+    def test_removed_steps_still_available_manually(self):
+        # Убранные из кнопки операции не потеряны: они есть в «Обслуживании».
+        with open(os.path.join(REPO_ROOT, "CleanMac.py"), encoding="utf-8") as f:
+            src = f.read()
+        for cmd in ("dscacheutil -flushcache", "lsregister", "killall"):
+            self.assertIn(cmd, src, f"{cmd} исчез совсем, а должен остаться в инструментах")
 
     def test_trim_is_last_informational(self):
         # информационная пометка про SSD/TRIM идёт последней (самодиагностика)
@@ -1547,6 +1559,73 @@ class TestMemoryDonut(unittest.TestCase):
         for i in self.cv.find_all(): xs += self.cv.coords(i)[0::2]
         self.assertLessEqual(max(xs), 760)
         self.assertLess(min(xs), 686 - 42)      # что-то нарисовано левее пончика
+
+
+class TestMagicButton(unittest.TestCase):
+    """«✨ Оптимизировать» должна делать работу комфортной, а не длинной."""
+
+    def _src(self):
+        with open(os.path.join(REPO_ROOT, "CleanMac.py"), encoding="utf-8") as f:
+            return f.read()
+
+    def test_purge_removed(self):
+        # purge без пароля отвечает «Operation not permitted» и не делает ничего,
+        # а с паролем сбрасывает лишь чистый файловый кэш — анонимную память и
+        # swap не трогает. Шаг при этом числился выполненным.
+        keys = [k for k, _ in cm.optimize_plan()]
+        self.assertNotIn("memory", keys)
+        code = "\n".join(l for l in self._src().splitlines()
+                         if not l.lstrip().startswith("#"))
+        self.assertNotIn('run(["/usr/sbin/purge"]', code)
+
+    def test_surprising_steps_removed(self):
+        # killall Dock моргает и уносит свёрнутые окна, сброс DNS не даёт ни
+        # памяти ни места, lsregister молотит 1-3 минуты без результата.
+        keys = [k for k, _ in cm.optimize_plan()]
+        for gone in ("dockicons", "dns", "launchsvc"):
+            self.assertNotIn(gone, keys)
+
+    def test_memory_step_is_first(self):
+        # Боль машины — RAM и swap, значит рычаг памяти идёт первым.
+        self.assertEqual(cm.optimize_plan()[0][0], "memfree")
+
+    def test_plan_got_shorter(self):
+        # Длинный план на свопнутой машине читается как зависание.
+        self.assertLessEqual(len(cm.optimize_plan()), 10)
+
+    def test_run_ok_reports_failure(self):
+        out, ok = cm.run_ok(["/nonexistent/binary"])
+        self.assertFalse(ok)
+        self.assertIn("Error", out)
+
+    def test_run_ok_detects_permission_refusal(self):
+        # purge выходит нулём, но печатает отказ в stderr — на это и попались.
+        out, ok = cm.run_ok(["/usr/sbin/purge"], 20)
+        if "not permitted" not in out.lower():
+            self.skipTest("purge выполнился (запущено с правами) — проверять нечего")
+        self.assertFalse(ok, "отказ в stderr при нулевом коде должен считаться сбоем")
+
+    def test_run_ok_success(self):
+        out, ok = cm.run_ok(["/bin/echo", "ok"])
+        self.assertTrue(ok)
+        self.assertIn("ok", out)
+
+    def test_asks_before_closing_browsers(self):
+        # Даже со сохранением вкладок закрывать молча нельзя: именно неожиданные
+        # закрытия и рушили доверие.
+        src = self._src()
+        self.assertIn("_opt_close_browsers", src)
+        self.assertIn("Закрыть фоновые:", src)
+
+    def test_summary_reports_memory(self):
+        src = self._src()
+        self.assertIn("mem_before", src)
+        self.assertIn("mem_after", src)
+        self.assertIn("не изменился", src)   # честный текст, когда swap не упал
+
+    def test_headline_honest_when_nothing_freed(self):
+        src = self._src()
+        self.assertIn("Готово, но освободить почти нечего", src)
 
 
 class TestCpuTicks(unittest.TestCase):
