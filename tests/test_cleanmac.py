@@ -1549,6 +1549,45 @@ class TestMemoryDonut(unittest.TestCase):
         self.assertLess(min(xs), 686 - 42)      # что-то нарисовано левее пончика
 
 
+class TestHonestDocs(unittest.TestCase):
+    """Обещания в документации должны совпадать с реальностью.
+
+    Утверждение «раздаётся как нотаризованный .dmg» жило в трёх местах сразу —
+    в экране «О программе», в README и в TERMS.md (юридический документ), — и
+    именно оно мешало понять, почему установленное приложение не запускается.
+    Сборка подписана только ad-hoc, платной учётной записи Apple нет.
+    """
+
+    def _read(self, *rel):
+        with open(os.path.join(REPO_ROOT, *rel), encoding="utf-8") as f:
+            return f.read()
+
+    def test_terms_disclose_no_notarization(self):
+        terms = self._read("TERMS.md")
+        self.assertIn("не нотаризована", terms,
+                      "TERMS.md обязан честно говорить об отсутствии нотаризации")
+
+    def test_readme_explains_gatekeeper(self):
+        readme = self._read("README.md")
+        self.assertIn("xattr -dr com.apple.quarantine", readme)
+        # совет «ПКМ → Открыть» перестал работать с macOS 15 Sequoia
+        self.assertIn("Sequoia", readme)
+
+    def test_no_dead_python_path_in_instructions(self):
+        # Путь к framework-python 3.12 был прибит гвоздями в инструкциях, а
+        # такого Python на машине может не быть — команды просто не работали.
+        for rel in (("tests", "README.md"), (".claude", "commands", "krylan.md")):
+            lines = self._read(*rel).splitlines()
+            for i, line in enumerate(lines):
+                if "Versions/3.12/bin/python3" not in line: continue
+                # Упоминание допустимо только как объяснение, что так больше не
+                # надо. Пояснение может переноситься на соседнюю строку, поэтому
+                # смотрим окно, а не одну строку.
+                window = " ".join(lines[max(0, i - 1):i + 2])
+                self.assertRegex(window, r"убран|не работал|может не быть|раньше",
+                                 f"{'/'.join(rel)}:{i+1} — живая инструкция с мёртвым путём")
+
+
 class TestSharedCore(unittest.TestCase):
     """krylan_core объявлен единым источником истины — значит копия обязана совпадать."""
 

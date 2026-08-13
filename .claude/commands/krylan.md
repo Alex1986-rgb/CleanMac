@@ -9,7 +9,13 @@ description: Автономно продолжать и доделывать п�
 - Каталог: `~/mac-optimizer/cleaner/` — начни с `cd ~/mac-optimizer/cleaner`
 - GitHub (публичный): `Alex1986-rgb/CleanMac`, ветка `main` — пушь рабочие изменения сразу
 - Сначала прочитай: **`COMPETITORS.md`** (план «быть лучше лидеров»), `ROADMAP.md`, `DESIGN.md`, `README.md`
-- Версии (на 2026-06): экосистема **2.41.0**; CleanMac `VERSION`/`CleanMac.py`=2.41.0; Desktop `krylan-desktop/krylan.py`=1.11.0; iOS/macOS MARKETING_VERSION=1.0.0; Android versionName=0.8.0.
+- **Версии не переписывай сюда** — они устаревают быстрее, чем этот файл. Смотри
+  источники: `VERSION` (он же обязан совпадать с константой в `CleanMac.py`,
+  бейджем README и записью в `CHANGELOG.md` — это проверяет джоба `consistency`),
+  `krylan-desktop/krylan.py`, `MARKETING_VERSION` в `krylan-swift/project.yml`,
+  `versionName` в `krylan-android/app/build.gradle.kts`.
+  Раньше здесь стоял список «на 2026-06: экосистема 2.41.0…» — к августу он
+  разошёлся с реальностью на десяток версий и только путал.
 
 ## Экосистема (4 приложения)
 | Папка | Платформа | Технология | Статус |
@@ -31,9 +37,25 @@ description: Автономно продолжать и доделывать п�
 - **Android:** smart-подсказки на дашборде, корзина/undo (`createTrashRequest`), CorpseFinder-lite. *(честные формулировки уже сделаны.)*
 
 ## Как проверять (обязательно перед коммитом)
-- **Python (CleanMac / Desktop):** framework-python `/Library/Frameworks/Python.framework/Versions/3.12/bin/python3`.
-  `… -m py_compile файл.py`; `… -m unittest tests.test_cleanmac` (30 тестов); `cd krylan-desktop && … -m unittest test_krylan` (20 тестов). Новую чистую логику покрывай тестами.
-- **SwiftUI — Xcode и симулятор настроены:**
+- **Python (CleanMac / Desktop):** годится системный `/usr/bin/python3` (3.9 из
+  Command Line Tools) — прибитый гвоздями путь к framework-python 3.12 отсюда убран,
+  этого Python на машине может не быть.
+  ```bash
+  python3 -m py_compile CleanMac.py
+  python3 -m pyflakes CleanMac.py krylan_core.py menubar.py   # должно быть 0 замечаний
+  python3 tests/test_cleanmac.py                              # 198 тестов
+  cd krylan-desktop && python3 test_krylan.py                 # 207 тестов (нужны psutil, send2trash)
+  ```
+  Новую чистую логику покрывай тестами. Особое внимание — разбору вывода
+  системных команд: при сбое такие функции возвращают правдоподобный ноль, и
+  дефект не видно глазом.
+- **Swift без Xcode:** полной сборки нет, но проверка типов работает и её
+  достаточно, чтобы не отправить сломанный код:
+  ```bash
+  cd krylan-swift && swiftc -typecheck Sources/*.swift
+  ```
+  Единственная ожидаемая ошибка — макрос `#Preview`, ему нужен плагин Xcode.
+- **SwiftUI — если Xcode установлен:**
   ```bash
   cd krylan-swift && xcodegen generate
   xcodebuild -project KRYLAN.xcodeproj -scheme KRYLAN-iOS -sdk iphonesimulator -configuration Debug CODE_SIGNING_ALLOWED=NO build

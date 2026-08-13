@@ -210,7 +210,7 @@ python3 CleanMac.py
 
 | Папка | Что это | README |
 |---|---|---|
-| `.` (корень) | **CleanMac** — оптимизатор macOS (Python/tkinter), v2.48.0 | этот файл |
+| `.` (корень) | **CleanMac** — оптимизатор macOS (Python/tkinter), версия в `VERSION` | этот файл |
 | `menubar.py` | мини-монитор в строке меню (rumps) | — |
 | `krylan-desktop/` | **Windows · macOS · Linux** (Python/psutil), v1.18.0 | [README](krylan-desktop/README.md) |
 | `krylan-swift/` | **iOS + macOS** (SwiftUI) | [README](krylan-swift/README.md) |
@@ -229,7 +229,12 @@ python3 CleanMac.py
 Системные чистильщики **не проходят** в Mac App Store: песочница MAS запрещает
 доступ к кэшам других приложений, `pmset`/`system_profiler` и завершение чужих
 процессов. Поэтому CleanMac, как CCleaner и CleanMyMac, распространяется
-**нотаризованным .dmg** напрямую.
+**`.dmg` напрямую** и через Homebrew.
+
+Нотаризация Apple при этом требует платной учётной записи Apple Developer
+($99/год), которой пока нет — отсюда предупреждение Gatekeeper при первом
+запуске, см. [«Загрузка»](#загрузка). Скрипт `sign_and_notarize.sh` готов и
+ждёт только аккаунта.
 
 ---
 
