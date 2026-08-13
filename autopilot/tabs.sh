@@ -71,8 +71,36 @@ restore_tabs() {
   echo "$n"
 }
 
+# Снимок «по необходимости»: только если прошлый устарел. Нужен для регулярных
+# снимков в фоне — снимок пригодится и когда браузер закрыл не автопилот, а сам
+# пользователь или падение. Без проверки свежести агент дёргал бы AppleScript
+# у каждого браузера каждую минуту без всякой пользы.
+STALE_SEC="${TABS_STALE_SEC:-300}"
+
+maybe_save() {
+  local app="$1" f
+  f=$(snapshot_path "$app")
+  if [ -f "$f" ]; then
+    local age=$(( $(date +%s) - $(stat -f %m "$f" 2>/dev/null || echo 0) ))
+    [ "$age" -lt "$STALE_SEC" ] && return 2      # свежий — ничего не делаем
+  fi
+  save_tabs "$app"
+}
+
 case "${1:-}" in
   save)    save_tabs "${2:?нужно имя браузера}";;
+  maybe-save)
+    # Без аргумента — по всем известным браузерам. Выходим нулём всегда: это
+    # фоновая операция «сделай, если надо», и незапущенный браузер — норма,
+    # а не ошибка. Иначе вызывающий скрипт получал ложный сигнал о сбое.
+    if [ -n "${2:-}" ]; then maybe_save "$2" || true
+    else
+      for a in "Microsoft Edge" "Google Chrome" "Safari" "Yandex"; do
+        n=$(maybe_save "$a") && [ -n "$n" ] && echo "$a: $n"
+      done
+    fi
+    exit 0
+    ;;
   restore) restore_tabs "${2:?нужно имя браузера}";;
   count)
     f=$(snapshot_path "${2:?нужно имя браузера}")

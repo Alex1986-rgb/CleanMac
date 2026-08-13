@@ -1549,6 +1549,83 @@ class TestMemoryDonut(unittest.TestCase):
         self.assertLess(min(xs), 686 - 42)      # что-то нарисовано левее пончика
 
 
+class TestCpuTicks(unittest.TestCase):
+    """Загрузка CPU считается по тикам ядра, а не запуском `top`.
+
+    `top -l 1 -n 0` стоил 1148–2194 мс при паузе сэмплера 1400 мс: приложение
+    было занято 87% времени и порождало top даже при свёрнутом окне — то есть
+    оптимизатор сам оказался одним из главных едоков CPU. host_statistics отдаёт
+    те же счётчики за 17 микросекунд.
+    """
+
+    def test_percent_from_deltas(self):
+        # 30 занятых тиков из 100 прошедших
+        self.assertAlmostEqual(cm.cpu_from_ticks((100, 1000), (130, 1100)), 30.0)
+
+    def test_idle_machine_is_zero(self):
+        self.assertAlmostEqual(cm.cpu_from_ticks((100, 1000), (100, 1100)), 0.0)
+
+    def test_fully_busy_is_hundred(self):
+        self.assertAlmostEqual(cm.cpu_from_ticks((100, 1000), (200, 1100)), 100.0)
+
+    def test_clamped_to_range(self):
+        # счётчики могут «прыгнуть» при переходе через сон — не отдаём 300%
+        self.assertLessEqual(cm.cpu_from_ticks((0, 0), (500, 100)), 100.0)
+
+    def test_no_baseline_returns_none(self):
+        # первый замер не с чем сравнивать — вызывающий код берёт короткий интервал
+        self.assertIsNone(cm.cpu_from_ticks(None, (100, 1000)))
+        self.assertIsNone(cm.cpu_from_ticks((100, 1000), None))
+
+    def test_zero_interval_returns_none(self):
+        # два замера подряд без прошедшего времени: делить не на что
+        self.assertIsNone(cm.cpu_from_ticks((100, 1000), (100, 1000)))
+
+    def test_counter_reset_returns_none(self):
+        # счётчик уехал назад — не выдаём отрицательную загрузку
+        self.assertIsNone(cm.cpu_from_ticks((500, 5000), (100, 5100)))
+
+    def test_kernel_call_works_here(self):
+        # На этой машине Mach-вызов должен отвечать; если нет — сработает откат
+        # на top, и тогда этот тест честно скажет, что быстрый путь недоступен.
+        t = cm._cpu_ticks()
+        if t is None:
+            self.skipTest("host_statistics недоступен — работает откат на top")
+        busy, total = t
+        self.assertGreater(total, 0)
+        self.assertLessEqual(busy, total)
+
+    def test_top_fallback_parser_still_present(self):
+        # Откат обязан остаться: в урезанном окружении Mach может не ответить.
+        with open(os.path.join(REPO_ROOT, "CleanMac.py"), encoding="utf-8") as f:
+            src = f.read()
+        self.assertIn("parse_top_cpu(run([\"/usr/bin/top\"", src)
+
+
+class TestSampleInterval(unittest.TestCase):
+    """Часто опрашивать систему нужно только когда на дашборд смотрят."""
+
+    def _app(self, visible, page):
+        s = type("S", (), {"SAMPLE_FAST": cm.CleanMac.SAMPLE_FAST,
+                           "SAMPLE_SLOW": cm.CleanMac.SAMPLE_SLOW,
+                           "_sample_interval": cm.CleanMac._sample_interval})()
+        s._visible, s.page = visible, page
+        return s
+
+    def test_fast_only_when_dashboard_visible(self):
+        self.assertEqual(self._app(True, "dash")._sample_interval(), cm.CleanMac.SAMPLE_FAST)
+
+    def test_slow_when_hidden(self):
+        self.assertEqual(self._app(False, "dash")._sample_interval(), cm.CleanMac.SAMPLE_SLOW)
+
+    def test_slow_on_other_pages(self):
+        for page in ("cleaner", "tools", "autopilot", "pro"):
+            self.assertEqual(self._app(True, page)._sample_interval(), cm.CleanMac.SAMPLE_SLOW)
+
+    def test_slow_is_much_slower(self):
+        self.assertGreaterEqual(cm.CleanMac.SAMPLE_SLOW, cm.CleanMac.SAMPLE_FAST * 5)
+
+
 class TestTabSnapshots(unittest.TestCase):
     """Снимок вкладок перед закрытием браузера.
 
@@ -1837,6 +1914,37 @@ class TestAutopilotThresholds(unittest.TestCase):
 
     def test_decline_is_logged(self):
         self.assertIn("отменил закрытие браузеров", self._sh())
+
+    def test_process_names_survive_spaces_in_paths(self):
+        # Было `| sed 's/.*\///g'` в конце конвейера: жадный шаблон применялся ко
+        # ВСЕЙ строке, три записи схлопывались в одну. Плюс awk брал $2, а пути
+        # macOS полны пробелов («/Applications/Google Chrome.app/…»), поэтому в
+        # журнал попадало бессмысленное «Application» вместо имени программы.
+        sh = self._sh()
+        # Комментарии не считаем — в них этот шаблон как раз и разбирается.
+        code = "\n".join(l for l in sh.splitlines() if not l.lstrip().startswith("#"))
+        self.assertNotIn("sed 's/.*\\///g'", code,
+                         "жадный sed по всей строке схлопывает топ процессов")
+        self.assertIn("substr($0, index($0, $2))", code)
+
+    def test_top_hog_is_first_line(self):
+        # Заголовок «RSS COMM» уходит вниз при sort -rn (нечисловое = 0), значит
+        # первая строка — самый жирный процесс. `sed -n 2p` давал второй.
+        sh = self._sh()
+        self.assertIn("sort -rn | head -1", sh)
+
+    def test_notification_names_the_hog(self):
+        # Если закрывать браузеры нельзя, память может вернуть только человек —
+        # значит уведомление должно подсказывать, кого закрыть.
+        sh = self._sh()
+        self.assertIn("Больше всех держит", sh)
+        self.assertIn("top_one", sh)
+
+    def test_periodic_snapshot_before_peak_check(self):
+        # Снимок «по необходимости» обязан идти ДО раннего выхода при отсутствии
+        # пика, иначе регулярных снимков не будет вовсе.
+        sh = self._sh()
+        self.assertLess(sh.index("maybe-save"), sh.index('[ "$peak" -eq 0 ] && exit 0'))
 
     def test_warn_level_alone_is_not_a_peak(self):
         # Уровень 2 на 8-гигабайтном маке держится почти постоянно: за ночь он

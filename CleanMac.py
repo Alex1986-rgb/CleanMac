@@ -8,6 +8,7 @@ KRYLAN · CleanMac — оптимизатор для macOS со «стеклян
 проверка обновлений (GitHub) и Pro-каркас. Запуск: framework-python 3.12.
 """
 import os, time, shutil, hashlib, threading, queue, subprocess, collections, math, re, json, random, fcntl
+import ctypes, ctypes.util
 import sys
 import urllib.request
 try:
@@ -72,7 +73,7 @@ from tkinter import messagebox, filedialog
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from krylan_core import human, ver_tuple, disk_advice, parse_brew_outdated, squarify  # noqa: E402
 
-VERSION = "2.58.0"
+VERSION = "2.59.0"
 BRAND   = "KRYLAN"
 SLOGAN  = "Дай устройству крылья"
 AUTHOR  = "Кырлан Александр Сергеевич"
@@ -1254,7 +1255,72 @@ def parse_vm_stat(out):
         return int(mm.group(1)) if mm else 0
     return {k: sum(pages(f) for f in fields) * ps for k, fields in _VM_FIELDS.items()}
 
+# ---------- загрузка CPU без запуска top ----------
+# `top -l 1 -n 0` стоил 1148–2194 мс на живой машине — при паузе сэмплера 1400 мс
+# это означало, что приложение занято 87% времени и непрерывно порождает top,
+# в том числе при свёрнутом окне. Оптимизатор был одним из главных едоков CPU.
+#
+# Ядро отдаёт те же счётчики напрямую: host_statistics(HOST_CPU_LOAD_INFO) —
+# те самые тики, по которым top и считает проценты. Замер: 17 микросекунд на
+# вызов, расхождение с top 77.1% против 78.1%. Ускорение в десятки тысяч раз
+# при той же точности.
+_HOST_CPU_LOAD_INFO = 3
+_CPU_STATE_MAX = 4
+
+class _HostCpuLoadInfo(ctypes.Structure):
+    _fields_ = [("cpu_ticks", ctypes.c_uint * _CPU_STATE_MAX)]
+
+def _cpu_ticks():
+    """(занято, всего) тиков CPU от ядра. None, если Mach-вызов недоступен."""
+    lib = _cpu_ticks.__dict__.get("lib")
+    if lib is None:
+        try:
+            lib = ctypes.CDLL(ctypes.util.find_library("c"), use_errno=True)
+            lib.mach_host_self.restype = ctypes.c_uint
+            _cpu_ticks.host = lib.mach_host_self()
+            _cpu_ticks.lib = lib
+        except Exception:
+            _cpu_ticks.lib = False
+            return None
+    if lib is False:
+        return None
+    try:
+        info = _HostCpuLoadInfo()
+        cnt = ctypes.c_uint(_CPU_STATE_MAX)
+        if lib.host_statistics(_cpu_ticks.host, _HOST_CPU_LOAD_INFO,
+                               ctypes.byref(info), ctypes.byref(cnt)) != 0:
+            return None
+        user, system, idle, nice = info.cpu_ticks
+        return user + system + nice, user + system + nice + idle
+    except Exception:
+        return None
+
+def cpu_from_ticks(prev, cur):
+    """Загрузка в процентах по двум замерам тиков. Чистая функция."""
+    if not prev or not cur: return None
+    dbusy, dtotal = cur[0] - prev[0], cur[1] - prev[1]
+    if dtotal <= 0 or dbusy < 0: return None
+    return max(0.0, min(100.0, dbusy / dtotal * 100))
+
+_cpu_prev = None
+
 def stat_cpu():
+    """Загрузка CPU. Через ядро; откат на top, если Mach-вызов недоступен."""
+    global _cpu_prev
+    cur = _cpu_ticks()
+    if cur is not None:
+        pct = cpu_from_ticks(_cpu_prev, cur)
+        _cpu_prev = cur
+        if pct is not None:
+            return pct
+        # первый замер: базы для разницы ещё нет — берём короткий интервал
+        time.sleep(0.08)
+        nxt = _cpu_ticks()
+        pct = cpu_from_ticks(cur, nxt)
+        _cpu_prev = nxt or cur
+        if pct is not None:
+            return pct
+    # откат: в урезанном окружении (sandbox, битый бандл) Mach может не ответить
     return parse_top_cpu(run(["/usr/bin/top", "-l", "1", "-n", "0"], 5))
 
 def stat_mem():
@@ -4215,6 +4281,15 @@ class CleanMac(tk.Tk):
         except Exception: pass
 
     # ---------- сэмплер ----------
+    # Пауза сэмплера: часто — только когда на дашборд действительно смотрят.
+    # Раньше пауза была всегда 1.4 с, независимо от того, свёрнуто окно или нет.
+    SAMPLE_FAST = 1.4      # дашборд открыт и в фокусе
+    SAMPLE_SLOW = 10.0     # окно скрыто или открыта другая страница
+
+    def _sample_interval(self):
+        visible = getattr(self, "_visible", True)
+        return self.SAMPLE_FAST if (visible and self.page == "dash") else self.SAMPLE_SLOW
+
     def _sampler(self):
         while getattr(self, "_alive", True):
             cpu=stat_cpu(); ram=stat_mem(); sused,_=stat_swap()
@@ -4223,7 +4298,11 @@ class CleanMac(tk.Tk):
             health=(0.30*(100-ram)+0.20*(100-swap_sev)+0.20*(100-disk)+0.15*(100-cpu)+0.15*(batt["health"] or 100))
             self.q.put(("stats", {"cpu":cpu,"ram":ram,"swap":swap_sev,"swap_mb":sused,"disk":disk,
                         "health":health,"batt":batt,"procs":procs,"vm":vm,"dfree":dfree,"dtot":dtot}, None))
-            time.sleep(1.4)
+            # Спим дробно, чтобы мгновенно ускоряться, когда окно вернули на экран,
+            # и чтобы закрытие приложения не ждало полной паузы.
+            slept = 0.0
+            while slept < self._sample_interval() and getattr(self, "_alive", True):
+                time.sleep(0.2); slept += 0.2
 
     def _net_sampler(self):
         """Лёгкий поток сети: обновляет скорость раз в секунду независимо от тяжёлого сэмплера.
